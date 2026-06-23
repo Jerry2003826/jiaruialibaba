@@ -51,5 +51,19 @@ logging:
 demo:
   ai:
     fallback-enabled: true
+    embedding-model: ${AI_DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+    embedding-dimension: ${AI_DASHSCOPE_EMBEDDING_DIMENSION:1024}
+  rag:
+    retriever: ${DEMO_RAG_RETRIEVER:dashvector}
+    keyword-fallback-enabled: ${DEMO_RAG_KEYWORD_FALLBACK_ENABLED:true}
+    chunk-size: ${DEMO_RAG_CHUNK_SIZE:800}
+    chunk-overlap: ${DEMO_RAG_CHUNK_OVERLAP:120}
+    top-k: ${DEMO_RAG_TOP_K:5}
+  dashvector:
+    endpoint: ${DASHVECTOR_ENDPOINT:}
+    api-key: ${DASHVECTOR_API_KEY:}
+    collection: ${DASHVECTOR_COLLECTION:agent_rag_docs}
+    dimension: ${DASHVECTOR_DIMENSION:1024}
+    metric: ${DASHVECTOR_METRIC:cosine}
   sse:
     timeout-ms: 120000

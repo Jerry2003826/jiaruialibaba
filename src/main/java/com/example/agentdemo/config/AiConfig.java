@@ -3,12 +3,16 @@ package com.example.agentdemo.config;
 import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingModel;
+import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingOptions;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.document.MetadataMode;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.context.annotation.Conditional;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.AnnotatedTypeMetadata;
@@ -48,6 +52,27 @@ public class AiConfig {
                 .defaultOptions(chatOptions)
                 .build();
         return ChatClient.builder(chatModel).build();
+    }
+
+    @Bean
+    @Conditional(DashScopeApiKeyPresentCondition.class)
+    @ConditionalOnMissingBean(EmbeddingModel.class)
+    public EmbeddingModel embeddingModel(Environment environment, RagProperties ragProperties) {
+        String apiKey = environment.getRequiredProperty("spring.ai.dashscope.api-key");
+        String baseUrl = normalizeBaseUrl(environment.getProperty("spring.ai.dashscope.base-url"));
+        DashScopeApi.Builder dashScopeApiBuilder = DashScopeApi.builder().apiKey(apiKey);
+        if (StringUtils.hasText(baseUrl)) {
+            dashScopeApiBuilder.baseUrl(baseUrl);
+        }
+        DashScopeEmbeddingOptions options = DashScopeEmbeddingOptions.builder()
+                .model(ragProperties.getAi().getEmbeddingModel())
+                .dimensions(ragProperties.getAi().getEmbeddingDimension())
+                .build();
+        return DashScopeEmbeddingModel.builder()
+                .dashScopeApi(dashScopeApiBuilder.build())
+                .metadataMode(MetadataMode.NONE)
+                .defaultOptions(options)
+                .build();
     }
 
     private static String completionsPath(Environment environment, String model, String baseUrl) {
