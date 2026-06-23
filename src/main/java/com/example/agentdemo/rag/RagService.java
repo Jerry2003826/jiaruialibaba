@@ -58,8 +58,8 @@ public class RagService {
         RunEntity run = traceService.createRun(RunType.RAG_CHAT, request);
         RunStepEntity activeStep = null;
         try {
-            activeStep = traceService.startStep(run.getRunId(), "rag_keyword_retrieve",
-                    Map.of("query", request.message(), "retriever", "KeywordDocumentRetriever"));
+            activeStep = traceService.startStep(run.getRunId(), "rag_retrieve",
+                    Map.of("query", request.message(), "retriever", documentRetriever.name()));
             List<RetrievedContext> contexts = documentRetriever.retrieve(request.message(), 5);
             traceService.completeStep(activeStep.getStepId(), contexts);
             activeStep = null;

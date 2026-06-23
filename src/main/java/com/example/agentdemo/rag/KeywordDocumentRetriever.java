@@ -23,6 +23,11 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
     }
 
     @Override
+    public String name() {
+        return "KeywordDocumentRetriever";
+    }
+
+    @Override
     public List<RetrievedContext> retrieve(String query, int limit) {
         Set<String> terms = tokenize(query);
         return documentRepository.findAll()
