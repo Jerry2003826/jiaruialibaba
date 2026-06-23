@@ -1,5 +1,6 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.vector.VectorDocument;
 import com.example.agentdemo.rag.vector.VectorSearchResult;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,7 +42,7 @@ class DocumentIndexingServiceTest {
         DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
                 vectorStoreGateway, ragProperties);
 
-        when(chunkRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
@@ -59,7 +61,7 @@ class DocumentIndexingServiceTest {
         assertThat(savedChunks).hasSize(2);
 
         ArgumentCaptor<List<DocumentChunkEntity>> chunksCaptor = ArgumentCaptor.forClass(List.class);
-        verify(chunkRepository).saveAll(chunksCaptor.capture());
+        verify(chunkRepository).saveAllAndFlush(chunksCaptor.capture());
         assertThat(chunksCaptor.getValue())
                 .isNotEmpty()
                 .extracting(DocumentChunkEntity::getVectorId)
@@ -82,7 +84,111 @@ class DocumentIndexingServiceTest {
         assertThat(embeddingModel.requestedTexts).isEmpty();
         assertThat(vectorStoreGateway.ensureCollectionCalls).isZero();
         assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
-        verify(chunkRepository, never()).saveAll(anyList());
+        verify(chunkRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void failsWhenEmbeddingModelIsAbsent() {
+        FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, (EmbeddingModel) null,
+                vectorStoreGateway, ragProperties(10, 0));
+
+        DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
+        ReflectionTestUtils.setField(document, "id", 7L);
+
+        assertThatThrownBy(() -> service.index(document))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo("EMBEDDING_MODEL_NOT_CONFIGURED"))
+                .hasMessage("DashScope EmbeddingModel is not configured");
+
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
+        verify(chunkRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void wrapsEmbeddingFailures() {
+        FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
+        embeddingModel.failOnEmbed = true;
+        FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+                vectorStoreGateway, ragProperties(10, 0));
+
+        DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
+        ReflectionTestUtils.setField(document, "id", 7L);
+
+        assertThatThrownBy(() -> service.index(document))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo("EMBEDDING_FAILED");
+                    assertThat(ex.getCause()).isInstanceOf(IllegalStateException.class)
+                            .hasMessage("embedding unavailable");
+                })
+                .hasMessage("Failed to embed document chunks");
+
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
+        verify(chunkRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void failsWhenEmbeddingCountDoesNotMatchChunks() {
+        FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
+        embeddingModel.dropLastEmbedding = true;
+        FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+                vectorStoreGateway, ragProperties(10, 0));
+
+        DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
+        ReflectionTestUtils.setField(document, "id", 7L);
+
+        assertThatThrownBy(() -> service.index(document))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo("EMBEDDING_RESULT_MISMATCH"))
+                .hasMessage("Embedding result count 1 does not match chunk count 2");
+
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
+        verify(chunkRepository, never()).saveAllAndFlush(anyList());
+    }
+
+    @Test
+    void doesNotUpsertVectorsWhenChunkPersistenceFails() {
+        FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
+        FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+                vectorStoreGateway, ragProperties(10, 0));
+
+        when(chunkRepository.saveAllAndFlush(anyList())).thenThrow(new IllegalStateException("database unavailable"));
+
+        DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
+        ReflectionTestUtils.setField(document, "id", 7L);
+
+        assertThatThrownBy(() -> service.index(document))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
+
+        assertThat(embeddingModel.requestedTexts).containsExactly("abcdefghij", "klmnop");
+        assertThat(vectorStoreGateway.ensureCollectionCalls).isZero();
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
+    }
+
+    @Test
+    void propagatesVectorUpsertFailureAfterChunksAreFlushed() {
+        FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
+        FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        vectorStoreGateway.failOnUpsert = true;
+        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+                vectorStoreGateway, ragProperties(10, 0));
+
+        when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
+        ReflectionTestUtils.setField(document, "id", 7L);
+
+        assertThatThrownBy(() -> service.index(document))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("vector upsert unavailable");
+
+        verify(chunkRepository).saveAllAndFlush(anyList());
+        assertThat(vectorStoreGateway.ensureCollectionCalls).isEqualTo(1);
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
     }
 
     private static RagProperties ragProperties(int chunkSize, int chunkOverlap) {
@@ -95,6 +201,8 @@ class DocumentIndexingServiceTest {
     private static final class FakeEmbeddingModel implements EmbeddingModel {
 
         private final List<String> requestedTexts = new ArrayList<>();
+        private boolean failOnEmbed;
+        private boolean dropLastEmbedding;
 
         @Override
         public EmbeddingResponse call(EmbeddingRequest request) {
@@ -114,9 +222,16 @@ class DocumentIndexingServiceTest {
         @Override
         public List<float[]> embed(List<String> texts) {
             requestedTexts.addAll(texts);
-            return texts.stream()
+            if (failOnEmbed) {
+                throw new IllegalStateException("embedding unavailable");
+            }
+            List<float[]> embeddings = texts.stream()
                     .map(FakeEmbeddingModel::vectorFor)
                     .toList();
+            if (dropLastEmbedding) {
+                return embeddings.subList(0, embeddings.size() - 1);
+            }
+            return embeddings;
         }
 
         private static float[] vectorFor(String text) {
@@ -130,6 +245,7 @@ class DocumentIndexingServiceTest {
         private final boolean configured;
         private final List<VectorDocument> upsertedDocuments = new ArrayList<>();
         private int ensureCollectionCalls;
+        private boolean failOnUpsert;
 
         private FakeVectorStoreGateway(boolean configured) {
             this.configured = configured;
@@ -152,6 +268,9 @@ class DocumentIndexingServiceTest {
 
         @Override
         public void upsert(List<VectorDocument> documents) {
+            if (failOnUpsert) {
+                throw new IllegalStateException("vector upsert unavailable");
+            }
             upsertedDocuments.addAll(documents);
         }
 

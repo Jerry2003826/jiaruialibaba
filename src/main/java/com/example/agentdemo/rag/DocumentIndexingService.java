@@ -65,8 +65,17 @@ public class DocumentIndexingService {
             return List.of();
         }
 
-        vectorStoreGateway.ensureCollection();
-        List<float[]> embeddings = embeddingModel.embed(chunks);
+        List<float[]> embeddings;
+        try {
+            embeddings = embeddingModel.embed(chunks);
+        }
+        catch (RuntimeException ex) {
+            throw new BusinessException("EMBEDDING_FAILED", "Failed to embed document chunks", ex);
+        }
+        if (embeddings.size() != chunks.size()) {
+            throw new BusinessException("EMBEDDING_RESULT_MISMATCH",
+                    "Embedding result count " + embeddings.size() + " does not match chunk count " + chunks.size());
+        }
 
         List<DocumentChunkEntity> chunkEntities = new ArrayList<>(chunks.size());
         List<VectorDocument> vectorDocuments = new ArrayList<>(chunks.size());
@@ -79,8 +88,10 @@ public class DocumentIndexingService {
                     "title", document.getTitle() == null ? "" : document.getTitle())));
         }
 
+        List<DocumentChunkEntity> savedChunks = chunkRepository.saveAllAndFlush(chunkEntities);
+        vectorStoreGateway.ensureCollection();
         vectorStoreGateway.upsert(vectorDocuments);
-        return chunkRepository.saveAll(chunkEntities);
+        return savedChunks;
     }
 
 }
