@@ -19,8 +19,10 @@ spring:
     active: dev
   ai:
     dashscope:
-      api-key: ${AI_DASHSCOPE_API_KEY:}
+      api-key: ${AI_DASHSCOPE_API_KEY:${DASHSCOPE_API_KEY:}}
+      base-url: ${AI_DASHSCOPE_BASE_URL:}
       chat:
+        completions-path: ${AI_DASHSCOPE_CHAT_COMPLETIONS_PATH:}
         options:
           model: ${AI_DASHSCOPE_CHAT_MODEL:qwen-plus}
   datasource:

@@ -32,6 +32,22 @@ export AI_DASHSCOPE_CHAT_MODEL=qwen-plus
 ```
 
 `AI_DASHSCOPE_API_KEY` 不配置时，服务仍可启动，并会对 Chat/SSE/RAG 使用 fallback 响应，方便本地验证接口和 trace。
+为了兼容 DashScope Python SDK 的常见命名，项目也支持 `DASHSCOPE_API_KEY` 作为备用读取来源；推荐在本项目中继续使用 `AI_DASHSCOPE_API_KEY`。
+
+如果使用类似 DashScope `MultiModalConversation` 的专属 MaaS endpoint，例如 `qwen3.7-plus`，需要额外配置 base URL 和 completion path：
+
+```bash
+export AI_DASHSCOPE_CHAT_MODEL=qwen3.7-plus
+export AI_DASHSCOPE_BASE_URL=https://your-maas-endpoint.cn-beijing.maas.aliyuncs.com/api/v1
+export AI_DASHSCOPE_CHAT_COMPLETIONS_PATH=/services/aigc/multimodal-generation/generation
+```
+
+`AI_DASHSCOPE_BASE_URL` 支持两种写法：
+
+- `https://your-maas-endpoint.cn-beijing.maas.aliyuncs.com`
+- `https://your-maas-endpoint.cn-beijing.maas.aliyuncs.com/api/v1`
+
+如果 base URL 已经带 `/api/v1`，completion path 可以写成 `/services/aigc/multimodal-generation/generation`，避免重复拼出 `/api/v1/api/v1`。
 
 ## 启动方式
 
