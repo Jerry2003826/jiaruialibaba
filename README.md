@@ -49,6 +49,22 @@ export AI_DASHSCOPE_CHAT_COMPLETIONS_PATH=/services/aigc/multimodal-generation/g
 
 如果 base URL 已经带 `/api/v1`，completion path 可以写成 `/services/aigc/multimodal-generation/generation`，避免重复拼出 `/api/v1/api/v1`。
 
+## DashVector RAG
+
+DashVector RAG 需要同时配置 DashScope embedding 和 DashVector 连接信息。以下值只作为占位示例；不要提交真实 DashVector 或 DashScope key。
+
+```bash
+export AI_DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+export AI_DASHSCOPE_EMBEDDING_DIMENSION=1024
+export DASHVECTOR_ENDPOINT=vrs-cn-ln34u9ivx0001j.dashvector.cn-shanghai.aliyuncs.com
+export DASHVECTOR_API_KEY=your-dashvector-api-key
+export DASHVECTOR_COLLECTION=agent_rag_docs
+export DASHVECTOR_DIMENSION=1024
+export DASHVECTOR_METRIC=cosine
+```
+
+RAG 文档写入时，H2 保存 source documents 和 chunk metadata，DashVector 保存向量。当前 retriever 可通过 `DEMO_RAG_RETRIEVER` 选择；设置为 `dashvector` 且 DashVector 已配置时使用向量检索，否则使用 naive keyword retrieval。向量检索失败时，如果 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true`，会回退到 naive keyword retrieval，并在 run trace 中记录 `rag_keyword_fallback_retrieve` 步骤。
+
 ## 启动方式
 
 ```bash
@@ -174,7 +190,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 已支持节点类型：
 
 - `start`: 将请求 `input` 放入 workflow 状态。
-- `retriever`: 复用 `RagService.retrieve`，当前底层仍是 naive keyword retrieval，`config.topK` 默认 `3`，最大 `20`。
+- `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
 - `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持模板变量 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`。
 - `tool`: 复用 `ToolService`，当前支持 `getCurrentTime` 和 `calculate`。
 - `end`: 输出最终 workflow 结果。

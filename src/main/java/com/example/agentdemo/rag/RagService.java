@@ -2,6 +2,7 @@ package com.example.agentdemo.rag;
 
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.dto.DocumentRequest;
 import com.example.agentdemo.rag.dto.DocumentResponse;
 import com.example.agentdemo.rag.dto.RagChatRequest;
@@ -28,18 +29,22 @@ public class RagService {
 
     private final DocumentPersistenceService documentPersistenceService;
     private final DocumentRetriever documentRetriever;
+    private final KeywordDocumentRetriever keywordDocumentRetriever;
     private final DocumentIndexingService documentIndexingService;
     private final AiModelService aiModelService;
     private final TraceService traceService;
+    private final RagProperties ragProperties;
 
     public RagService(DocumentPersistenceService documentPersistenceService, DocumentRetriever documentRetriever,
-            DocumentIndexingService documentIndexingService, AiModelService aiModelService,
-            TraceService traceService) {
+            KeywordDocumentRetriever keywordDocumentRetriever, DocumentIndexingService documentIndexingService,
+            AiModelService aiModelService, TraceService traceService, RagProperties ragProperties) {
         this.documentPersistenceService = documentPersistenceService;
         this.documentRetriever = documentRetriever;
+        this.keywordDocumentRetriever = keywordDocumentRetriever;
         this.documentIndexingService = documentIndexingService;
         this.aiModelService = aiModelService;
         this.traceService = traceService;
+        this.ragProperties = ragProperties;
     }
 
     public DocumentResponse saveDocument(DocumentRequest request) {
@@ -58,11 +63,7 @@ public class RagService {
         RunEntity run = traceService.createRun(RunType.RAG_CHAT, request);
         RunStepEntity activeStep = null;
         try {
-            activeStep = traceService.startStep(run.getRunId(), "rag_retrieve",
-                    Map.of("query", request.message(), "retriever", documentRetriever.name()));
-            List<RetrievedContext> contexts = documentRetriever.retrieve(request.message(), 5);
-            traceService.completeStep(activeStep.getStepId(), contexts);
-            activeStep = null;
+            List<RetrievedContext> contexts = retrieveForChat(run.getRunId(), request.message());
 
             String contextText = contexts.stream()
                     .map(context -> "Document " + context.documentId() + " (" + context.title() + "):\n"
@@ -89,6 +90,49 @@ public class RagService {
             traceService.markRunFailed(run.getRunId(), ex);
             throw ex;
         }
+    }
+
+    private List<RetrievedContext> retrieveForChat(String runId, String message) {
+        int topK = ragProperties.getRag().getTopK();
+        RunStepEntity primaryStep = traceService.startStep(runId, "rag_retrieve",
+                Map.of("query", message, "retriever", documentRetriever.name()));
+        try {
+            List<RetrievedContext> contexts = documentRetriever.retrieve(message, topK);
+            traceService.completeStep(primaryStep.getStepId(), contexts);
+            return contexts;
+        }
+        catch (RuntimeException ex) {
+            traceService.failStep(primaryStep.getStepId(), ex);
+            if (!ragProperties.getRag().isKeywordFallbackEnabled() || isKeywordRetrieverActive()) {
+                throw ex;
+            }
+            return retrieveWithKeywordFallback(runId, message, topK, ex);
+        }
+    }
+
+    private List<RetrievedContext> retrieveWithKeywordFallback(String runId, String message, int topK,
+            RuntimeException primaryFailure) {
+        RunStepEntity fallbackStep = traceService.startStep(runId, "rag_keyword_fallback_retrieve",
+                Map.of("query", message, "reason", failureReason(primaryFailure), "retriever",
+                        keywordDocumentRetriever.name()));
+        try {
+            List<RetrievedContext> contexts = keywordDocumentRetriever.retrieve(message, topK);
+            traceService.completeStep(fallbackStep.getStepId(), contexts);
+            return contexts;
+        }
+        catch (RuntimeException fallbackFailure) {
+            traceService.failStep(fallbackStep.getStepId(), fallbackFailure);
+            throw fallbackFailure;
+        }
+    }
+
+    private boolean isKeywordRetrieverActive() {
+        return documentRetriever == keywordDocumentRetriever
+                || documentRetriever.name().equals(keywordDocumentRetriever.name());
+    }
+
+    private String failureReason(RuntimeException ex) {
+        return ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
     }
 
     private String fallbackAnswer(String question, List<RetrievedContext> contexts) {
