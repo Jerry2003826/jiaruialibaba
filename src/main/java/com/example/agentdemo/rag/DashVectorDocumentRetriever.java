@@ -49,7 +49,15 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                     "DashScope EmbeddingModel is not configured");
         }
 
-        List<VectorSearchResult> vectorResults = vectorStoreGateway.search(embeddingModel.embed(query), limit);
+        float[] queryVector;
+        try {
+            queryVector = embeddingModel.embed(query);
+        }
+        catch (RuntimeException ex) {
+            throw new BusinessException("EMBEDDING_FAILED", "Failed to embed retrieval query", ex);
+        }
+
+        List<VectorSearchResult> vectorResults = vectorStoreGateway.search(queryVector, limit);
         if (vectorResults.isEmpty()) {
             return List.of();
         }

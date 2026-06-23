@@ -109,6 +109,24 @@ class DashVectorDocumentRetrieverTest {
         verify(vectorStoreGateway, never()).search(any(), anyInt());
     }
 
+    @Test
+    void wrapsQueryEmbeddingFailures() {
+        DashVectorDocumentRetriever retriever = retriever();
+        IllegalStateException cause = new IllegalStateException("embedding unavailable");
+        when(vectorStoreGateway.isConfigured()).thenReturn(true);
+        when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
+        when(embeddingModel.embed("question")).thenThrow(cause);
+
+        assertThatThrownBy(() -> retriever.retrieve("question", 3))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo("EMBEDDING_FAILED");
+                    assertThat(ex.getCause()).isSameAs(cause);
+                })
+                .hasMessage("Failed to embed retrieval query");
+
+        verify(vectorStoreGateway, never()).search(any(), anyInt());
+    }
+
     private DashVectorDocumentRetriever retriever() {
         return new DashVectorDocumentRetriever(vectorStoreGateway, documentRepository, chunkRepository,
                 embeddingModelProvider);
