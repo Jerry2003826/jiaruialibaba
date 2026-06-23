@@ -1,0 +1,53 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: agent-backend-demo
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeVideoAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioSpeechAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioTranscriptionAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeRerankAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeEmbeddingAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
+  profiles:
+    active: dev
+  ai:
+    dashscope:
+      api-key: ${AI_DASHSCOPE_API_KEY:}
+      chat:
+        options:
+          model: ${AI_DASHSCOPE_CHAT_MODEL:qwen-plus}
+  datasource:
+    url: jdbc:h2:mem:agent_demo;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+logging:
+  level:
+    root: INFO
+    com.example.agentdemo: DEBUG
+    org.springframework.ai: INFO
+
+demo:
+  ai:
+    fallback-enabled: true
+  sse:
+    timeout-ms: 120000
