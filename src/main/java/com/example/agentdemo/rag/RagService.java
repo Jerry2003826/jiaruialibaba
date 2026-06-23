@@ -28,13 +28,16 @@ public class RagService {
 
     private final DocumentRepository documentRepository;
     private final DocumentRetriever documentRetriever;
+    private final DocumentIndexingService documentIndexingService;
     private final AiModelService aiModelService;
     private final TraceService traceService;
 
     public RagService(DocumentRepository documentRepository, DocumentRetriever documentRetriever,
-            AiModelService aiModelService, TraceService traceService) {
+            DocumentIndexingService documentIndexingService, AiModelService aiModelService,
+            TraceService traceService) {
         this.documentRepository = documentRepository;
         this.documentRetriever = documentRetriever;
+        this.documentIndexingService = documentIndexingService;
         this.aiModelService = aiModelService;
         this.traceService = traceService;
     }
@@ -42,6 +45,7 @@ public class RagService {
     @Transactional
     public DocumentResponse saveDocument(DocumentRequest request) {
         DocumentEntity document = documentRepository.save(new DocumentEntity(request.title(), request.content()));
+        documentIndexingService.index(document);
         return toDocumentResponse(document);
     }
 
