@@ -59,7 +59,7 @@ public class AiConfig {
     @ConditionalOnMissingBean(EmbeddingModel.class)
     public EmbeddingModel embeddingModel(Environment environment, RagProperties ragProperties) {
         String apiKey = environment.getRequiredProperty("spring.ai.dashscope.api-key");
-        String baseUrl = normalizeBaseUrl(environment.getProperty("spring.ai.dashscope.base-url"));
+        String baseUrl = normalizeBaseUrl(ragProperties.getAi().getEmbeddingBaseUrl());
         DashScopeApi.Builder dashScopeApiBuilder = DashScopeApi.builder().apiKey(apiKey);
         if (StringUtils.hasText(baseUrl)) {
             dashScopeApiBuilder.baseUrl(baseUrl);

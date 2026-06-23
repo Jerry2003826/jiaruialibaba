@@ -55,8 +55,12 @@ public class RagService {
 
     @Transactional(readOnly = true)
     public List<RetrievedContext> retrieve(String query, int topK) {
+        return retrieve(query, topK, null);
+    }
+
+    public List<RetrievedContext> retrieve(String query, int topK, String runId) {
         int limit = normalizeTopK(topK);
-        return documentRetriever.retrieve(query, limit);
+        return retrieveWithOptionalTrace(runId, query, limit);
     }
 
     public RagChatResponse chat(RagChatRequest request) {
@@ -94,15 +98,19 @@ public class RagService {
 
     private List<RetrievedContext> retrieveForChat(String runId, String message) {
         int topK = normalizeTopK(ragProperties.getRag().getTopK());
-        RunStepEntity primaryStep = traceService.startStep(runId, "rag_retrieve",
+        return retrieveWithOptionalTrace(runId, message, topK);
+    }
+
+    private List<RetrievedContext> retrieveWithOptionalTrace(String runId, String message, int topK) {
+        RunStepEntity primaryStep = startRetrieveStep(runId, "rag_retrieve",
                 Map.of("query", message, "retriever", documentRetriever.name()));
         try {
             List<RetrievedContext> contexts = documentRetriever.retrieve(message, topK);
-            traceService.completeStep(primaryStep.getStepId(), contexts);
+            completeStep(primaryStep, contexts);
             return contexts;
         }
         catch (RuntimeException ex) {
-            traceService.failStep(primaryStep.getStepId(), ex);
+            failStep(primaryStep, ex);
             if (!ragProperties.getRag().isKeywordFallbackEnabled() || isKeywordRetrieverActive()) {
                 throw ex;
             }
@@ -112,17 +120,36 @@ public class RagService {
 
     private List<RetrievedContext> retrieveWithKeywordFallback(String runId, String message, int topK,
             RuntimeException primaryFailure) {
-        RunStepEntity fallbackStep = traceService.startStep(runId, "rag_keyword_fallback_retrieve",
+        RunStepEntity fallbackStep = startRetrieveStep(runId, "rag_keyword_fallback_retrieve",
                 Map.of("query", message, "reason", failureReason(primaryFailure), "retriever",
                         keywordDocumentRetriever.name()));
         try {
             List<RetrievedContext> contexts = keywordDocumentRetriever.retrieve(message, topK);
-            traceService.completeStep(fallbackStep.getStepId(), contexts);
+            completeStep(fallbackStep, contexts);
             return contexts;
         }
         catch (RuntimeException fallbackFailure) {
-            traceService.failStep(fallbackStep.getStepId(), fallbackFailure);
+            failStep(fallbackStep, fallbackFailure);
             throw fallbackFailure;
+        }
+    }
+
+    private RunStepEntity startRetrieveStep(String runId, String nodeName, Object input) {
+        if (runId == null) {
+            return null;
+        }
+        return traceService.startStep(runId, nodeName, input);
+    }
+
+    private void completeStep(RunStepEntity step, Object output) {
+        if (step != null) {
+            traceService.completeStep(step.getStepId(), output);
+        }
+    }
+
+    private void failStep(RunStepEntity step, RuntimeException ex) {
+        if (step != null) {
+            traceService.failStep(step.getStepId(), ex);
         }
     }
 

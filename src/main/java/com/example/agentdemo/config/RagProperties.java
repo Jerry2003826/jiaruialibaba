@@ -159,6 +159,8 @@ public class RagProperties {
 
         private int embeddingDimension = 1024;
 
+        private String embeddingBaseUrl = "";
+
         public String getEmbeddingModel() {
             return embeddingModel;
         }
@@ -173,6 +175,14 @@ public class RagProperties {
 
         public void setEmbeddingDimension(int embeddingDimension) {
             this.embeddingDimension = embeddingDimension;
+        }
+
+        public String getEmbeddingBaseUrl() {
+            return embeddingBaseUrl;
+        }
+
+        public void setEmbeddingBaseUrl(String embeddingBaseUrl) {
+            this.embeddingBaseUrl = embeddingBaseUrl;
         }
 
     }

@@ -46,7 +46,7 @@ public class SimpleWorkflowRuntime {
             RunStepEntity step = traceService.startStep(runId, "workflow_node_" + node.id(),
                     nodeInput(node, state));
             try {
-                Object output = executeNode(node, state);
+                Object output = executeNode(runId, node, state);
                 traceService.completeStep(step.getStepId(), output);
                 summaries.add(new WorkflowStepSummary(node.id(), normalizeType(node), "SUCCEEDED", output));
             }
@@ -59,10 +59,10 @@ public class SimpleWorkflowRuntime {
         return new WorkflowExecutionResult(state.finalOutput(), summaries);
     }
 
-    private Object executeNode(WorkflowNode node, WorkflowExecutionState state) {
+    private Object executeNode(String runId, WorkflowNode node, WorkflowExecutionState state) {
         return switch (normalizeType(node)) {
             case "start" -> executeStart(state);
-            case "retriever" -> executeRetriever(node, state);
+            case "retriever" -> executeRetriever(runId, node, state);
             case "llm" -> executeLlm(node, state);
             case "tool" -> executeTool(node, state);
             case "end" -> executeEnd(state);
@@ -75,10 +75,10 @@ public class SimpleWorkflowRuntime {
         return state.input();
     }
 
-    private Object executeRetriever(WorkflowNode node, WorkflowExecutionState state) {
+    private Object executeRetriever(String runId, WorkflowNode node, WorkflowExecutionState state) {
         String query = configString(node, "query", state.primaryInput());
         int topK = configInt(node, "topK", 3);
-        List<RetrievedContext> contexts = ragService.retrieve(query, topK);
+        List<RetrievedContext> contexts = ragService.retrieve(query, topK, runId);
         state.setRetrievedContext(contexts);
         Map<String, Object> output = orderedMap();
         output.put("query", query);

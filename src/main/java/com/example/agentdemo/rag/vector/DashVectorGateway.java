@@ -4,6 +4,7 @@ import com.aliyun.dashvector.DashVectorClient;
 import com.aliyun.dashvector.DashVectorCollection;
 import com.aliyun.dashvector.common.DashVectorException;
 import com.aliyun.dashvector.common.ErrorCode;
+import com.aliyun.dashvector.models.CollectionMeta;
 import com.aliyun.dashvector.models.Doc;
 import com.aliyun.dashvector.models.Vector;
 import com.aliyun.dashvector.models.requests.CreateCollectionRequest;
@@ -13,6 +14,7 @@ import com.aliyun.dashvector.models.responses.Response;
 import com.aliyun.dashvector.proto.CollectionInfo;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.RagProperties;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -27,6 +29,10 @@ public class DashVectorGateway implements VectorStoreGateway {
     private final AtomicBoolean collectionChecked = new AtomicBoolean(false);
 
     private final Object collectionMonitor = new Object();
+
+    private final Object clientMonitor = new Object();
+
+    private volatile DashVectorClient sharedClient;
 
     public DashVectorGateway(RagProperties ragProperties) {
         this.properties = ragProperties.getDashvector();
@@ -57,10 +63,9 @@ public class DashVectorGateway implements VectorStoreGateway {
     }
 
     private void ensureCollectionInternal() {
-        DashVectorClient client = null;
         try {
-            client = client();
-            Response<?> describe = client.describe(properties.getCollection());
+            DashVectorClient client = client();
+            Response<CollectionMeta> describe = client.describe(properties.getCollection());
             if (!describe.isSuccess()) {
                 if (describe.getCode() != ErrorCode.INEXISTENT_COLLECTION.getCode()) {
                     throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
@@ -68,12 +73,12 @@ public class DashVectorGateway implements VectorStoreGateway {
                 }
                 createCollection(client);
             }
+            else {
+                validateCollection(describe.getOutput());
+            }
         }
         catch (DashVectorException ex) {
             throw new BusinessException("VECTOR_STORE_INDEX_FAILED", "Failed to ensure DashVector collection", ex);
-        }
-        finally {
-            close(client);
         }
     }
 
@@ -88,6 +93,28 @@ public class DashVectorGateway implements VectorStoreGateway {
             return;
         }
         ensureSuccess(create, "create DashVector collection", "VECTOR_STORE_INDEX_FAILED");
+    }
+
+    private void validateCollection(CollectionMeta collectionMeta) {
+        if (collectionMeta == null) {
+            throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
+                    "DashVector collection metadata is empty: " + properties.getCollection());
+        }
+        if (collectionMeta.getDimension() != properties.getDimension()) {
+            throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
+                    "DashVector collection dimension " + collectionMeta.getDimension()
+                            + " does not match configured dimension " + properties.getDimension());
+        }
+        if (collectionMeta.getMetric() != metric()) {
+            throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
+                    "DashVector collection metric " + collectionMeta.getMetric()
+                            + " does not match configured metric " + properties.getMetric());
+        }
+        if (collectionMeta.getDataType() != CollectionInfo.DataType.FLOAT) {
+            throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
+                    "DashVector collection data type " + collectionMeta.getDataType()
+                            + " does not match required FLOAT data type");
+        }
     }
 
     @Override
@@ -106,9 +133,8 @@ public class DashVectorGateway implements VectorStoreGateway {
                         .fields(document.metadata())
                         .build())
                 .toList();
-        DashVectorClient client = null;
         try {
-            client = client();
+            DashVectorClient client = client();
             DashVectorCollection collection = client.get(properties.getCollection());
             if (!collection.isSuccess()) {
                 throw new BusinessException("VECTOR_STORE_INDEX_FAILED", collection.getMessage());
@@ -119,9 +145,6 @@ public class DashVectorGateway implements VectorStoreGateway {
         catch (DashVectorException ex) {
             throw new BusinessException("VECTOR_STORE_INDEX_FAILED", "Failed to upsert DashVector documents", ex);
         }
-        finally {
-            close(client);
-        }
     }
 
     @Override
@@ -130,9 +153,8 @@ public class DashVectorGateway implements VectorStoreGateway {
             throw new BusinessException("VECTOR_STORE_NOT_CONFIGURED", "DashVector is not configured");
         }
         ensureCollection();
-        DashVectorClient client = null;
         try {
-            client = client();
+            DashVectorClient client = client();
             DashVectorCollection collection = client.get(properties.getCollection());
             if (!collection.isSuccess()) {
                 throw new BusinessException("VECTOR_STORE_SEARCH_FAILED", collection.getMessage());
@@ -154,13 +176,34 @@ public class DashVectorGateway implements VectorStoreGateway {
         catch (DashVectorException ex) {
             throw new BusinessException("VECTOR_STORE_SEARCH_FAILED", "Failed to search DashVector documents", ex);
         }
-        finally {
-            close(client);
-        }
     }
 
     private DashVectorClient client() throws DashVectorException {
-        return new DashVectorClient(properties.getApiKey(), properties.getEndpoint());
+        DashVectorClient client = sharedClient;
+        if (client == null) {
+            synchronized (clientMonitor) {
+                client = sharedClient;
+                if (client == null) {
+                    client = new DashVectorClient(properties.getApiKey(), properties.getEndpoint());
+                    sharedClient = client;
+                }
+            }
+        }
+        return client;
+    }
+
+    @PreDestroy
+    public void close() {
+        DashVectorClient client = sharedClient;
+        if (client != null) {
+            synchronized (clientMonitor) {
+                client = sharedClient;
+                if (client != null) {
+                    client.close();
+                    sharedClient = null;
+                }
+            }
+        }
     }
 
     private CollectionInfo.Metric metric() {
@@ -179,12 +222,6 @@ public class DashVectorGateway implements VectorStoreGateway {
             floats.add(value);
         }
         return Vector.builder().value(floats).build();
-    }
-
-    private void close(DashVectorClient client) {
-        if (client != null) {
-            client.close();
-        }
     }
 
     private void ensureSuccess(Response<?> response, String action, String errorCode) {

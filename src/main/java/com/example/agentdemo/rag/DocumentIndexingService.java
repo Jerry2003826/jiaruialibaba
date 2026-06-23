@@ -6,6 +6,7 @@ import com.example.agentdemo.rag.vector.VectorDocument;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ public class DocumentIndexingService {
     private final VectorStoreGateway vectorStoreGateway;
     private final RagProperties ragProperties;
 
+    @Autowired
     public DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             ObjectProvider<EmbeddingModel> embeddingModelProvider,
             VectorStoreGateway vectorStoreGateway,
