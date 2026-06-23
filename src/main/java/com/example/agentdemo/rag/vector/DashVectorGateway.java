@@ -3,6 +3,7 @@ package com.example.agentdemo.rag.vector;
 import com.aliyun.dashvector.DashVectorClient;
 import com.aliyun.dashvector.DashVectorCollection;
 import com.aliyun.dashvector.common.DashVectorException;
+import com.aliyun.dashvector.common.ErrorCode;
 import com.aliyun.dashvector.models.Doc;
 import com.aliyun.dashvector.models.Vector;
 import com.aliyun.dashvector.models.requests.CreateCollectionRequest;
@@ -25,6 +26,8 @@ public class DashVectorGateway implements VectorStoreGateway {
 
     private final AtomicBoolean collectionChecked = new AtomicBoolean(false);
 
+    private final Object collectionMonitor = new Object();
+
     public DashVectorGateway(RagProperties ragProperties) {
         this.properties = ragProperties.getDashvector();
     }
@@ -44,20 +47,27 @@ public class DashVectorGateway implements VectorStoreGateway {
         if (!isConfigured() || collectionChecked.get()) {
             return;
         }
+        synchronized (collectionMonitor) {
+            if (collectionChecked.get()) {
+                return;
+            }
+            ensureCollectionInternal();
+            collectionChecked.set(true);
+        }
+    }
+
+    private void ensureCollectionInternal() {
         DashVectorClient client = null;
         try {
             client = client();
             Response<?> describe = client.describe(properties.getCollection());
             if (!describe.isSuccess()) {
-                Response<Void> create = client.create(CreateCollectionRequest.builder()
-                        .name(properties.getCollection())
-                        .dimension(properties.getDimension())
-                        .metric(metric())
-                        .dataType(CollectionInfo.DataType.FLOAT)
-                        .build());
-                ensureSuccess(create, "create DashVector collection", "VECTOR_STORE_INDEX_FAILED");
+                if (describe.getCode() != ErrorCode.INEXISTENT_COLLECTION.getCode()) {
+                    throw new BusinessException("VECTOR_STORE_INDEX_FAILED",
+                            "Failed to describe DashVector collection: " + describe.getMessage());
+                }
+                createCollection(client);
             }
-            collectionChecked.set(true);
         }
         catch (DashVectorException ex) {
             throw new BusinessException("VECTOR_STORE_INDEX_FAILED", "Failed to ensure DashVector collection", ex);
@@ -67,9 +77,22 @@ public class DashVectorGateway implements VectorStoreGateway {
         }
     }
 
+    private void createCollection(DashVectorClient client) {
+        Response<Void> create = client.create(CreateCollectionRequest.builder()
+                .name(properties.getCollection())
+                .dimension(properties.getDimension())
+                .metric(metric())
+                .dataType(CollectionInfo.DataType.FLOAT)
+                .build());
+        if (!create.isSuccess() && create.getCode() == ErrorCode.DUPLICATE_COLLECTION.getCode()) {
+            return;
+        }
+        ensureSuccess(create, "create DashVector collection", "VECTOR_STORE_INDEX_FAILED");
+    }
+
     @Override
     public void upsert(List<VectorDocument> documents) {
-        if (documents.isEmpty()) {
+        if (documents == null || documents.isEmpty()) {
             return;
         }
         if (!isConfigured()) {
@@ -120,7 +143,11 @@ public class DashVectorGateway implements VectorStoreGateway {
                     .includeVector(false)
                     .build());
             ensureSuccess(response, "search DashVector documents", "VECTOR_STORE_SEARCH_FAILED");
-            return response.getOutput().stream()
+            List<Doc> output = response.getOutput();
+            if (output == null) {
+                return List.of();
+            }
+            return output.stream()
                     .map(doc -> new VectorSearchResult(doc.getId(), doc.getScore(), doc.getFields()))
                     .toList();
         }
