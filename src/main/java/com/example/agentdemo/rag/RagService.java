@@ -55,7 +55,7 @@ public class RagService {
 
     @Transactional(readOnly = true)
     public List<RetrievedContext> retrieve(String query, int topK) {
-        int limit = Math.max(1, Math.min(topK, 20));
+        int limit = normalizeTopK(topK);
         return documentRetriever.retrieve(query, limit);
     }
 
@@ -93,7 +93,7 @@ public class RagService {
     }
 
     private List<RetrievedContext> retrieveForChat(String runId, String message) {
-        int topK = ragProperties.getRag().getTopK();
+        int topK = normalizeTopK(ragProperties.getRag().getTopK());
         RunStepEntity primaryStep = traceService.startStep(runId, "rag_retrieve",
                 Map.of("query", message, "retriever", documentRetriever.name()));
         try {
@@ -133,6 +133,10 @@ public class RagService {
 
     private String failureReason(RuntimeException ex) {
         return ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+    }
+
+    private int normalizeTopK(int topK) {
+        return Math.max(1, Math.min(topK, 20));
     }
 
     private String fallbackAnswer(String question, List<RetrievedContext> contexts) {
