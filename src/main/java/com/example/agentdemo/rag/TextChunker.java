@@ -41,6 +41,6 @@ public class TextChunker {
                 break;
             }
         }
-        return chunks;
+        return List.copyOf(chunks);
     }
 }

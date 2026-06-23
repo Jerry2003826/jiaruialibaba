@@ -16,10 +16,31 @@ class TextChunkerTest {
     }
 
     @Test
+    void returnsSingleChunkAtExactBoundary() {
+        TextChunker chunker = new TextChunker(10, 3);
+        assertThat(chunker.split("abcdefghij")).containsExactly("abcdefghij");
+    }
+
+    @Test
+    void returnsEmptyListForNullOrBlankText() {
+        TextChunker chunker = new TextChunker(10, 3);
+        assertThat(chunker.split(null)).isEmpty();
+        assertThat(chunker.split("   ")).isEmpty();
+    }
+
+    @Test
     void splitsLongTextWithOverlap() {
         TextChunker chunker = new TextChunker(10, 3);
         List<String> chunks = chunker.split("abcdefghijklmnopqrst");
         assertThat(chunks).containsExactly("abcdefghij", "hijklmnopq", "opqrst");
+    }
+
+    @Test
+    void returnsImmutableChunksForLongText() {
+        TextChunker chunker = new TextChunker(10, 3);
+        List<String> chunks = chunker.split("abcdefghijklmnopqrst");
+        assertThatThrownBy(() -> chunks.add("mutation"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
