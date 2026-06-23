@@ -7,7 +7,6 @@ import com.example.agentdemo.rag.vector.VectorStoreGateway;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,36 +16,35 @@ import java.util.function.Supplier;
 @Service
 public class DocumentIndexingService {
 
-    private final DocumentChunkRepository chunkRepository;
+    private final DocumentChunkPersistenceService chunkPersistenceService;
     private final Supplier<EmbeddingModel> embeddingModelSupplier;
     private final VectorStoreGateway vectorStoreGateway;
     private final RagProperties ragProperties;
 
-    public DocumentIndexingService(DocumentChunkRepository chunkRepository,
+    public DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             ObjectProvider<EmbeddingModel> embeddingModelProvider,
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties) {
-        this(chunkRepository, embeddingModelProvider::getIfAvailable, vectorStoreGateway, ragProperties);
+        this(chunkPersistenceService, embeddingModelProvider::getIfAvailable, vectorStoreGateway, ragProperties);
     }
 
-    DocumentIndexingService(DocumentChunkRepository chunkRepository,
+    DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             EmbeddingModel embeddingModel,
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties) {
-        this(chunkRepository, () -> embeddingModel, vectorStoreGateway, ragProperties);
+        this(chunkPersistenceService, () -> embeddingModel, vectorStoreGateway, ragProperties);
     }
 
-    private DocumentIndexingService(DocumentChunkRepository chunkRepository,
+    private DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             Supplier<EmbeddingModel> embeddingModelSupplier,
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties) {
-        this.chunkRepository = chunkRepository;
+        this.chunkPersistenceService = chunkPersistenceService;
         this.embeddingModelSupplier = embeddingModelSupplier;
         this.vectorStoreGateway = vectorStoreGateway;
         this.ragProperties = ragProperties;
     }
 
-    @Transactional
     public List<DocumentChunkEntity> index(DocumentEntity document) {
         if (!vectorStoreGateway.isConfigured()) {
             return List.of();
@@ -88,7 +86,7 @@ public class DocumentIndexingService {
                     "title", document.getTitle() == null ? "" : document.getTitle())));
         }
 
-        List<DocumentChunkEntity> savedChunks = chunkRepository.saveAllAndFlush(chunkEntities);
+        List<DocumentChunkEntity> savedChunks = chunkPersistenceService.saveChunks(chunkEntities);
         vectorStoreGateway.ensureCollection();
         vectorStoreGateway.upsert(vectorDocuments);
         return savedChunks;

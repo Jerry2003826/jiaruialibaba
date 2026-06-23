@@ -39,7 +39,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         RagProperties ragProperties = ragProperties(10, 0);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties);
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -72,7 +72,7 @@ class DocumentIndexingServiceTest {
     void skipsIndexingWhenVectorGatewayIsNotConfigured() {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(false);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties(10, 0));
 
         DocumentEntity document = new DocumentEntity(null, "abcdefghijklmnop");
@@ -90,7 +90,7 @@ class DocumentIndexingServiceTest {
     @Test
     void failsWhenEmbeddingModelIsAbsent() {
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, (EmbeddingModel) null,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), (EmbeddingModel) null,
                 vectorStoreGateway, ragProperties(10, 0));
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
@@ -110,7 +110,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         embeddingModel.failOnEmbed = true;
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties(10, 0));
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
@@ -133,7 +133,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         embeddingModel.dropLastEmbedding = true;
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties(10, 0));
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
@@ -152,7 +152,7 @@ class DocumentIndexingServiceTest {
     void doesNotUpsertVectorsWhenChunkPersistenceFails() {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties(10, 0));
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenThrow(new IllegalStateException("database unavailable"));
@@ -174,7 +174,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         vectorStoreGateway.failOnUpsert = true;
-        DocumentIndexingService service = new DocumentIndexingService(chunkRepository, embeddingModel,
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
                 vectorStoreGateway, ragProperties(10, 0));
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -196,6 +196,10 @@ class DocumentIndexingServiceTest {
         ragProperties.getRag().setChunkSize(chunkSize);
         ragProperties.getRag().setChunkOverlap(chunkOverlap);
         return ragProperties;
+    }
+
+    private DocumentChunkPersistenceService chunkPersistenceService() {
+        return new DocumentChunkPersistenceService(chunkRepository);
     }
 
     private static final class FakeEmbeddingModel implements EmbeddingModel {

@@ -26,25 +26,24 @@ public class RagService {
             If the context is empty or not enough, say what is missing instead of inventing details.
             """;
 
-    private final DocumentRepository documentRepository;
+    private final DocumentPersistenceService documentPersistenceService;
     private final DocumentRetriever documentRetriever;
     private final DocumentIndexingService documentIndexingService;
     private final AiModelService aiModelService;
     private final TraceService traceService;
 
-    public RagService(DocumentRepository documentRepository, DocumentRetriever documentRetriever,
+    public RagService(DocumentPersistenceService documentPersistenceService, DocumentRetriever documentRetriever,
             DocumentIndexingService documentIndexingService, AiModelService aiModelService,
             TraceService traceService) {
-        this.documentRepository = documentRepository;
+        this.documentPersistenceService = documentPersistenceService;
         this.documentRetriever = documentRetriever;
         this.documentIndexingService = documentIndexingService;
         this.aiModelService = aiModelService;
         this.traceService = traceService;
     }
 
-    @Transactional
     public DocumentResponse saveDocument(DocumentRequest request) {
-        DocumentEntity document = documentRepository.save(new DocumentEntity(request.title(), request.content()));
+        DocumentEntity document = documentPersistenceService.save(request);
         documentIndexingService.index(document);
         return toDocumentResponse(document);
     }
