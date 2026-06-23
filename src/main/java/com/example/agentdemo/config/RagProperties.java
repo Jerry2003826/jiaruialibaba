@@ -24,6 +24,23 @@ public class RagProperties {
         return ai;
     }
 
+    public void validate() {
+        require(rag.getChunkSize() > 0, "demo.rag.chunk-size must be greater than 0");
+        require(rag.getChunkOverlap() >= 0, "demo.rag.chunk-overlap must be greater than or equal to 0");
+        require(rag.getChunkOverlap() < rag.getChunkSize(), "demo.rag.chunk-overlap must be less than demo.rag.chunk-size");
+        require(rag.getTopK() > 0, "demo.rag.top-k must be greater than 0");
+        require(dashvector.getDimension() > 0, "demo.dashvector.dimension must be greater than 0");
+        require(ai.getEmbeddingDimension() > 0, "demo.ai.embedding-dimension must be greater than 0");
+        require(dashvector.getDimension() == ai.getEmbeddingDimension(),
+                "demo.dashvector.dimension must equal demo.ai.embedding-dimension");
+    }
+
+    private static void require(boolean valid, String message) {
+        if (!valid) {
+            throw new IllegalStateException(message);
+        }
+    }
+
     public static class Rag {
 
         private String retriever = "dashvector";
