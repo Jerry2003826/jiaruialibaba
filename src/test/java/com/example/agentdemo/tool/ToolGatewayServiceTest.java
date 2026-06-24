@@ -159,6 +159,56 @@ class ToolGatewayServiceTest {
     }
 
     @Test
+    void acceptsMcpToolArgumentMatchingEnumValue() {
+        ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new EnumToolCallback());
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new McpToolProvider(List.of(callbackProvider))),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_enum"));
+
+        ToolExecutionLog log = gateway.execute("remote_enum", Map.of("mode", "read"));
+
+        assertThat(log.succeeded()).isTrue();
+        assertThat(log.output()).asString().contains("\"mode\":\"read\"");
+    }
+
+    @Test
+    void rejectsMcpToolArgumentOutsideEnumValues() {
+        ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new EnumToolCallback());
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new McpToolProvider(List.of(callbackProvider))),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_enum"));
+
+        ToolExecutionLog log = gateway.execute("remote_enum", Map.of("mode", "delete"));
+
+        assertThat(log.succeeded()).isFalse();
+        assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
+        assertThat(log.errorMessage()).contains("MCP tool argument mode must be one of");
+    }
+
+    @Test
+    void acceptsMcpToolArgumentMatchingOneOfSchema() {
+        ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new OneOfToolCallback());
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new McpToolProvider(List.of(callbackProvider))),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_one_of"));
+
+        ToolExecutionLog log = gateway.execute("remote_one_of", Map.of("target", 42));
+
+        assertThat(log.succeeded()).isTrue();
+        assertThat(log.output()).asString().contains("\"target\":42");
+    }
+
+    @Test
+    void rejectsMcpToolArgumentThatMatchesNoAnyOfSchema() {
+        ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new AnyOfToolCallback());
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new McpToolProvider(List.of(callbackProvider))),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_any_of"));
+
+        ToolExecutionLog log = gateway.execute("remote_any_of", Map.of("target", true));
+
+        assertThat(log.succeeded()).isFalse();
+        assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
+        assertThat(log.errorMessage()).contains("MCP tool argument target must match anyOf schema");
+    }
+
+    @Test
     void exposesMcpInputSchemaInToolDescriptor() {
         ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new EchoToolCallback());
         McpToolProvider provider = new McpToolProvider(List.of(callbackProvider), "github");
@@ -264,6 +314,94 @@ class ToolGatewayServiceTest {
                                 "value": {"type": ["string", "number"]}
                               },
                               "required": ["value"]
+                            }
+                            """)
+                    .build();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return "mcp:" + toolInput;
+        }
+
+    }
+
+    private static final class EnumToolCallback implements ToolCallback {
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name("remote_enum")
+                    .description("Echo an enum argument from a remote MCP server")
+                    .inputSchema("""
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {"type": "string", "enum": ["read", "write"]}
+                              },
+                              "required": ["mode"]
+                            }
+                            """)
+                    .build();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return "mcp:" + toolInput;
+        }
+
+    }
+
+    private static final class OneOfToolCallback implements ToolCallback {
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name("remote_one_of")
+                    .description("Echo a oneOf argument from a remote MCP server")
+                    .inputSchema("""
+                            {
+                              "type": "object",
+                              "properties": {
+                                "target": {
+                                  "oneOf": [
+                                    {"type": "string"},
+                                    {"type": "integer"}
+                                  ]
+                                }
+                              },
+                              "required": ["target"]
+                            }
+                            """)
+                    .build();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return "mcp:" + toolInput;
+        }
+
+    }
+
+    private static final class AnyOfToolCallback implements ToolCallback {
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name("remote_any_of")
+                    .description("Echo an anyOf argument from a remote MCP server")
+                    .inputSchema("""
+                            {
+                              "type": "object",
+                              "properties": {
+                                "target": {
+                                  "anyOf": [
+                                    {"type": "string"},
+                                    {"type": "integer"}
+                                  ]
+                                }
+                              },
+                              "required": ["target"]
                             }
                             """)
                     .build();

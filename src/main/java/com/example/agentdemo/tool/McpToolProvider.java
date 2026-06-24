@@ -153,21 +153,73 @@ public class McpToolProvider implements ToolProvider {
             if (property.isMissingNode()) {
                 continue;
             }
-            if (argument.getValue() == null) {
-                if (!allowsNull(property.path("type"))) {
-                    String expectedType = firstType(property.path("type"));
-                    return "MCP tool argument " + argument.getKey() + " must be "
-                            + (expectedType == null ? "non-null" : expectedType);
-                }
-                continue;
-            }
-            if (!matchesAnyType(argument.getValue(), property.path("type"))) {
-                String expectedType = firstType(property.path("type"));
-                return "MCP tool argument " + argument.getKey() + " must be "
-                        + (expectedType == null ? "a supported JSON Schema type" : expectedType);
+            String validationError = validateValue(argument.getKey(), property, argument.getValue());
+            if (validationError != null) {
+                return validationError;
             }
         }
         return null;
+    }
+
+    private String validateValue(String argumentName, JsonNode schema, Object value) {
+        String compositionError = validateCompositions(argumentName, schema, value);
+        if (compositionError != null) {
+            return compositionError;
+        }
+        JsonNode typeNode = schema.path("type");
+        if (value == null) {
+            if (!typeNode.isMissingNode() && !allowsNull(typeNode)) {
+                String expectedType = firstType(typeNode);
+                return "MCP tool argument " + argumentName + " must be "
+                        + (expectedType == null ? "non-null" : expectedType);
+            }
+            return validateEnum(argumentName, schema, value);
+        }
+        if (!matchesAnyType(value, typeNode)) {
+            String expectedType = firstType(typeNode);
+            return "MCP tool argument " + argumentName + " must be "
+                    + (expectedType == null ? "a supported JSON Schema type" : expectedType);
+        }
+        return validateEnum(argumentName, schema, value);
+    }
+
+    private String validateCompositions(String argumentName, JsonNode schema, Object value) {
+        JsonNode oneOf = schema.path("oneOf");
+        if (oneOf.isArray()) {
+            int matches = matchingSchemaCount(argumentName, oneOf, value);
+            if (matches != 1) {
+                return "MCP tool argument " + argumentName + " must match exactly one oneOf schema";
+            }
+        }
+        JsonNode anyOf = schema.path("anyOf");
+        if (anyOf.isArray() && matchingSchemaCount(argumentName, anyOf, value) == 0) {
+            return "MCP tool argument " + argumentName + " must match anyOf schema";
+        }
+        return null;
+    }
+
+    private int matchingSchemaCount(String argumentName, JsonNode candidateSchemas, Object value) {
+        int matches = 0;
+        for (JsonNode candidateSchema : candidateSchemas) {
+            if (validateValue(argumentName, candidateSchema, value) == null) {
+                matches++;
+            }
+        }
+        return matches;
+    }
+
+    private String validateEnum(String argumentName, JsonNode schema, Object value) {
+        JsonNode enumValues = schema.path("enum");
+        if (!enumValues.isArray()) {
+            return null;
+        }
+        JsonNode actualValue = objectMapper.valueToTree(value);
+        for (JsonNode enumValue : enumValues) {
+            if (enumValue.equals(actualValue)) {
+                return null;
+            }
+        }
+        return "MCP tool argument " + argumentName + " must be one of " + enumValues;
     }
 
     private String remoteErrorMessage(String toolName, RuntimeException ex) {
@@ -214,6 +266,7 @@ public class McpToolProvider implements ToolProvider {
             case "boolean" -> value instanceof Boolean;
             case "object" -> value instanceof Map<?, ?>;
             case "array" -> value instanceof Collection<?> || value.getClass().isArray();
+            case "null" -> value == null;
             default -> true;
         };
     }

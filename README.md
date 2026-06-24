@@ -89,7 +89,7 @@ export DEMO_WORKFLOW_RUNTIME=graph
 - `McpToolProvider`: 读取 Spring AI MCP client 暴露的 `ToolCallbackProvider`，把远程 MCP tools 注册到统一网关。
 - `ToolGatewayService`: agent 和 workflow 的统一工具调用入口。
 
-`GET /api/tools` 会返回本地和远程工具列表。远程工具会带上 `inputSchema`，执行前会做最小服务端校验：`required` 参数必须存在，常见 JSON Schema 类型如 `string`、`number`、`integer`、`boolean`、`object`、`array` 会做基础匹配。
+`GET /api/tools` 会返回本地和远程工具列表。远程工具会带上 `inputSchema`，执行前会做最小服务端校验：`required` 参数必须存在，常见 JSON Schema 类型如 `string`、`number`、`integer`、`boolean`、`object`、`array` 会做基础匹配，并支持 `enum`、`anyOf`、`oneOf` 这类常见约束。
 
 远程工具调用结果会进入 `run_step.outputJson`，包含 `provider`、`remote`、`serverName`、`durationMs`、`errorCategory` 和 `errorType`。`serverName` 由 `demo.mcp.server-name` 配置；例如 `mcp-github` profile 会写入 `github`。`errorType=NORMAL` 表示本地策略、参数或序列化错误，`errorType=RAW_REMOTE` 表示远程 MCP tool callback 抛出的原始调用错误。
 
