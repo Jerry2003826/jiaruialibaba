@@ -145,6 +145,7 @@ http://localhost:8080
 - `POST /api/chat`
 - `POST /api/chat/stream`
 - `POST /api/agent/tool-chat`
+- `GET /api/tools`
 - `POST /api/rag/documents`
 - `POST /api/rag/chat`
 - `POST /api/workflows/run`
@@ -186,6 +187,12 @@ Tool Calling：
 curl -X POST http://localhost:8080/api/agent/tool-chat \
   -H 'Content-Type: application/json' \
   -d '{"conversationId":"tool-1","message":"Please calculate (12 + 8) / 5"}'
+```
+
+查看已注册工具：
+
+```bash
+curl http://localhost:8080/api/tools
 ```
 
 提交 RAG 文档：
@@ -275,6 +282,89 @@ Spring AI Alibaba Graph 接入：
 - 前端画布只需要生成同样的 `nodes` / `edges` JSON。
 - 后续可把节点 schema 固化为 registry：节点类型、配置表单、输入输出变量、校验规则。
 - 当前 API 已可作为画布保存前的运行预览接口。
+
+## GitHub MCP 本地示例
+
+可以用本机 GitHub CLI 登录态启动官方 GitHub MCP server。以下示例使用只读模式和 `repos` toolset，不会把 GitHub token 写入仓库：
+
+```bash
+go install github.com/github/github-mcp-server/cmd/github-mcp-server@latest
+
+MCP_CMD='GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)" '"$(go env GOPATH)"'/bin/github-mcp-server stdio --read-only --toolsets=repos'
+
+export DEMO_MCP_ENABLED=true
+export DEMO_MCP_TOOLCALLBACK_ENABLED=true
+export DEMO_MCP_ANNOTATION_SCANNER_ENABLED=false
+export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
+export SPRING_APPLICATION_JSON=$(jq -nc --arg cmd "$MCP_CMD" '{
+  spring: {
+    ai: {
+      mcp: {
+        client: {
+          enabled: true,
+          toolcallback: { enabled: true },
+          "annotation-scanner": { enabled: false },
+          stdio: {
+            connections: {
+              github: {
+                command: "/bin/zsh",
+                args: ["-lc", $cmd]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  demo: {
+    mcp: { enabled: true },
+    tools: { "allow-all-remote-tools": true }
+  }
+}')
+
+./mvnw spring-boot:run
+```
+
+启动后可以先查看 GitHub MCP 暴露的工具名：
+
+```bash
+curl http://localhost:8080/api/tools
+```
+
+用 workflow 调用远程 GitHub MCP 工具读取当前仓库 README：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/run \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workflowDefinition": {
+      "nodes": [
+        {"id": "start", "type": "start", "config": {}},
+        {
+          "id": "github_file",
+          "type": "tool",
+          "config": {
+            "toolName": "get_file_contents",
+            "arguments": {
+              "owner": "Jerry2003826",
+              "repo": "jiaruialibaba",
+              "path": "README.md",
+              "branch": "main"
+            }
+          }
+        },
+        {"id": "end", "type": "end", "config": {}}
+      ],
+      "edges": [
+        {"from": "start", "to": "github_file"},
+        {"from": "github_file", "to": "end"}
+      ]
+    },
+    "input": {
+      "message": "read README through GitHub MCP"
+    }
+  }'
+```
 
 ## H2 Console
 
