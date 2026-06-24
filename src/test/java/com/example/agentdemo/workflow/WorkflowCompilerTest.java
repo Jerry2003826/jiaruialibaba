@@ -163,6 +163,40 @@ class WorkflowCompilerTest {
                 .hasMessageContaining("Config tool.arguments must be object");
     }
 
+    @Test
+    void acceptsWorkflowNodeRetryAndTimeoutControls() {
+        WorkflowExecutionPlan plan = compiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of(
+                        "toolName", "getCurrentTime",
+                        "retryCount", 2,
+                        "timeoutMs", 5000)),
+                new WorkflowNode("end", "end", Map.of())));
+
+        assertThat(plan.node("tool").config())
+                .containsEntry("retryCount", 2)
+                .containsEntry("timeoutMs", 5000);
+    }
+
+    @Test
+    void rejectsWorkflowNodeRetryAndTimeoutOutsideSchemaRange() {
+        WorkflowDefinition tooManyRetries = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of("toolName", "getCurrentTime", "retryCount", 6)),
+                new WorkflowNode("end", "end", Map.of()));
+        WorkflowDefinition tooLongTimeout = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of("toolName", "getCurrentTime", "timeoutMs", 300001)),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(tooManyRetries))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config tool.retryCount must be <= 5");
+        assertThatThrownBy(() -> compiler.compile(tooLongTimeout))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config tool.timeoutMs must be <= 300000");
+    }
+
     private WorkflowDefinition definition(WorkflowNode... nodes) {
         return new WorkflowDefinition(List.of(nodes), edgesFor(nodes));
     }

@@ -4,6 +4,8 @@ import com.example.agentdemo.trace.TraceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.util.concurrent.ExecutorService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
@@ -27,6 +29,13 @@ class WorkflowRuntimeConfigTest {
         contextRunner
                 .run(context -> assertThat(context.getBean(WorkflowRuntime.class))
                         .isInstanceOf(SimpleWorkflowRuntime.class));
+    }
+
+    @Test
+    void providesManagedWorkflowNodeExecutorService() {
+        contextRunner
+                .run(context -> assertThat(context.getBean("workflowNodeExecutorService", ExecutorService.class))
+                        .isNotNull());
     }
 
 }

@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class WorkflowNodeSchemaRegistry {
                 "start",
                 "Start",
                 "Workflow entry node. It copies request input into workflow state.",
-                List.of(),
+                withExecutionControls(List.of()),
                 List.of(),
                 "The original workflow input map.");
     }
@@ -53,7 +54,7 @@ public class WorkflowNodeSchemaRegistry {
                 "retriever",
                 "Retriever",
                 "Retrieves document context through RagService. The active retriever is selected by RAG config.",
-                List.of(
+                withExecutionControls(List.of(
                         new WorkflowNodeConfigField(
                                 "query",
                                 "string",
@@ -67,7 +68,7 @@ public class WorkflowNodeSchemaRegistry {
                                 false,
                                 3,
                                 "Maximum retrieved context count.",
-                                orderedMap("min", 1, "max", 20))),
+                                orderedMap("min", 1, "max", 20)))),
                 TEMPLATE_VARIABLES,
                 "A map containing query, topK and retrievedContext.");
     }
@@ -77,13 +78,13 @@ public class WorkflowNodeSchemaRegistry {
                 "llm",
                 "LLM",
                 "Calls AiModelService with a prompt rendered from workflow state.",
-                List.of(new WorkflowNodeConfigField(
+                withExecutionControls(List.of(new WorkflowNodeConfigField(
                         "prompt",
                         "string",
                         false,
                         "Answer the workflow input using this context: {{context}}\nInput: {{input}}",
                         "Prompt template sent to the model. Supports workflow variables.",
-                        Map.of("templateVariables", TEMPLATE_VARIABLES))),
+                        Map.of("templateVariables", TEMPLATE_VARIABLES)))),
                 TEMPLATE_VARIABLES,
                 "A map containing prompt, answer, fallback and errorMessage.");
     }
@@ -93,7 +94,7 @@ public class WorkflowNodeSchemaRegistry {
                 "tool",
                 "Tool",
                 "Calls ToolGatewayService. Supports local tools and allowed MCP remote tools.",
-                List.of(
+                withExecutionControls(List.of(
                         new WorkflowNodeConfigField(
                                 "toolName",
                                 "string",
@@ -114,7 +115,7 @@ public class WorkflowNodeSchemaRegistry {
                                 false,
                                 null,
                                 "Compatibility shortcut for calculate when arguments.expression is absent.",
-                                Map.of("onlyForTool", "calculate"))),
+                                Map.of("onlyForTool", "calculate")))),
                 TEMPLATE_VARIABLES,
                 "A ToolExecutionLog for the tool call.");
     }
@@ -124,7 +125,7 @@ public class WorkflowNodeSchemaRegistry {
                 "condition",
                 "Condition",
                 "Evaluates a boolean expression and routes to condition=true or condition=false outgoing edge.",
-                List.of(
+                withExecutionControls(List.of(
                         new WorkflowNodeConfigField(
                                 "left",
                                 "string",
@@ -153,7 +154,7 @@ public class WorkflowNodeSchemaRegistry {
                                 false,
                                 false,
                                 "Whether string comparison should be case-sensitive.",
-                                Map.of())),
+                                Map.of()))),
                 TEMPLATE_VARIABLES,
                 "A map containing left, operator, right, caseSensitive and result.");
     }
@@ -163,9 +164,28 @@ public class WorkflowNodeSchemaRegistry {
                 "end",
                 "End",
                 "Workflow terminal node. It returns the final answer when an LLM node ran, otherwise lastOutput.",
-                List.of(),
+                withExecutionControls(List.of()),
                 List.of(),
                 "The final workflow output.");
+    }
+
+    private List<WorkflowNodeConfigField> withExecutionControls(List<WorkflowNodeConfigField> fields) {
+        List<WorkflowNodeConfigField> merged = new ArrayList<>(fields);
+        merged.add(new WorkflowNodeConfigField(
+                "retryCount",
+                "integer",
+                false,
+                0,
+                "Maximum retry count after the first failed attempt.",
+                orderedMap("min", 0, "max", 5)));
+        merged.add(new WorkflowNodeConfigField(
+                "timeoutMs",
+                "integer",
+                false,
+                0,
+                "Per-attempt timeout in milliseconds. 0 disables timeout.",
+                orderedMap("min", 0, "max", 300000)));
+        return List.copyOf(merged);
     }
 
     private Map<String, Object> orderedMap(Object... values) {

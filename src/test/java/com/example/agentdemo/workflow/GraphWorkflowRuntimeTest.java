@@ -13,11 +13,14 @@ import com.example.agentdemo.tool.ToolService;
 import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,6 +35,14 @@ class GraphWorkflowRuntimeTest {
 
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
     private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
+    private final ExecutorService executorService = Executors.newThreadPerTaskExecutor(Thread.ofVirtual()
+            .name("graph-workflow-test-node-", 0)
+            .factory());
+
+    @AfterEach
+    void shutdownExecutorService() {
+        executorService.shutdownNow();
+    }
 
     @Test
     void runsLinearWorkflowThroughSpringAiAlibabaGraph() {
@@ -47,7 +58,7 @@ class GraphWorkflowRuntimeTest {
 
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService, variableResolver),
-                traceService);
+                traceService, executorService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", compiler.compile(new WorkflowDefinition(
                 List.of(
@@ -74,7 +85,7 @@ class GraphWorkflowRuntimeTest {
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
                         variableResolver),
-                traceService);
+                traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
@@ -109,7 +120,7 @@ class GraphWorkflowRuntimeTest {
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService,
                         variableResolver),
-                traceService);
+                traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(

@@ -55,6 +55,20 @@ class WorkflowNodeSchemaRegistryTest {
         assertThat(field(condition, "caseSensitive").defaultValue()).isEqualTo(false);
     }
 
+    @Test
+    void exposesExecutionControlsOnEveryNodeSchema() {
+        for (WorkflowNodeSchema schema : registry.listSchemas()) {
+            assertThat(field(schema, "retryCount").defaultValue()).isEqualTo(0);
+            assertThat(field(schema, "retryCount").constraints())
+                    .containsEntry("min", 0)
+                    .containsEntry("max", 5);
+            assertThat(field(schema, "timeoutMs").defaultValue()).isEqualTo(0);
+            assertThat(field(schema, "timeoutMs").constraints())
+                    .containsEntry("min", 0)
+                    .containsEntry("max", 300000);
+        }
+    }
+
     private WorkflowNodeSchema schema(String type) {
         return registry.listSchemas().stream()
                 .filter(schema -> type.equals(schema.type()))

@@ -14,16 +14,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 
 public class GraphWorkflowRuntime implements WorkflowRuntime {
 
     private static final String NODE_OUTPUT_STATE_KEY = "lastNodeOutput";
 
     private final WorkflowNodeExecutor nodeExecutor;
+    private final WorkflowNodeRunner nodeRunner;
     private final TraceService traceService;
 
-    public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService) {
+    public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
+            ExecutorService executorService) {
         this.nodeExecutor = nodeExecutor;
+        this.nodeRunner = new WorkflowNodeRunner(nodeExecutor, executorService);
         this.traceService = traceService;
     }
 
@@ -95,11 +99,18 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
         RunStepEntity step = traceService.startStep(runId, "workflow_node_" + node.id(),
                 nodeExecutor.nodeInput(node, state));
         try {
-            Object output = nodeExecutor.execute(runId, node, state);
+            WorkflowNodeExecutionResult result = nodeRunner.execute(runId, node, state);
+            Object output = result.output();
             state.recordNodeOutput(node.id());
-            traceService.completeStep(step.getStepId(), output);
+            traceService.completeStep(step.getStepId(), result.traceOutput());
             summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "SUCCEEDED", output));
             return Map.of(NODE_OUTPUT_STATE_KEY, output == null ? "" : output);
+        }
+        catch (WorkflowNodeExecutionFailure ex) {
+            traceService.failStep(step.getStepId(), ex.original(), ex.traceOutput());
+            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED",
+                    ex.summaryOutput()));
+            throw ex.original();
         }
         catch (RuntimeException ex) {
             Object failureOutput = failureOutput(ex);
