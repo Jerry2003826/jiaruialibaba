@@ -9,12 +9,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -56,7 +56,7 @@ class WorkflowControllerWebTest {
     @Test
     void previewGraphRouteRejectsMissingDefinition() throws Exception {
         WorkflowGraphPreviewService previewService = mock(WorkflowGraphPreviewService.class);
-        MockMvc mockMvc = mockMvc(previewService);
+        MockMvc mockMvc = mockMvc(mock(WorkflowService.class), previewService);
 
         mockMvc.perform(post("/api/workflows/preview-graph")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,9 +66,39 @@ class WorkflowControllerWebTest {
         verifyNoInteractions(previewService);
     }
 
+    @Test
+    void runGraphRouteReturnsJsonResponse() throws Exception {
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowRunGraphResponse expected = new WorkflowRunGraphResponse("run-1", "wf-1", 2, null,
+                new WorkflowValidationSummary(2, 1, true, "start", "end", List.of("start", "end")),
+                List.of(
+                        new WorkflowRunGraphNodeView("start", "start", "start (start) SUCCEEDED", true, null,
+                                "step-start", null),
+                        new WorkflowRunGraphNodeView("end", "end", "end (end) NOT_EXECUTED", false, null,
+                                null, null)),
+                List.of(new WorkflowRunGraphEdgeView("start", "end", null, null, false)),
+                "flowchart TD\n  n0[\"start (start) SUCCEEDED\"]");
+        when(workflowService.getRunGraph("run-1")).thenReturn(expected);
+        MockMvc mockMvc = mockMvc(workflowService, mock(WorkflowGraphPreviewService.class));
+
+        mockMvc.perform(get("/api/workflows/runs/run-1/graph"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.runId").value("run-1"))
+                .andExpect(jsonPath("$.data.definitionId").value("wf-1"))
+                .andExpect(jsonPath("$.data.nodes[0].executed").value(true))
+                .andExpect(jsonPath("$.data.edges[0].traversed").value(false));
+
+        verify(workflowService).getRunGraph("run-1");
+    }
+
     private MockMvc mockMvc(WorkflowGraphPreviewService previewService) {
-        WorkflowController controller = new WorkflowController(mock(WorkflowService.class),
-                mock(WorkflowDefinitionService.class), new WorkflowNodeSchemaRegistry(), previewService);
+        return mockMvc(mock(WorkflowService.class), previewService);
+    }
+
+    private MockMvc mockMvc(WorkflowService workflowService, WorkflowGraphPreviewService previewService) {
+        WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
+                new WorkflowNodeSchemaRegistry(), previewService);
         return MockMvcBuilders.standaloneSetup(controller).build();
     }
 

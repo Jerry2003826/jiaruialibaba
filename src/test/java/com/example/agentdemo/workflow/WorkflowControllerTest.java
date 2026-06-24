@@ -231,6 +231,28 @@ class WorkflowControllerTest {
         assertThat(response.data()).isEqualTo(expected);
     }
 
+    @Test
+    void getsWorkflowRunGraph() {
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowRunGraphResponse expected = new WorkflowRunGraphResponse("run-1", "wf-1", 2, RunStatus.SUCCEEDED,
+                new WorkflowValidationSummary(2, 1, true, "start", "end", List.of("start", "end")),
+                List.of(
+                        new WorkflowRunGraphNodeView("start", "start", "start (start) SUCCEEDED", true,
+                                StepStatus.SUCCEEDED, "step-start", null),
+                        new WorkflowRunGraphNodeView("end", "end", "end (end) SUCCEEDED", true,
+                                StepStatus.SUCCEEDED, "step-end", null)),
+                List.of(new WorkflowRunGraphEdgeView("start", "end", null, null, true)),
+                "flowchart TD\n  n0[\"start (start) SUCCEEDED\"]\n  n1[\"end (end) SUCCEEDED\"]\n  n0 --> n1");
+        when(workflowService.getRunGraph("run-1")).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
+                new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class));
+
+        ApiResponse<WorkflowRunGraphResponse> response = controller.getRunGraph("run-1");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
+    }
+
     private WorkflowDefinition validDefinition() {
         return new WorkflowDefinition(
                 List.of(

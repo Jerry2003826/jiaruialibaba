@@ -114,4 +114,9 @@ public class WorkflowController {
         return ApiResponse.ok(workflowService.getRunDetail(runId));
     }
 
+    @GetMapping("/runs/{runId}/graph")
+    public ApiResponse<WorkflowRunGraphResponse> getRunGraph(@PathVariable String runId) {
+        return ApiResponse.ok(workflowService.getRunGraph(runId));
+    }
+
 }
