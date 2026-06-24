@@ -183,6 +183,51 @@ class WorkflowDefinitionServiceTest {
         assertThat(revisions.get(1).status()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
     }
 
+    @Test
+    void rollsBackToRevisionAsNewDraftVersion() throws Exception {
+        WorkflowDefinition currentDefinition = validDefinitionWithToolNode();
+        WorkflowDefinition rollbackDefinition = validDefinition();
+        WorkflowDefinitionEntity current = new WorkflowDefinitionEntity("wf-1", "Support Bot v2", "Updated",
+                new ObjectMapper().writeValueAsString(currentDefinition));
+        current.updateDraft("Support Bot v2", "Updated", new ObjectMapper().writeValueAsString(currentDefinition));
+        WorkflowDefinitionRevisionEntity targetRevision = new WorkflowDefinitionRevisionEntity("wf-1", 1,
+                WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
+                new ObjectMapper().writeValueAsString(rollbackDefinition));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
+        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 1)).thenReturn(Optional.of(targetRevision));
+
+        WorkflowDefinitionResponse response = service.rollback("wf-1", 1);
+
+        assertThat(response.definitionId()).isEqualTo("wf-1");
+        assertThat(response.name()).isEqualTo("Support Bot");
+        assertThat(response.description()).isNull();
+        assertThat(response.version()).isEqualTo(3);
+        assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(response.workflowDefinition()).isEqualTo(rollbackDefinition);
+
+        ArgumentCaptor<WorkflowDefinitionRevisionEntity> revisionCaptor =
+                ArgumentCaptor.forClass(WorkflowDefinitionRevisionEntity.class);
+        verify(revisionRepository).save(revisionCaptor.capture());
+        assertThat(revisionCaptor.getValue().getDefinitionId()).isEqualTo("wf-1");
+        assertThat(revisionCaptor.getValue().getVersion()).isEqualTo(3);
+        assertThat(revisionCaptor.getValue().getStatus()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(revisionCaptor.getValue().getDefinitionJson()).isEqualTo(targetRevision.getDefinitionJson());
+    }
+
+    @Test
+    void throwsWhenRollbackRevisionIsMissing() throws Exception {
+        WorkflowDefinitionEntity current = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
+        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 99)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rollback("wf-1", 99))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_REVISION_NOT_FOUND"))
+                .hasMessage("Workflow definition revision not found: wf-1:99");
+    }
+
     private WorkflowDefinition validDefinition() {
         return new WorkflowDefinition(
                 List.of(

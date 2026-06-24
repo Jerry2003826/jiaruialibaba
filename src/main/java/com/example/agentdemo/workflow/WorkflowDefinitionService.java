@@ -61,6 +61,18 @@ public class WorkflowDefinitionService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public WorkflowDefinitionResponse rollback(String definitionId, Integer version) {
+        WorkflowDefinitionEntity entity = findEntity(definitionId);
+        WorkflowDefinitionRevisionEntity revision = findRevision(definitionId, version);
+        WorkflowDefinition definition = fromJson(revision);
+        workflowCompiler.compile(definition);
+        entity.updateDraft(revision.getName(), revision.getDescription(), revision.getDefinitionJson());
+        WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
+        saveRevision(saved);
+        return toResponse(saved);
+    }
+
     @Transactional(readOnly = true)
     public List<WorkflowDefinitionResponse> list() {
         return workflowDefinitionRepository.findAllByOrderByCreatedAtDesc()
@@ -95,6 +107,16 @@ public class WorkflowDefinitionService {
         return workflowDefinitionRepository.findByDefinitionId(definitionId)
                 .orElseThrow(() -> new BusinessException("WORKFLOW_DEFINITION_NOT_FOUND",
                         "Workflow definition not found: " + definitionId));
+    }
+
+    private WorkflowDefinitionRevisionEntity findRevision(String definitionId, Integer version) {
+        if (!StringUtils.hasText(definitionId) || version == null) {
+            throw new BusinessException("WORKFLOW_REVISION_NOT_FOUND",
+                    "Workflow definition revision not found: " + definitionId + ":" + version);
+        }
+        return workflowDefinitionRevisionRepository.findByDefinitionIdAndVersion(definitionId, version)
+                .orElseThrow(() -> new BusinessException("WORKFLOW_REVISION_NOT_FOUND",
+                        "Workflow definition revision not found: " + definitionId + ":" + version));
     }
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinitionEntity entity) {

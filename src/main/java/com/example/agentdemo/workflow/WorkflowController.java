@@ -60,6 +60,12 @@ public class WorkflowController {
         return ApiResponse.ok(workflowDefinitionService.publish(definitionId));
     }
 
+    @PostMapping("/definitions/{definitionId}/rollback/{version}")
+    public ApiResponse<WorkflowDefinitionResponse> rollbackDefinition(@PathVariable String definitionId,
+            @PathVariable Integer version) {
+        return ApiResponse.ok(workflowDefinitionService.rollback(definitionId, version));
+    }
+
     @GetMapping("/node-schemas")
     public ApiResponse<List<WorkflowNodeSchema>> listNodeSchemas() {
         return ApiResponse.ok(workflowNodeSchemaRegistry.listSchemas());

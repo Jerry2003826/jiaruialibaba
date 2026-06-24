@@ -119,6 +119,21 @@ class WorkflowControllerTest {
         assertThat(response.data()).containsExactly(expected);
     }
 
+    @Test
+    void rollsBackWorkflowDefinition() {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot", null,
+                validDefinition(), 3, WorkflowDefinitionStatus.DRAFT, null, null);
+        when(definitionService.rollback("wf-1", 1)).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<WorkflowDefinitionResponse> response = controller.rollbackDefinition("wf-1", 1);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
+    }
+
     private WorkflowDefinition validDefinition() {
         return new WorkflowDefinition(
                 List.of(

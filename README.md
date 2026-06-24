@@ -163,6 +163,7 @@ http://localhost:8080
 - `GET /api/workflows/definitions/{definitionId}/revisions`
 - `PUT /api/workflows/definitions/{definitionId}`
 - `POST /api/workflows/definitions/{definitionId}/publish`
+- `POST /api/workflows/definitions/{definitionId}/rollback/{version}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
 - `GET /api/runs`
@@ -325,6 +326,14 @@ curl -X PUT http://localhost:8080/api/workflows/definitions/{definitionId} \
 curl -X POST http://localhost:8080/api/workflows/definitions/{definitionId}/publish
 ```
 
+回滚 Workflow 定义：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/definitions/{definitionId}/rollback/1
+```
+
+回滚不会覆盖历史 revision；它会把目标 revision 的快照复制成一个新的 `DRAFT` 版本。
+
 按已保存定义运行 Workflow：
 
 ```bash
@@ -383,7 +392,8 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 复杂图会返回 `WORKFLOW_UNSUPPORTED`。
 - Workflow 定义可保存到 H2 的 `workflow_definitions` 表；新建为 `DRAFT` v1，更新时版本递增并回到 `DRAFT`，发布后状态为 `PUBLISHED`。
 - 每次新建和更新都会写入 H2 的 `workflow_definition_revisions` 表；发布时会同步当前版本 revision 的状态为 `PUBLISHED`。
-- 当前还没有回滚、租户隔离或发布环境区分。
+- 回滚会从历史 revision 复制快照并生成新的 `DRAFT` 版本，不会覆盖旧 revision。
+- 当前还没有租户隔离或发布环境区分。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
 
