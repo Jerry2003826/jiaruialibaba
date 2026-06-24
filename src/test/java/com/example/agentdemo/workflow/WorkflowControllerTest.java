@@ -2,6 +2,10 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.ApiResponse;
 import com.example.agentdemo.trace.RunStatus;
+import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.StepStatus;
+import com.example.agentdemo.trace.dto.RunResponse;
+import com.example.agentdemo.trace.dto.RunStepResponse;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -151,6 +155,28 @@ class WorkflowControllerTest {
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isEqualTo(page);
+    }
+
+    @Test
+    void getsWorkflowRunDetail() {
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowRunRecordResponse summary = new WorkflowRunRecordResponse("run-1", "wf-1", 2,
+                Instant.parse("2026-06-24T04:00:00Z"), RunStatus.SUCCEEDED, "{\"answer\":\"ok\"}", null,
+                Instant.parse("2026-06-24T04:00:03Z"));
+        RunResponse run = new RunResponse("run-1", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{\"input\":\"hi\"}",
+                "{\"answer\":\"ok\"}", null, summary.startedAt(), summary.endedAt());
+        RunStepResponse step = new RunStepResponse("step-1", "run-1", "llm_1", "{}", "{\"answer\":\"ok\"}", null,
+                StepStatus.SUCCEEDED, Instant.parse("2026-06-24T04:00:01Z"),
+                Instant.parse("2026-06-24T04:00:02Z"));
+        WorkflowRunDetailResponse expected = new WorkflowRunDetailResponse(summary, run, List.of(step));
+        when(workflowService.getRunDetail("run-1")).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<WorkflowRunDetailResponse> response = controller.getRunDetail("run-1");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
     }
 
     private WorkflowDefinition validDefinition() {

@@ -167,6 +167,7 @@ http://localhost:8080
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
+- `GET /api/workflows/runs/{runId}`
 - `GET /api/runs`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
@@ -373,6 +374,14 @@ curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}&statu
 ```
 
 该接口返回分页结果：`content`、`page`、`size`、`totalElements`、`totalPages`。`content` 按 `startedAt` 倒序排列，元素包括 `runId`、`definitionId`、`definitionVersion`、`startedAt`、`status`、`output`、`errorMessage` 和 `endedAt`。`status` 可选值为 `RUNNING`、`SUCCEEDED`、`FAILED`。完整 run input 和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
+
+查看单个 Workflow run 聚合详情：
+
+```bash
+curl http://localhost:8080/api/workflows/runs/{runId}
+```
+
+该接口返回 `summary`、`run` 和 `steps`。`summary` 带 workflow definition/version 索引信息；`run` 和 `steps` 复用通用 trace 数据结构。
 
 查看 Workflow 节点 schema：
 

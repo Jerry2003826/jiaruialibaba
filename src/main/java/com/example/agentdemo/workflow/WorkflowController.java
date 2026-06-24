@@ -87,4 +87,9 @@ public class WorkflowController {
         return ApiResponse.ok(workflowService.listRuns(definitionId, definitionVersion, status, page, size));
     }
 
+    @GetMapping("/runs/{runId}")
+    public ApiResponse<WorkflowRunDetailResponse> getRunDetail(@PathVariable String runId) {
+        return ApiResponse.ok(workflowService.getRunDetail(runId));
+    }
+
 }

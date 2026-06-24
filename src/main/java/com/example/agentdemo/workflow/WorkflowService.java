@@ -6,6 +6,8 @@ import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.dto.RunResponse;
+import com.example.agentdemo.trace.dto.RunStepResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -79,6 +81,14 @@ public class WorkflowService {
                 recordPage.getTotalElements(), recordPage.getTotalPages());
     }
 
+    public WorkflowRunDetailResponse getRunDetail(String runId) {
+        WorkflowRunRecordEntity record = workflowRunRecordRepository.findById(runId)
+                .orElseThrow(() -> new BusinessException("WORKFLOW_RUN_NOT_FOUND", "Workflow run not found: " + runId));
+        RunResponse run = traceService.getRun(runId);
+        List<RunStepResponse> steps = traceService.listSteps(runId);
+        return new WorkflowRunDetailResponse(toResponse(record, run), run, steps);
+    }
+
     private void requireDefinitionReference(WorkflowRunRequest request) {
         if (request.workflowDefinition() == null && !StringUtils.hasText(request.definitionId())) {
             throw new BusinessException("WORKFLOW_DEFINITION_REQUIRED", "workflowDefinition or definitionId is required");
@@ -133,6 +143,12 @@ public class WorkflowService {
         return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
                 entity.getDefinitionVersion(), entity.getStartedAt(), run.getStatus(), run.getOutput(),
                 run.getErrorMessage(), run.getEndedAt());
+    }
+
+    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity, RunResponse run) {
+        return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
+                entity.getDefinitionVersion(), entity.getStartedAt(), run.status(), run.output(), run.errorMessage(),
+                run.endedAt());
     }
 
 }

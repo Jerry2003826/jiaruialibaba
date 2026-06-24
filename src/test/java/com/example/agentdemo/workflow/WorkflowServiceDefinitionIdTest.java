@@ -5,7 +5,10 @@ import com.example.agentdemo.trace.RunEntity;
 import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.dto.RunResponse;
+import com.example.agentdemo.trace.dto.RunStepResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -14,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -155,6 +159,35 @@ class WorkflowServiceDefinitionIdTest {
         assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, "wf-1", Map.of("message", "hello"))))
                 .isSameAs(failure);
         verify(traceService).markRunFailed("run-3", failure);
+    }
+
+    @Test
+    void getsWorkflowRunDetailWithTraceSteps() {
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
+        RunRepository runRepository = mock(RunRepository.class);
+        TraceService traceService = mock(TraceService.class);
+        WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-1", "wf-1", 2,
+                Instant.parse("2026-06-24T04:00:00Z"));
+        when(runRecordRepository.findById("run-1")).thenReturn(Optional.of(record));
+        RunResponse run = new RunResponse("run-1", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{\"input\":\"hi\"}",
+                "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T04:00:03Z"));
+        RunStepResponse step = new RunStepResponse("step-1", "run-1", "llm_1", "{}", "{\"answer\":\"ok\"}", null,
+                StepStatus.SUCCEEDED, Instant.parse("2026-06-24T04:00:01Z"),
+                Instant.parse("2026-06-24T04:00:02Z"));
+        when(traceService.getRun("run-1")).thenReturn(run);
+        when(traceService.listSteps("run-1")).thenReturn(List.of(step));
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), traceService, mock(WorkflowDefinitionService.class), runRecordRepository,
+                runRepository);
+
+        WorkflowRunDetailResponse response = service.getRunDetail("run-1");
+
+        assertThat(response.summary().runId()).isEqualTo("run-1");
+        assertThat(response.summary().definitionId()).isEqualTo("wf-1");
+        assertThat(response.summary().definitionVersion()).isEqualTo(2);
+        assertThat(response.summary().status()).isEqualTo(RunStatus.SUCCEEDED);
+        assertThat(response.run()).isEqualTo(run);
+        assertThat(response.steps()).containsExactly(step);
     }
 
     @Test
