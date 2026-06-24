@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Agent Workbench</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="side-nav" aria-label="Main navigation">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">AI</div>
+        <div>
+          <h1>AI Agent Workbench</h1>
+          <p>Spring AI Alibaba</p>
+        </div>
+      </div>
+      <nav class="nav-list">
+        <button class="nav-button active" type="button" data-view="workflow">Workflow</button>
+        <button class="nav-button" type="button" data-view="chat">Chat</button>
+        <button class="nav-button" type="button" data-view="rag">RAG</button>
+        <button class="nav-button" type="button" data-view="tools">Tools</button>
+        <button class="nav-button" type="button" data-view="runs">Runs</button>
+      </nav>
+      <div class="runtime-panel">
+        <span class="runtime-label">Runtime</span>
+        <strong id="runtime-status">Checking</strong>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <section class="view-panel active" id="view-workflow" data-view-panel="workflow">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>Workflow Canvas</h2>
+            <span id="workflow-status" class="status-pill">Draft</span>
+          </div>
+          <div class="toolbar-actions">
+            <input id="definition-name" class="compact-input" type="text" value="Agent Workflow" maxlength="128" aria-label="Workflow name">
+            <select id="definition-select" class="compact-input" aria-label="Saved definitions"></select>
+            <button id="new-workflow" class="secondary-button" type="button">New</button>
+            <button id="load-definition" class="secondary-button" type="button">Load</button>
+            <button id="save-definition" class="primary-button" type="button">Save</button>
+            <button id="validate-workflow" class="secondary-button" type="button">Validate</button>
+            <button id="run-workflow" class="primary-button" type="button">Run</button>
+          </div>
+        </header>
+
+        <div class="workflow-layout">
+          <aside class="node-palette" id="node-palette" aria-label="Node palette"></aside>
+
+          <section class="canvas-region">
+            <div class="workflow-canvas" id="workflow-canvas">
+              <svg id="edge-layer" class="edge-layer" aria-hidden="true"></svg>
+              <div id="node-layer" class="node-layer"></div>
+            </div>
+            <section class="execution-panel">
+              <div class="panel-header">
+                <h3>Execution</h3>
+                <button id="refresh-run-graph" class="secondary-button" type="button">Refresh</button>
+              </div>
+              <label class="field-label" for="workflow-input">Input JSON</label>
+              <textarea id="workflow-input" class="code-input" spellcheck="false">{"message":"What can this agent answer from the documents?"}</textarea>
+              <div class="result-grid">
+                <section>
+                  <h4>Output</h4>
+                  <pre id="run-output" class="result-box">{}</pre>
+                </section>
+                <section>
+                  <h4>Run Steps</h4>
+                  <div id="trace-steps" class="step-list"></div>
+                </section>
+              </div>
+            </section>
+          </section>
+
+          <aside class="inspector-panel" id="node-inspector">
+            <div class="panel-header">
+              <h3>Inspector</h3>
+              <button id="delete-node" class="danger-button" type="button">Delete</button>
+            </div>
+            <div id="inspector-empty" class="empty-state">No node selected</div>
+            <form id="inspector-form" class="inspector-form hidden"></form>
+            <section class="edge-editor">
+              <div class="panel-header">
+                <h3>Edges</h3>
+                <button id="add-edge" class="secondary-button" type="button">Add</button>
+              </div>
+              <div id="edge-list" class="edge-list"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view-panel" id="view-chat" data-view-panel="chat">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>Chat</h2>
+            <span class="status-pill">Model Gateway</span>
+          </div>
+          <button id="send-chat" class="primary-button" type="button">Send</button>
+        </header>
+        <div class="two-column">
+          <section>
+            <label class="field-label" for="chat-message">Message</label>
+            <textarea id="chat-message" class="large-input">Explain what this backend demo can do.</textarea>
+          </section>
+          <section>
+            <h3>Answer</h3>
+            <pre id="chat-output" class="result-box">{}</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view-panel" id="view-rag" data-view-panel="rag">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>RAG</h2>
+            <span class="status-pill">Documents</span>
+          </div>
+          <div class="toolbar-actions">
+            <button id="save-document" class="secondary-button" type="button">Save Document</button>
+            <button id="ask-rag" class="primary-button" type="button">Ask</button>
+          </div>
+        </header>
+        <div class="two-column">
+          <section>
+            <label class="field-label" for="document-title">Title</label>
+            <input id="document-title" class="text-input" type="text" value="Workbench Notes">
+            <label class="field-label" for="document-content">Content</label>
+            <textarea id="document-content" class="large-input">Spring AI Alibaba supports agent workflows, RAG, tool calling and trace inspection in this demo.</textarea>
+            <label class="field-label" for="rag-message">Question</label>
+            <textarea id="rag-message" class="large-input">What does the demo support?</textarea>
+          </section>
+          <section>
+            <h3>RAG Result</h3>
+            <pre id="rag-output" class="result-box">{}</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view-panel" id="view-tools" data-view-panel="tools">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>Tools</h2>
+            <span class="status-pill">Local + MCP</span>
+          </div>
+          <button id="refresh-tools" class="secondary-button" type="button">Refresh</button>
+        </header>
+        <div class="two-column">
+          <section>
+            <h3>Tool Registry</h3>
+            <div id="tool-list" class="data-list"></div>
+          </section>
+          <section>
+            <h3>MCP Servers</h3>
+            <div id="mcp-server-list" class="data-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view-panel" id="view-runs" data-view-panel="runs">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>Runs</h2>
+            <span class="status-pill">Trace</span>
+          </div>
+          <button id="refresh-runs" class="secondary-button" type="button">Refresh</button>
+        </header>
+        <div id="run-list" class="data-list wide-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

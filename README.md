@@ -2,7 +2,7 @@
 
 ## 项目目标
 
-这是一个最小可运行、可扩展的 Spring AI Alibaba 后端骨架。它不是完整 Dify，而是为后续扩展成 Dify-like 平台预留基础能力：Chat、SSE streaming、tool calling、简单 RAG、run trace。
+这是一个最小可运行、可扩展的 Spring AI Alibaba Agent 平台 demo。它不是完整 Dify，而是提供一个后端骨架和最小 Dify-like 工作台：Chat、SSE streaming、tool calling、RAG、workflow canvas、run trace。
 
 ## 技术栈
 
@@ -146,6 +146,29 @@ export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
 ```text
 http://localhost:8080
 ```
+
+## Frontend Workbench
+
+启动后直接打开：
+
+```text
+http://localhost:8080/
+```
+
+这个页面由 Spring Boot 静态资源直接托管，不需要 Node.js、npm、Vite、React 或额外前端构建步骤。
+
+当前工作台包含：
+
+- Workflow canvas：节点 palette、拖拽节点、连线、节点配置 inspector、edge 编辑。
+- Workflow execution：调用 `/api/workflows/validate`、`/api/workflows/preview-graph`、`/api/workflows/run`，并读取 run graph 和 run steps。
+- Definition 管理：保存、更新、加载已保存 workflow definition。
+- Chat / RAG / Tools / Runs 面板：复用现有后端 API 做最小操作台。
+
+当前限制：
+
+- 画布坐标是浏览器端 UI 状态，不写入后端 workflow definition；后端持久化的 executable DSL 仍然只有 `nodes` + `edges`。
+- 画布是最小可用版本，不包含多人协作、权限、发布环境、节点市场或完整 Dify 应用管理。
+- 如果需要生产级画布，后续可以把当前静态前端替换为 React/Vue，并增加单独的 UI metadata 表。
 
 ## API 列表
 
@@ -728,4 +751,4 @@ Password:
 - 扩展 Spring AI Alibaba Graph runtime：原生子图映射、循环防护策略、更完整的状态合并策略。
 - 扩展 MCP：增加鉴权配置、工具 schema 同步、调用审计和熔断策略。
 - 接入 Cairn Memory，为 coding-agent 或长会话场景补充行为记忆和连续性。
-- 扩展成 Dify-like Workflow DSL：节点、边、变量、条件分支、工具节点、RAG 节点、trace 可视化。
+- 扩展 Dify-like 工作台：持久化画布坐标、增加应用发布、节点市场、数据集管理、租户权限和生产级可视化编辑器。
