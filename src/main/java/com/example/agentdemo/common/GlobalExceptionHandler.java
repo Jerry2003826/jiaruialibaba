@@ -1,6 +1,7 @@
 package com.example.agentdemo.common;
 
 import jakarta.validation.ConstraintViolationException;
+import com.example.agentdemo.tool.ToolExecutionLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -19,7 +20,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex) {
-        return ResponseEntity.badRequest().body(ApiResponse.error(ex.getCode(), ex.getMessage()));
+        HttpStatus status = ToolExecutionLog.ERROR_REMOTE_TOOL.equals(ex.getCode())
+                ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -36,9 +36,9 @@ public class ToolGatewayService {
         }
         ToolDescriptor descriptor = descriptor(provider, toolName);
         if (!toolExecutionPolicy.canExecute(descriptor)) {
-            return toolNotAllowed(toolName, safeArguments);
+            return toolNotAllowed(descriptor, safeArguments);
         }
-        return provider.execute(toolName, safeArguments);
+        return provider.execute(toolName, safeArguments).withDescriptor(descriptor);
     }
 
     public List<ToolDescriptor> listTools() {
@@ -49,14 +49,19 @@ public class ToolGatewayService {
 
     static ToolExecutionLog toolNotFound(String toolName, Map<String, Object> arguments) {
         Instant now = Instant.now();
-        return new ToolExecutionLog(toolName, safeArguments(arguments), null, false,
-                "Tool not found: " + toolName, now, now);
+        return ToolExecutionLog.failure(toolName, safeArguments(arguments), "Tool not found: " + toolName,
+                now, now, null, ToolExecutionLog.ERROR_TOOL_NOT_FOUND);
     }
 
     static ToolExecutionLog toolNotAllowed(String toolName, Map<String, Object> arguments) {
+        return toolNotAllowed(new ToolDescriptor(toolName, "", "mcp", true), arguments);
+    }
+
+    static ToolExecutionLog toolNotAllowed(ToolDescriptor descriptor, Map<String, Object> arguments) {
         Instant now = Instant.now();
-        return new ToolExecutionLog(toolName, safeArguments(arguments), null, false,
-                "Remote tool is not allowed by policy: " + toolName, now, now);
+        return ToolExecutionLog.failure(descriptor.name(), safeArguments(arguments),
+                "Remote tool is not allowed by policy: " + descriptor.name(), now, now, descriptor,
+                ToolExecutionLog.ERROR_TOOL_NOT_ALLOWED);
     }
 
     private ToolDescriptor descriptor(ToolProvider provider, String toolName) {

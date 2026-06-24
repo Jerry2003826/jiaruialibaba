@@ -1,0 +1,30 @@
+spring:
+  config:
+    activate:
+      on-profile: mcp-github
+  ai:
+    mcp:
+      client:
+        enabled: true
+        annotation-scanner:
+          enabled: false
+        toolcallback:
+          enabled: true
+        stdio:
+          connections:
+            github:
+              command: ${GITHUB_MCP_SERVER_COMMAND:github-mcp-server}
+              args:
+                - stdio
+                - --read-only
+                - --toolsets=${GITHUB_MCP_TOOLSETS:repos}
+              env:
+                GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:}
+
+demo:
+  mcp:
+    enabled: true
+    server-name: ${DEMO_MCP_SERVER_NAME:github}
+  tools:
+    allow-all-remote-tools: false
+    allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:github:get_file_contents,github:search_repositories,github:list_commits,github:get_commit,github:list_branches}

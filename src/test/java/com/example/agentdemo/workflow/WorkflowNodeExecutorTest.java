@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class WorkflowNodeExecutorTest {
@@ -38,6 +40,21 @@ class WorkflowNodeExecutorTest {
         assertThat(state.toolCalls()).hasSize(1);
     }
 
+    @Test
+    void failedToolNodeThrowsBusinessExceptionWithToolErrorCategory() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway);
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute("run-1",
+                new WorkflowNode("mcp_1", "tool", Map.of("toolName", "remote_fail")),
+                state))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo(ToolExecutionLog.ERROR_REMOTE_TOOL));
+    }
+
     private static final class RemoteEchoProvider implements ToolProvider {
 
         @Override
@@ -59,6 +76,33 @@ class WorkflowNodeExecutorTest {
         @Override
         public List<ToolDescriptor> tools() {
             return List.of(new ToolDescriptor("remote_echo", "Remote echo", providerName(), true));
+        }
+
+    }
+
+    private static final class FailingRemoteProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "test-mcp";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "remote_fail".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            return ToolExecutionLog.failure(toolName, arguments, "remote failed", now, now,
+                    new ToolDescriptor(toolName, "Remote failure", providerName(), true),
+                    ToolExecutionLog.ERROR_REMOTE_TOOL);
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("remote_fail", "Remote failure", providerName(), true));
         }
 
     }

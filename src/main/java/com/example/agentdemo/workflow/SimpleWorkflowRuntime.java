@@ -37,11 +37,18 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
             summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "SUCCEEDED", output));
         }
         catch (RuntimeException ex) {
-            traceService.failStep(step.getStepId(), ex);
-            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED",
-                    nodeExecutor.errorOutput(ex)));
+            Object failureOutput = failureOutput(ex);
+            traceService.failStep(step.getStepId(), ex, failureOutput);
+            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED", failureOutput));
             throw ex;
         }
+    }
+
+    private Object failureOutput(RuntimeException ex) {
+        if (ex instanceof WorkflowNodeExecutionException nodeException) {
+            return nodeException.output();
+        }
+        return nodeExecutor.errorOutput(ex);
     }
 
 }

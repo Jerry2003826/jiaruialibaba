@@ -106,7 +106,7 @@ public class WorkflowNodeExecutor {
         ToolExecutionLog log = toolGatewayService.execute(toolName, arguments);
         state.addToolCall(log);
         if (!log.succeeded()) {
-            throw new IllegalArgumentException(log.errorMessage());
+            throw new WorkflowNodeExecutionException(log.errorCategory(), log.errorMessage(), log);
         }
         state.setLastOutput(log.output());
         return log;

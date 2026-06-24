@@ -1,15 +1,12 @@
 package com.example.agentdemo.workflow;
 
-import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.rag.RagService;
-import com.example.agentdemo.tool.LocalToolProvider;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolExecutionPolicy;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolProvider;
-import com.example.agentdemo.tool.ToolService;
 import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
@@ -19,7 +16,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -28,45 +24,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class GraphWorkflowRuntimeTest {
-
-    @Test
-    void runsLinearWorkflowThroughSpringAiAlibabaGraph() {
-        RagService ragService = mock(RagService.class);
-        AiModelService aiModelService = mock(AiModelService.class);
-        ToolGatewayService toolGatewayService = new ToolGatewayService(
-                List.of(new LocalToolProvider(new ToolService())));
-        TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
-                .thenAnswer(invocation -> step(invocation.getArgument(1)));
-        when(aiModelService.generate(any(), any()))
-                .thenReturn(AiModelResult.ok("graph answer"));
-
-        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService),
-                traceService);
-
-        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", List.of(
-                new WorkflowNode("start", "start", Map.of()),
-                new WorkflowNode("llm_1", "llm", Map.of("prompt", "Question: {{input}}")),
-                new WorkflowNode("end", "end", Map.of())
-        ), Map.of("message", "hello graph"));
-
-        assertThat(result.steps())
-                .extracting(WorkflowStepSummary::nodeId)
-                .containsExactly("start", "llm_1", "end");
-        assertThat(result.output()).asString().contains("graph answer");
-    }
+class SimpleWorkflowRuntimeTest {
 
     @Test
     void failedToolNodeWritesToolExecutionLogToTraceOutput() {
-        ToolGatewayService toolGatewayService = new ToolGatewayService(List.of(new FailingRemoteProvider()),
-                ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_fail"));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
         TraceService traceService = mock(TraceService.class);
         when(traceService.startStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
-        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService),
+        SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway),
                 traceService);
 
         assertThatThrownBy(() -> runtime.run("run-1", List.of(
@@ -76,7 +44,6 @@ class GraphWorkflowRuntimeTest {
         verify(traceService).failStep(eq("step-workflow_node_tool_1"), any(RuntimeException.class),
                 argThat(output -> output instanceof ToolExecutionLog log
                         && "remote_fail".equals(log.toolName())
-                        && "github".equals(log.serverName())
                         && ToolExecutionLog.ERROR_REMOTE_TOOL.equals(log.errorCategory())));
     }
 
@@ -88,7 +55,7 @@ class GraphWorkflowRuntimeTest {
 
         @Override
         public String providerName() {
-            return "mcp";
+            return "test-mcp";
         }
 
         @Override
@@ -100,13 +67,13 @@ class GraphWorkflowRuntimeTest {
         public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
             Instant now = Instant.now();
             return ToolExecutionLog.failure(toolName, arguments, "remote failed", now, now,
-                    new ToolDescriptor(toolName, "Remote failure", providerName(), true, "github", "{}"),
-                    ToolExecutionLog.ERROR_REMOTE_TOOL, ToolExecutionLog.ERROR_TYPE_RAW_REMOTE);
+                    new ToolDescriptor(toolName, "Remote failure", providerName(), true),
+                    ToolExecutionLog.ERROR_REMOTE_TOOL);
         }
 
         @Override
         public List<ToolDescriptor> tools() {
-            return List.of(new ToolDescriptor("remote_fail", "Remote failure", providerName(), true, "github", "{}"));
+            return List.of(new ToolDescriptor("remote_fail", "Remote failure", providerName(), true));
         }
 
     }

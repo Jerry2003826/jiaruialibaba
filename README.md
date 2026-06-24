@@ -89,6 +89,10 @@ export DEMO_WORKFLOW_RUNTIME=graph
 - `McpToolProvider`: 读取 Spring AI MCP client 暴露的 `ToolCallbackProvider`，把远程 MCP tools 注册到统一网关。
 - `ToolGatewayService`: agent 和 workflow 的统一工具调用入口。
 
+`GET /api/tools` 会返回本地和远程工具列表。远程工具会带上 `inputSchema`，执行前会做最小服务端校验：`required` 参数必须存在，常见 JSON Schema 类型如 `string`、`number`、`integer`、`boolean`、`object`、`array` 会做基础匹配。
+
+远程工具调用结果会进入 `run_step.outputJson`，包含 `provider`、`remote`、`serverName`、`durationMs`、`errorCategory` 和 `errorType`。`serverName` 由 `demo.mcp.server-name` 配置；例如 `mcp-github` profile 会写入 `github`。`errorType=NORMAL` 表示本地策略、参数或序列化错误，`errorType=RAW_REMOTE` 表示远程 MCP tool callback 抛出的原始调用错误。
+
 MCP client 默认关闭，不会在本地启动时主动连接远程 MCP server：
 
 ```bash
@@ -122,7 +126,7 @@ export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
 - `spring.ai.mcp.client.sse.connections.*`
 - `spring.ai.mcp.client.streamable-http.connections.*`
 
-建议把具体远程 MCP server 地址、命令或鉴权信息放在本地 `application-dev.yml` 或环境变量中，不要提交真实密钥。当前 demo 不内置任何远程 MCP server。
+建议把具体远程 MCP server 地址、命令或鉴权信息放在本地 `application-dev.yml` 或环境变量中，不要提交真实密钥。当前 demo 提供 `mcp-github` profile 作为本机 GitHub MCP server 示例。
 
 ## 启动方式
 
@@ -285,45 +289,22 @@ Spring AI Alibaba Graph 接入：
 
 ## GitHub MCP 本地示例
 
-可以用本机 GitHub CLI 登录态启动官方 GitHub MCP server。以下示例使用只读模式和 `repos` toolset，不会把 GitHub token 写入仓库：
+可以用本机 GitHub CLI 登录态启动官方 GitHub MCP server。以下示例使用只读模式和 `repos` toolset，不会把 GitHub token 写入仓库。
+
+先安装 GitHub MCP server，并把当前 GitHub CLI token 放到当前 shell 的临时环境变量里：
 
 ```bash
 go install github.com/github/github-mcp-server/cmd/github-mcp-server@latest
 
-MCP_CMD='GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)" '"$(go env GOPATH)"'/bin/github-mcp-server stdio --read-only --toolsets=repos'
+export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)"
+export GITHUB_MCP_SERVER_COMMAND="$(go env GOPATH)/bin/github-mcp-server"
+export DEMO_MCP_SERVER_NAME=github
+export DEMO_TOOLS_ALLOWED_REMOTE_TOOLS=github:get_file_contents,github:search_repositories,github:list_commits,github:get_commit,github:list_branches
 
-export DEMO_MCP_ENABLED=true
-export DEMO_MCP_TOOLCALLBACK_ENABLED=true
-export DEMO_MCP_ANNOTATION_SCANNER_ENABLED=false
-export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
-export SPRING_APPLICATION_JSON=$(jq -nc --arg cmd "$MCP_CMD" '{
-  spring: {
-    ai: {
-      mcp: {
-        client: {
-          enabled: true,
-          toolcallback: { enabled: true },
-          "annotation-scanner": { enabled: false },
-          stdio: {
-            connections: {
-              github: {
-                command: "/bin/zsh",
-                args: ["-lc", $cmd]
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  demo: {
-    mcp: { enabled: true },
-    tools: { "allow-all-remote-tools": true }
-  }
-}')
-
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,mcp-github
 ```
+
+`mcp-github` profile 定义在 `src/main/resources/application-mcp-github.yml`。如果以后接多个 MCP server，可以复制该 profile 的 `spring.ai.mcp.client.stdio.connections.github` 配置块，改成新的连接名和命令，并把允许执行的远程工具加入 `DEMO_TOOLS_ALLOWED_REMOTE_TOOLS`。
 
 启动后可以先查看 GitHub MCP 暴露的工具名：
 

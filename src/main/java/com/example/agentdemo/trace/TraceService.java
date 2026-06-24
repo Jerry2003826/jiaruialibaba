@@ -50,9 +50,14 @@ public class TraceService {
 
     @Transactional
     public void failStep(String stepId, Throwable error) {
+        failStep(stepId, error, new ErrorPayload(error.getClass().getSimpleName(), error.getMessage()));
+    }
+
+    @Transactional
+    public void failStep(String stepId, Throwable error, Object output) {
         RunStepEntity step = findStep(stepId);
         step.setErrorMessage(error.getMessage());
-        step.setOutputJson(toJson(new ErrorPayload(error.getClass().getSimpleName(), error.getMessage())));
+        step.setOutputJson(toJson(output));
         step.setStatus(StepStatus.FAILED);
         step.setEndedAt(Instant.now());
         runStepRepository.save(step);

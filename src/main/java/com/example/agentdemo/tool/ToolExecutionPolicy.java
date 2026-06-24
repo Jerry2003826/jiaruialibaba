@@ -21,7 +21,9 @@ public class ToolExecutionPolicy {
         if (!descriptor.remote()) {
             return true;
         }
-        return allowAllRemoteTools || allowedRemoteTools.contains(descriptor.name());
+        return allowAllRemoteTools
+                || allowedRemoteTools.contains(descriptor.name())
+                || allowedRemoteTools.contains(descriptor.serverName() + ":" + descriptor.name());
     }
 
     public boolean isAllowAllRemoteTools() {
