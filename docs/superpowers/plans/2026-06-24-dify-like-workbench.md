@@ -214,7 +214,7 @@ curl -s http://localhost:8080/app.js | grep WorkflowCanvasController
 
 Expected: HTML includes `AI Agent Workbench`, JavaScript includes `WorkflowCanvasController`.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 Run:
 
