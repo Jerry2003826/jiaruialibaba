@@ -54,6 +54,10 @@
   };
 
   const els = {};
+  const viewRoutes = {
+    tools: () => void loadTools(),
+    runs: () => void loadRuns()
+  };
 
   class WorkflowCanvasController {
     init() {
@@ -97,7 +101,7 @@
       "refresh-tools", "tool-list", "mcp-server-list", "refresh-runs", "run-list", "toast"
     ];
     ids.forEach((id) => {
-      els[toCamel(id)] = document.getElementById(id);
+      els[toCamel(id)] = requiredElement(id);
     });
   }
 
@@ -109,12 +113,7 @@
         document.querySelectorAll("[data-view-panel]").forEach((panel) => {
           panel.classList.toggle("active", panel.dataset.viewPanel === view);
         });
-        if (view === "tools") {
-          void loadTools();
-        }
-        if (view === "runs") {
-          void loadRuns();
-        }
+        viewRoutes[view]?.();
       });
     });
   }
@@ -463,9 +462,11 @@
     const target = event.currentTarget;
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent) => {
+      const maxX = Math.max(10, els.workflowCanvas.clientWidth - target.offsetWidth - 10);
+      const maxY = Math.max(10, els.workflowCanvas.clientHeight - target.offsetHeight - 10);
       const next = {
-        x: clamp(start.x + moveEvent.clientX - origin.x, 10, els.workflowCanvas.clientWidth - 210),
-        y: clamp(start.y + moveEvent.clientY - origin.y, 10, els.workflowCanvas.clientHeight - 110)
+        x: clamp(start.x + moveEvent.clientX - origin.x, 10, maxX),
+        y: clamp(start.y + moveEvent.clientY - origin.y, 10, maxY)
       };
       state.positions.set(nodeId, next);
       target.style.left = `${next.x}px`;
@@ -520,21 +521,24 @@
   }
 
   async function validateWorkflow() {
-    try {
-      const response = await requestJson(API.validateWorkflow, {
+    await runCommand({
+      request: () => requestJson(API.validateWorkflow, {
         method: "POST",
         body: { workflowDefinition: buildWorkflowDefinition() }
-      });
-      els.runOutput.textContent = formatJson(response);
-      setWorkflowStatus(response.valid ? "Valid" : "Invalid");
-      toast(response.valid ? "Workflow valid" : "Workflow invalid", !response.valid);
-      if (response.valid) {
-        await previewWorkflow();
+      }),
+      outputEl: els.runOutput,
+      onSuccess: async (response) => {
+        setWorkflowStatus(response.valid ? "Valid" : "Invalid");
+        toast(response.valid ? "Workflow valid" : "Workflow invalid", !response.valid);
+        if (response.valid) {
+          await previewWorkflow();
+        }
+      },
+      onError: (error) => {
+        setWorkflowStatus("Invalid");
+        toast(error.message, true);
       }
-    } catch (error) {
-      setWorkflowStatus("Invalid");
-      toast(error.message, true);
-    }
+    });
   }
 
   async function previewWorkflow() {
@@ -548,42 +552,105 @@
   }
 
   async function saveDefinition() {
-    try {
-      const body = {
-        name: els.definitionName.value.trim() || "Agent Workflow",
-        description: "Saved from AI Agent Workbench",
-        workflowDefinition: buildWorkflowDefinition()
-      };
-      const url = state.definitionId ? `${API.definitions}/${encodeURIComponent(state.definitionId)}` : API.definitions;
-      const method = state.definitionId ? "PUT" : "POST";
-      const response = await requestJson(url, { method, body });
-      state.definitionId = response.definitionId;
-      state.definitionVersion = response.version;
-      setWorkflowStatus(`Saved v${response.version}`);
-      await loadDefinitions();
-      els.definitionSelect.value = response.definitionId;
-      toast("Workflow saved");
-    } catch (error) {
-      toast(error.message, true);
-    }
+    const body = {
+      name: els.definitionName.value.trim() || "Agent Workflow",
+      description: "Saved from AI Agent Workbench",
+      workflowDefinition: buildWorkflowDefinition()
+    };
+    const url = state.definitionId ? `${API.definitions}/${encodeURIComponent(state.definitionId)}` : API.definitions;
+    const method = state.definitionId ? "PUT" : "POST";
+    await runCommand({
+      request: () => requestJson(url, { method, body }),
+      onSuccess: async (response) => {
+        state.definitionId = response.definitionId;
+        state.definitionVersion = response.version;
+        setWorkflowStatus(`Saved v${response.version}`);
+        await loadDefinitions();
+        els.definitionSelect.value = response.definitionId;
+        toast("Workflow saved");
+      },
+      onError: (error) => toast(error.message, true)
+    });
   }
 
   async function runWorkflow() {
-    try {
-      const input = parseJsonInput(els.workflowInput.value, {});
-      const response = await requestJson(API.runWorkflow, {
+    const input = parseJsonInput(els.workflowInput.value, {});
+    await runCommand({
+      request: () => requestJson(API.runWorkflow, {
         method: "POST",
         body: { workflowDefinition: buildWorkflowDefinition(), input }
-      });
-      state.lastRunId = response.runId;
-      els.runOutput.textContent = formatJson(response);
-      setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
-      await refreshRunTrace(response.runId);
-      await loadRuns();
-      toast("Workflow run complete");
+      }),
+      outputEl: els.runOutput,
+      onSuccess: async (response) => {
+        state.lastRunId = response.runId;
+        setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
+        await refreshRunTrace(response.runId);
+        await loadRuns();
+        toast("Workflow run complete");
+      },
+      onError: (error) => {
+        setWorkflowStatus("Run failed");
+        toast(error.message, true);
+      }
+    });
+  }
+
+  async function sendChat() {
+    await runCommand({
+      request: () => requestJson(API.chat, {
+        method: "POST",
+        body: { conversationId: "workbench", message: els.chatMessage.value }
+      }),
+      outputEl: els.chatOutput,
+      errorToast: false
+    });
+  }
+
+  async function saveDocument() {
+    await runCommand({
+      request: () => requestJson(API.saveDocument, {
+        method: "POST",
+        body: { title: els.documentTitle.value, content: els.documentContent.value }
+      }),
+      outputEl: els.ragOutput,
+      successToast: "Document saved"
+    });
+  }
+
+  async function askRag() {
+    await runCommand({
+      request: () => requestJson(API.ragChat, {
+        method: "POST",
+        body: { conversationId: "workbench-rag", message: els.ragMessage.value }
+      }),
+      outputEl: els.ragOutput,
+      errorToast: false
+    });
+  }
+
+  async function runCommand({ request, onSuccess, onError, outputEl, successToast, errorToast = true }) {
+    try {
+      const response = await request();
+      if (outputEl) {
+        outputEl.textContent = formatJson(response);
+      }
+      if (onSuccess) {
+        await onSuccess(response);
+      }
+      if (successToast) {
+        toast(successToast);
+      }
+      return response;
     } catch (error) {
-      setWorkflowStatus("Run failed");
-      toast(error.message, true);
+      if (outputEl) {
+        outputEl.textContent = formatJson({ error: error.message });
+      }
+      if (onError) {
+        onError(error);
+      } else if (errorToast) {
+        toast(error.message, true);
+      }
+      return null;
     }
   }
 
@@ -613,44 +680,6 @@
       const status = statusByNode.get(element.dataset.nodeId);
       element.title = status ? `Status: ${status}` : "";
     });
-  }
-
-  async function sendChat() {
-    try {
-      const response = await requestJson(API.chat, {
-        method: "POST",
-        body: { conversationId: "workbench", message: els.chatMessage.value }
-      });
-      els.chatOutput.textContent = formatJson(response);
-    } catch (error) {
-      els.chatOutput.textContent = formatJson({ error: error.message });
-    }
-  }
-
-  async function saveDocument() {
-    try {
-      const response = await requestJson(API.saveDocument, {
-        method: "POST",
-        body: { title: els.documentTitle.value, content: els.documentContent.value }
-      });
-      els.ragOutput.textContent = formatJson(response);
-      toast("Document saved");
-    } catch (error) {
-      els.ragOutput.textContent = formatJson({ error: error.message });
-      toast(error.message, true);
-    }
-  }
-
-  async function askRag() {
-    try {
-      const response = await requestJson(API.ragChat, {
-        method: "POST",
-        body: { conversationId: "workbench-rag", message: els.ragMessage.value }
-      });
-      els.ragOutput.textContent = formatJson(response);
-    } catch (error) {
-      els.ragOutput.textContent = formatJson({ error: error.message });
-    }
   }
 
   async function loadTools() {
@@ -738,10 +767,12 @@
     steps.forEach((step) => {
       const item = document.createElement("div");
       item.className = "step-item";
-      item.innerHTML = `
-        <strong>${escapeHtml(step.nodeName)} · ${escapeHtml(step.status)}</strong>
-        <div class="item-meta">${escapeHtml(step.stepId)}</div>
-      `;
+      const title = document.createElement("strong");
+      title.textContent = `${step.nodeName} · ${step.status}`;
+      const meta = document.createElement("div");
+      meta.className = "item-meta";
+      meta.textContent = step.stepId;
+      item.append(title, meta);
       els.traceSteps.appendChild(item);
     });
   }
@@ -759,7 +790,12 @@
       const view = mapper(item);
       const element = document.createElement("div");
       element.className = "data-item";
-      element.innerHTML = `<strong>${escapeHtml(view.title)}</strong><div class="item-meta">${escapeHtml(view.meta || "")}</div>`;
+      const title = document.createElement("strong");
+      title.textContent = view.title;
+      const meta = document.createElement("div");
+      meta.className = "item-meta";
+      meta.textContent = view.meta || "";
+      element.append(title, meta);
       container.appendChild(element);
     });
   }
@@ -951,6 +987,14 @@
       return window.CSS.escape(value);
     }
     return String(value).replace(/"/g, "\\\"");
+  }
+
+  function requiredElement(id) {
+    const element = document.getElementById(id);
+    if (!element) {
+      throw new Error(`Missing required element: #${id}`);
+    }
+    return element;
   }
 
   function toCamel(value) {

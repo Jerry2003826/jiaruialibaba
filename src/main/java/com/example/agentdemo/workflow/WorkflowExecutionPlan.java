@@ -13,7 +13,8 @@ public record WorkflowExecutionPlan(
         Map<String, WorkflowNode> nodesById,
         Map<String, List<WorkflowExecutionEdge>> outgoingEdges,
         Map<String, List<String>> incomingNodeIds,
-        List<WorkflowNode> linearNodes) {
+        List<WorkflowNode> linearNodes,
+        List<WorkflowParallelBlock> parallelBlocks) {
 
     public WorkflowExecutionPlan {
         nodesById = Collections.unmodifiableMap(new LinkedHashMap<>(nodesById));
@@ -28,6 +29,7 @@ public record WorkflowExecutionPlan(
         }
         incomingNodeIds = Collections.unmodifiableMap(incomingCopy);
         linearNodes = List.copyOf(linearNodes);
+        parallelBlocks = List.copyOf(parallelBlocks);
     }
 
     public boolean linear() {
@@ -51,9 +53,15 @@ public record WorkflowExecutionPlan(
     }
 
     public boolean hasParallelJoin() {
-        return nodesById.values()
-                .stream()
-                .anyMatch(node -> "parallel".equalsIgnoreCase(node.type()) || "join".equalsIgnoreCase(node.type()));
+        return !parallelBlocks.isEmpty();
+    }
+
+    public WorkflowParallelBlock parallelBlock(String parallelNodeId) {
+        return parallelBlocks.stream()
+                .filter(block -> block.parallelNodeId().equals(parallelNodeId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Missing compiled parallel block: " + parallelNodeId));
     }
 
 }

@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WorkflowGraphPreviewServiceTest {
 
     private final WorkflowGraphPreviewService service = new WorkflowGraphPreviewService(
-            new WorkflowCompiler(new WorkflowNodeSchemaRegistry()));
+            new WorkflowCompiler(new WorkflowNodeSchemaRegistry()), new WorkflowGraphRenderer());
 
     @Test
     void previewsValidLinearWorkflow() {

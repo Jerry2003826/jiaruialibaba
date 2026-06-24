@@ -27,6 +27,7 @@ class WorkflowRunGraphServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WorkflowCompiler workflowCompiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
+    private final WorkflowGraphRenderer workflowGraphRenderer = new WorkflowGraphRenderer();
 
     @Test
     void getsSavedDefinitionWorkflowRunGraphWithTraceStatusOverlay() {
@@ -47,8 +48,7 @@ class WorkflowRunGraphServiceTest {
                 runStep("run-graph", "step-check", "workflow_node_check_intent", StepStatus.SUCCEEDED, null),
                 runStep("run-graph", "step-tool", "workflow_node_tool_time", StepStatus.SUCCEEDED, null),
                 runStep("run-graph", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler, definitionService,
-                runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(definitionService, runRecordRepository, traceService);
 
         WorkflowRunGraphResponse response = service.getRunGraph("run-graph");
 
@@ -78,8 +78,8 @@ class WorkflowRunGraphServiceTest {
                 .contains("n1 -. \"false\" .-> n3")
                 .contains("class n2 succeeded")
                 .contains("class n3 notExecuted");
-        verify(traceService, never()).createRun(any(), any());
-        verify(traceService, never()).startStep(any(), any(), any());
+        verify(traceService, never()).startRun(any(), any());
+        verify(traceService, never()).startTraceStep(any(), any(), any());
         verify(traceService, never()).completeStep(any(), any());
     }
 
@@ -99,8 +99,7 @@ class WorkflowRunGraphServiceTest {
                 runStep("inline-run", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
                 runStep("inline-run", "step-tool", "workflow_node_tool_time", StepStatus.SUCCEEDED, null),
                 runStep("inline-run", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler,
-                mock(WorkflowDefinitionService.class), runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(runRecordRepository, traceService);
 
         WorkflowRunGraphResponse response = service.getRunGraph("inline-run");
 
@@ -114,8 +113,8 @@ class WorkflowRunGraphServiceTest {
         assertThat(response.nodes())
                 .allSatisfy(node -> assertThat(node.executed()).isTrue());
         assertThat(response.mermaid()).contains("tool_time (tool) SUCCEEDED");
-        verify(traceService, never()).createRun(any(), any());
-        verify(traceService, never()).startStep(any(), any(), any());
+        verify(traceService, never()).startRun(any(), any());
+        verify(traceService, never()).startTraceStep(any(), any(), any());
         verify(traceService, never()).completeStep(any(), any());
     }
 
@@ -136,8 +135,7 @@ class WorkflowRunGraphServiceTest {
         when(traceService.listSteps("run-failed")).thenReturn(List.of(
                 runStep("run-failed", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
                 runStep("run-failed", "step-tool", "workflow_node_tool_time", StepStatus.FAILED, "tool failed")));
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler, definitionService,
-                runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(definitionService, runRecordRepository, traceService);
 
         WorkflowRunGraphResponse response = service.getRunGraph("run-failed");
 
@@ -161,8 +159,7 @@ class WorkflowRunGraphServiceTest {
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:30:00Z"),
                 Instant.parse("2026-06-24T05:30:02Z"));
         when(traceService.getRun("chat-run")).thenReturn(run);
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler,
-                mock(WorkflowDefinitionService.class), runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(runRecordRepository, traceService);
 
         assertThatThrownBy(() -> service.getRunGraph("chat-run"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -182,8 +179,7 @@ class WorkflowRunGraphServiceTest {
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:40:00Z"),
                 Instant.parse("2026-06-24T05:40:02Z"));
         when(traceService.getRun("stale-run")).thenReturn(run);
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler,
-                mock(WorkflowDefinitionService.class), runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(runRecordRepository, traceService);
 
         assertThatThrownBy(() -> service.getRunGraph("stale-run"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -201,8 +197,7 @@ class WorkflowRunGraphServiceTest {
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:45:00Z"),
                 Instant.parse("2026-06-24T05:45:02Z"));
         when(traceService.getRun("blank-run")).thenReturn(run);
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler,
-                mock(WorkflowDefinitionService.class), runRecordRepository, traceService, objectMapper);
+        WorkflowRunGraphService service = service(runRecordRepository, traceService);
 
         assertThatThrownBy(() -> service.getRunGraph("blank-run"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -216,9 +211,7 @@ class WorkflowRunGraphServiceTest {
         TraceService traceService = mock(TraceService.class);
         when(traceService.getRun("missing-run"))
                 .thenThrow(new BusinessException("RUN_NOT_FOUND", "Run not found: missing-run"));
-        WorkflowRunGraphService service = new WorkflowRunGraphService(workflowCompiler,
-                mock(WorkflowDefinitionService.class), mock(WorkflowRunRecordRepository.class), traceService,
-                objectMapper);
+        WorkflowRunGraphService service = service(mock(WorkflowRunRecordRepository.class), traceService);
 
         assertThatThrownBy(() -> service.getRunGraph("missing-run"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -259,6 +252,17 @@ class WorkflowRunGraphServiceTest {
             String errorMessage) {
         return new RunStepResponse(stepId, runId, nodeName, "{}", "{}", errorMessage, status,
                 Instant.parse("2026-06-24T05:00:01Z"), Instant.parse("2026-06-24T05:00:02Z"));
+    }
+
+    private WorkflowRunGraphService service(WorkflowRunRecordRepository runRecordRepository,
+            TraceService traceService) {
+        return service(mock(WorkflowDefinitionService.class), runRecordRepository, traceService);
+    }
+
+    private WorkflowRunGraphService service(WorkflowDefinitionService definitionService,
+            WorkflowRunRecordRepository runRecordRepository, TraceService traceService) {
+        return new WorkflowRunGraphService(workflowCompiler, definitionService, runRecordRepository, traceService,
+                workflowGraphRenderer, objectMapper);
     }
 
 }

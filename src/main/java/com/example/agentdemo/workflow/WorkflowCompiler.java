@@ -35,12 +35,12 @@ public class WorkflowCompiler {
         WorkflowNode start = singleNodeByType(nodesById, "start");
         WorkflowNode end = singleNodeByType(nodesById, "end");
         EdgeIndex edgeIndex = indexEdges(definition.edges(), nodesById);
-        validateSupportedTopology(start, end, nodesById, edgeIndex);
+        List<WorkflowParallelBlock> parallelBlocks = validateSupportedTopology(start, end, nodesById, edgeIndex);
         List<WorkflowNode> linearNodes = isLinear(edgeIndex)
                 ? orderLinearPath(start, end, nodesById, edgeIndex)
                 : List.of();
         return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), edgeIndex.incoming(),
-                linearNodes);
+                linearNodes, parallelBlocks);
     }
 
     private Map<String, WorkflowNode> indexNodes(List<WorkflowNode> nodes) {
@@ -65,6 +65,12 @@ public class WorkflowCompiler {
                         "Missing workflow node schema for type: " + normalizedType));
         Map<String, WorkflowNodeConfigField> fieldsByName = schema.configFields().stream()
                 .collect(Collectors.toMap(WorkflowNodeConfigField::name, Function.identity()));
+        for (WorkflowNodeConfigField field : schema.configFields()) {
+            if (field.required() && !node.config().containsKey(field.name())) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Config " + node.id() + "." + field.name() + " is required");
+            }
+        }
         for (Map.Entry<String, Object> configEntry : node.config().entrySet()) {
             WorkflowNodeConfigField field = fieldsByName.get(configEntry.getKey());
             if (field == null) {
@@ -191,11 +197,12 @@ public class WorkflowCompiler {
         }
     }
 
-    private void validateSupportedTopology(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
+    private List<WorkflowParallelBlock> validateSupportedTopology(WorkflowNode start, WorkflowNode end,
+            Map<String, WorkflowNode> nodesById,
             EdgeIndex edgeIndex) {
         validateNodeDegrees(start, end, nodesById, edgeIndex);
         validateReachability(start, end, nodesById, edgeIndex);
-        validateParallelJoinBlocks(nodesById, edgeIndex);
+        return validateParallelJoinBlocks(nodesById, edgeIndex);
     }
 
     private void validateNodeDegrees(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
@@ -285,8 +292,10 @@ public class WorkflowCompiler {
         detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>());
     }
 
-    private void validateParallelJoinBlocks(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+    private List<WorkflowParallelBlock> validateParallelJoinBlocks(Map<String, WorkflowNode> nodesById,
+            EdgeIndex edgeIndex) {
         Set<String> joinNodesReachedByParallel = new HashSet<>();
+        List<WorkflowParallelBlock> parallelBlocks = new ArrayList<>();
         for (WorkflowNode node : nodesById.values()) {
             if (!"parallel".equals(normalizeType(node))) {
                 continue;
@@ -294,8 +303,9 @@ public class WorkflowCompiler {
             List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(node.id(), List.of());
             String commonJoinId = null;
             Set<String> branchNodeIds = new HashSet<>();
+            List<WorkflowBranchPath> branchPaths = new ArrayList<>();
             for (WorkflowExecutionEdge edge : outgoing) {
-                ParallelBranchPath path = findParallelBranchPath(edge.to(), nodesById, edgeIndex);
+                WorkflowBranchPath path = findParallelBranchPath(edge.to(), nodesById, edgeIndex);
                 if (commonJoinId == null) {
                     commonJoinId = path.joinNodeId();
                 }
@@ -303,12 +313,13 @@ public class WorkflowCompiler {
                     throw new BusinessException("WORKFLOW_UNSUPPORTED",
                             "Parallel branches must converge to the same join node: " + node.id());
                 }
-                for (String branchNodeId : path.branchNodeIds()) {
+                for (String branchNodeId : path.nodeIds()) {
                     if (!branchNodeIds.add(branchNodeId)) {
                         throw new BusinessException("WORKFLOW_UNSUPPORTED",
                                 "Parallel branches cannot share intermediate nodes: " + node.id());
                     }
                 }
+                branchPaths.add(path);
             }
             if (commonJoinId != null
                     && edgeIndex.incoming().getOrDefault(commonJoinId, List.of()).size() != outgoing.size()) {
@@ -317,6 +328,7 @@ public class WorkflowCompiler {
             }
             if (commonJoinId != null) {
                 joinNodesReachedByParallel.add(commonJoinId);
+                parallelBlocks.add(new WorkflowParallelBlock(node.id(), commonJoinId, branchPaths));
             }
         }
         for (WorkflowNode node : nodesById.values()) {
@@ -325,9 +337,10 @@ public class WorkflowCompiler {
                         "Join node must be reached by a parallel node: " + node.id());
             }
         }
+        return List.copyOf(parallelBlocks);
     }
 
-    private ParallelBranchPath findParallelBranchPath(String branchStartNodeId, Map<String, WorkflowNode> nodesById,
+    private WorkflowBranchPath findParallelBranchPath(String branchStartNodeId, Map<String, WorkflowNode> nodesById,
             EdgeIndex edgeIndex) {
         List<String> branchNodeIds = new ArrayList<>();
         Set<String> visited = new HashSet<>();
@@ -338,7 +351,7 @@ public class WorkflowCompiler {
             }
             String type = normalizeType(current);
             if ("join".equals(type)) {
-                return new ParallelBranchPath(current.id(), branchNodeIds);
+                return new WorkflowBranchPath(branchStartNodeId, current.id(), branchNodeIds);
             }
             if ("condition".equals(type) || "parallel".equals(type)) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
@@ -447,14 +460,6 @@ public class WorkflowCompiler {
             outgoing = Collections.unmodifiableMap(outgoing);
             incoming = Collections.unmodifiableMap(incoming);
         }
-    }
-
-    private record ParallelBranchPath(String joinNodeId, List<String> branchNodeIds) {
-
-        private ParallelBranchPath {
-            branchNodeIds = List.copyOf(branchNodeIds);
-        }
-
     }
 
 }

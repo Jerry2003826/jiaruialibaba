@@ -2,12 +2,10 @@ package com.example.agentdemo.rag;
 
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.dto.RetrievedContext;
-import com.example.agentdemo.trace.RunStepEntity;
-import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,15 +49,15 @@ class RagServiceTest {
         RagProperties ragProperties = new RagProperties();
         IllegalStateException primaryFailure = new IllegalStateException("vector unavailable");
         RetrievedContext fallbackContext = new RetrievedContext(1L, "Doc", "keyword match", 1.0);
-        RunStepEntity primaryStep = step("primary-step", "rag_retrieve");
-        RunStepEntity fallbackStep = step("fallback-step", "rag_keyword_fallback_retrieve");
+        TraceStep primaryStep = step("primary-step", "rag_retrieve");
+        TraceStep fallbackStep = step("fallback-step", "rag_keyword_fallback_retrieve");
 
         when(primaryRetriever.name()).thenReturn("DashVectorDocumentRetriever");
         when(primaryRetriever.retrieve("question", 3)).thenThrow(primaryFailure);
         when(keywordRetriever.name()).thenReturn("KeywordDocumentRetriever");
         when(keywordRetriever.retrieve("question", 3)).thenReturn(List.of(fallbackContext));
-        when(traceService.startStep(eq("run-1"), eq("rag_retrieve"), any())).thenReturn(primaryStep);
-        when(traceService.startStep(eq("run-1"), eq("rag_keyword_fallback_retrieve"), any()))
+        when(traceService.startTraceStep(eq("run-1"), eq("rag_retrieve"), any())).thenReturn(primaryStep);
+        when(traceService.startTraceStep(eq("run-1"), eq("rag_keyword_fallback_retrieve"), any()))
                 .thenReturn(fallbackStep);
 
         RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, traceService,
@@ -91,8 +89,8 @@ class RagServiceTest {
         verify(keywordRetriever, never()).retrieve(any(), anyInt());
     }
 
-    private static RunStepEntity step(String stepId, String nodeName) {
-        return new RunStepEntity(stepId, "run-1", nodeName, "{}", StepStatus.RUNNING, Instant.now());
+    private static TraceStep step(String stepId, String nodeName) {
+        return new TraceStep(stepId, "run-1", nodeName);
     }
 
 }

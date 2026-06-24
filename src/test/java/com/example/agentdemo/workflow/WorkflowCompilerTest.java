@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -113,6 +114,19 @@ class WorkflowCompilerTest {
         assertThatThrownBy(() -> compiler.compile(definition))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Unsupported config key for node start: unexpected");
+    }
+
+    @Test
+    void rejectsMissingRequiredConfigKeys() {
+        WorkflowCompiler compiler = new WorkflowCompiler(new RequiredToolNameSchemaRegistry());
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of()),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config tool.toolName is required");
     }
 
     @Test
@@ -278,6 +292,24 @@ class WorkflowCompilerTest {
             edges.add(new WorkflowEdge(nodes[i].id(), nodes[i + 1].id()));
         }
         return edges;
+    }
+
+    private static final class RequiredToolNameSchemaRegistry extends WorkflowNodeSchemaRegistry {
+
+        @Override
+        public Optional<WorkflowNodeSchema> findSchema(String type) {
+            if (!"tool".equals(type)) {
+                return super.findSchema(type);
+            }
+            return Optional.of(new WorkflowNodeSchema(
+                    "tool",
+                    "Tool",
+                    "Test tool schema with required toolName.",
+                    List.of(new WorkflowNodeConfigField("toolName", "string", true, null, "Tool name.", Map.of())),
+                    List.of(),
+                    "A tool execution log."));
+        }
+
     }
 
 }

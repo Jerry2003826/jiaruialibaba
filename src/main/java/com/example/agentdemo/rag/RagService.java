@@ -8,10 +8,10 @@ import com.example.agentdemo.rag.dto.DocumentResponse;
 import com.example.agentdemo.rag.dto.RagChatRequest;
 import com.example.agentdemo.rag.dto.RagChatResponse;
 import com.example.agentdemo.rag.dto.RetrievedContext;
-import com.example.agentdemo.trace.RunEntity;
-import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,34 +64,34 @@ public class RagService {
     }
 
     public RagChatResponse chat(RagChatRequest request) {
-        RunEntity run = traceService.createRun(RunType.RAG_CHAT, request);
-        RunStepEntity activeStep = null;
+        TraceRun run = traceService.startRun(RunType.RAG_CHAT, request);
+        TraceStep activeStep = null;
         try {
-            List<RetrievedContext> contexts = retrieveForChat(run.getRunId(), request.message());
+            List<RetrievedContext> contexts = retrieveForChat(run.runId(), request.message());
 
             String contextText = contexts.stream()
                     .map(context -> "Document " + context.documentId() + " (" + context.title() + "):\n"
                             + context.snippet())
                     .collect(Collectors.joining("\n\n"));
             String prompt = "Question:\n" + request.message() + "\n\nRetrieved context:\n" + contextText;
-            activeStep = traceService.startStep(run.getRunId(), "rag_generate_answer",
+            activeStep = traceService.startTraceStep(run.runId(), "rag_generate_answer",
                     Map.of("prompt", prompt, "contextCount", contexts.size()));
             AiModelResult modelResult = aiModelService.generate(RAG_SYSTEM_PROMPT, prompt);
             String answer = modelResult.fallback()
                     ? fallbackAnswer(request.message(), contexts)
                     : modelResult.answer();
-            RagChatResponse response = new RagChatResponse(answer, run.getRunId(), contexts);
-            traceService.completeStep(activeStep.getStepId(),
+            RagChatResponse response = new RagChatResponse(answer, run.runId(), contexts);
+            traceService.completeStep(activeStep.stepId(),
                     Map.of("answer", answer, "fallback", modelResult.fallback()));
             activeStep = null;
-            traceService.markRunSucceeded(run.getRunId(), response);
+            traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
         catch (RuntimeException ex) {
             if (activeStep != null) {
-                traceService.failStep(activeStep.getStepId(), ex);
+                traceService.failStep(activeStep.stepId(), ex);
             }
-            traceService.markRunFailed(run.getRunId(), ex);
+            traceService.markRunFailed(run.runId(), ex);
             throw ex;
         }
     }
@@ -102,7 +102,7 @@ public class RagService {
     }
 
     private List<RetrievedContext> retrieveWithOptionalTrace(String runId, String message, int topK) {
-        RunStepEntity primaryStep = startRetrieveStep(runId, "rag_retrieve",
+        TraceStep primaryStep = startRetrieveStep(runId, "rag_retrieve",
                 Map.of("query", message, "retriever", documentRetriever.name()));
         try {
             List<RetrievedContext> contexts = documentRetriever.retrieve(message, topK);
@@ -120,7 +120,7 @@ public class RagService {
 
     private List<RetrievedContext> retrieveWithKeywordFallback(String runId, String message, int topK,
             RuntimeException primaryFailure) {
-        RunStepEntity fallbackStep = startRetrieveStep(runId, "rag_keyword_fallback_retrieve",
+        TraceStep fallbackStep = startRetrieveStep(runId, "rag_keyword_fallback_retrieve",
                 Map.of("query", message, "reason", failureReason(primaryFailure), "retriever",
                         keywordDocumentRetriever.name()));
         try {
@@ -134,22 +134,22 @@ public class RagService {
         }
     }
 
-    private RunStepEntity startRetrieveStep(String runId, String nodeName, Object input) {
+    private TraceStep startRetrieveStep(String runId, String nodeName, Object input) {
         if (runId == null) {
             return null;
         }
-        return traceService.startStep(runId, nodeName, input);
+        return traceService.startTraceStep(runId, nodeName, input);
     }
 
-    private void completeStep(RunStepEntity step, Object output) {
+    private void completeStep(TraceStep step, Object output) {
         if (step != null) {
-            traceService.completeStep(step.getStepId(), output);
+            traceService.completeStep(step.stepId(), output);
         }
     }
 
-    private void failStep(RunStepEntity step, RuntimeException ex) {
+    private void failStep(TraceStep step, RuntimeException ex) {
         if (step != null) {
-            traceService.failStep(step.getStepId(), ex);
+            traceService.failStep(step.stepId(), ex);
         }
     }
 

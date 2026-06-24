@@ -6,10 +6,10 @@ import com.example.agentdemo.chat.dto.StreamChunk;
 import com.example.agentdemo.chat.dto.StreamDone;
 import com.example.agentdemo.chat.dto.StreamError;
 import com.example.agentdemo.config.SseConfig;
-import com.example.agentdemo.trace.RunEntity;
-import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,30 +45,30 @@ public class ChatService {
     }
 
     public ChatResponse chat(ChatRequest request) {
-        RunEntity run = traceService.createRun(RunType.CHAT, request);
-        RunStepEntity step = traceService.startStep(run.getRunId(), "dashscope_chat",
+        TraceRun run = traceService.startRun(RunType.CHAT, request);
+        TraceStep step = traceService.startTraceStep(run.runId(), "dashscope_chat",
                 Map.of("message", request.message(), "conversationId", nullable(request.conversationId())));
         try {
             AiModelResult result = aiModelService.generate(SYSTEM_PROMPT, request.message());
-            ChatResponse response = new ChatResponse(result.answer(), run.getRunId());
-            traceService.completeStep(step.getStepId(),
+            ChatResponse response = new ChatResponse(result.answer(), run.runId());
+            traceService.completeStep(step.stepId(),
                     Map.of("answer", result.answer(), "fallback", result.fallback(),
                             "errorMessage", nullable(result.errorMessage())));
-            traceService.markRunSucceeded(run.getRunId(), response);
+            traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
         catch (RuntimeException ex) {
-            traceService.failStep(step.getStepId(), ex);
-            traceService.markRunFailed(run.getRunId(), ex);
+            traceService.failStep(step.stepId(), ex);
+            traceService.markRunFailed(run.runId(), ex);
             throw ex;
         }
     }
 
     public SseEmitter stream(ChatRequest request) {
-        RunEntity run = traceService.createRun(RunType.CHAT, request);
+        TraceRun run = traceService.startRun(RunType.CHAT, request);
         SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
         AtomicBoolean terminal = new AtomicBoolean(false);
-        AtomicReference<RunStepEntity> stepRef = new AtomicReference<>();
+        AtomicReference<TraceStep> stepRef = new AtomicReference<>();
         emitter.onTimeout(() -> handleEmitterTimeout(run, emitter, terminal, stepRef));
         emitter.onError(error -> handleEmitterError(run, terminal, stepRef, error));
         try {
@@ -80,24 +80,24 @@ public class ChatService {
         return emitter;
     }
 
-    private void streamInBackground(ChatRequest request, RunEntity run, SseEmitter emitter, AtomicBoolean terminal,
-            AtomicReference<RunStepEntity> stepRef) {
+    private void streamInBackground(ChatRequest request, TraceRun run, SseEmitter emitter, AtomicBoolean terminal,
+            AtomicReference<TraceStep> stepRef) {
         StringBuilder answer = new StringBuilder();
         try {
-            RunStepEntity step = traceService.startStep(run.getRunId(), "dashscope_stream_chat",
+            TraceStep step = traceService.startTraceStep(run.runId(), "dashscope_stream_chat",
                     Map.of("message", request.message(), "conversationId", nullable(request.conversationId())));
             stepRef.set(step);
             boolean fallback = aiModelService.stream(SYSTEM_PROMPT, request.message(), chunk -> {
                 answer.append(chunk);
-                send(emitter, "message", new StreamChunk(run.getRunId(), chunk));
+                send(emitter, "message", new StreamChunk(run.runId(), chunk));
             });
             if (terminal.compareAndSet(false, true)) {
-                traceService.completeStep(step.getStepId(),
+                traceService.completeStep(step.stepId(),
                         Map.of("answer", answer.toString(), "fallback", fallback));
                 stepRef.set(null);
-                traceService.markRunSucceeded(run.getRunId(), new ChatResponse(answer.toString(), run.getRunId()));
+                traceService.markRunSucceeded(run.runId(), new ChatResponse(answer.toString(), run.runId()));
                 try {
-                    send(emitter, "done", new StreamDone(run.getRunId(), answer.toString()));
+                    send(emitter, "done", new StreamDone(run.runId(), answer.toString()));
                     emitter.complete();
                 }
                 catch (RuntimeException sendFailure) {
@@ -111,15 +111,15 @@ public class ChatService {
         }
     }
 
-    private void handleEmitterTimeout(RunEntity run, SseEmitter emitter, AtomicBoolean terminal,
-            AtomicReference<RunStepEntity> stepRef) {
+    private void handleEmitterTimeout(TraceRun run, SseEmitter emitter, AtomicBoolean terminal,
+            AtomicReference<TraceStep> stepRef) {
         RuntimeException timeout = new IllegalStateException("SSE stream timed out after "
                 + sseProperties.timeoutMs() + " ms");
         if (terminal.compareAndSet(false, true)) {
             failStepIfPresent(stepRef, timeout);
-            traceService.markRunFailed(run.getRunId(), timeout);
+            traceService.markRunFailed(run.runId(), timeout);
             try {
-                send(emitter, "error", new StreamError(run.getRunId(), timeout.getMessage()));
+                send(emitter, "error", new StreamError(run.runId(), timeout.getMessage()));
                 emitter.complete();
             }
             catch (RuntimeException ex) {
@@ -128,21 +128,21 @@ public class ChatService {
         }
     }
 
-    private void handleEmitterError(RunEntity run, AtomicBoolean terminal, AtomicReference<RunStepEntity> stepRef,
+    private void handleEmitterError(TraceRun run, AtomicBoolean terminal, AtomicReference<TraceStep> stepRef,
             Throwable error) {
         if (terminal.compareAndSet(false, true)) {
             failStepIfPresent(stepRef, error);
-            traceService.markRunFailed(run.getRunId(), error);
+            traceService.markRunFailed(run.runId(), error);
         }
     }
 
-    private void handleStreamFailure(RunEntity run, SseEmitter emitter, AtomicBoolean terminal,
-            AtomicReference<RunStepEntity> stepRef, RuntimeException ex) {
+    private void handleStreamFailure(TraceRun run, SseEmitter emitter, AtomicBoolean terminal,
+            AtomicReference<TraceStep> stepRef, RuntimeException ex) {
         if (terminal.compareAndSet(false, true)) {
             failStepIfPresent(stepRef, ex);
-            traceService.markRunFailed(run.getRunId(), ex);
+            traceService.markRunFailed(run.runId(), ex);
             try {
-                send(emitter, "error", new StreamError(run.getRunId(), ex.getMessage()));
+                send(emitter, "error", new StreamError(run.runId(), ex.getMessage()));
                 emitter.complete();
             }
             catch (RuntimeException sendFailure) {
@@ -151,10 +151,10 @@ public class ChatService {
         }
     }
 
-    private void failStepIfPresent(AtomicReference<RunStepEntity> stepRef, Throwable error) {
-        RunStepEntity step = stepRef.getAndSet(null);
+    private void failStepIfPresent(AtomicReference<TraceStep> stepRef, Throwable error) {
+        TraceStep step = stepRef.getAndSet(null);
         if (step != null) {
-            traceService.failStep(step.getStepId(), error);
+            traceService.failStep(step.stepId(), error);
         }
     }
 

@@ -1,10 +1,9 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
-import com.example.agentdemo.trace.RunEntity;
-import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.dto.RunResponse;
 import com.example.agentdemo.trace.dto.RunStepResponse;
@@ -14,11 +13,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 public class WorkflowService {
@@ -28,37 +24,35 @@ public class WorkflowService {
     private final TraceService traceService;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
-    private final RunRepository runRepository;
 
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
-            WorkflowRunRecordRepository workflowRunRecordRepository, RunRepository runRepository) {
+            WorkflowRunRecordRepository workflowRunRecordRepository) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
         this.traceService = traceService;
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowRunRecordRepository = workflowRunRecordRepository;
-        this.runRepository = runRepository;
     }
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
         requireDefinitionReference(request);
         WorkflowDefinitionResolution definitionResolution = resolveDefinition(request);
-        RunEntity run = traceService.createRun(RunType.WORKFLOW,
+        TraceRun run = traceService.startRun(RunType.WORKFLOW,
                 new WorkflowRunTraceInput(request, definitionResolution.definitionId(), definitionResolution.version()));
         try {
             recordRunMetadata(run, definitionResolution);
             WorkflowDefinition definition = definitionResolution.workflowDefinition();
             WorkflowExecutionPlan executionPlan = workflowCompiler.compile(definition);
-            WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), executionPlan,
+            WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.runId(), executionPlan,
                     request.input());
-            WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.getRunId(), result.steps(),
+            WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.runId(), result.steps(),
                     definitionResolution.definitionId(), definitionResolution.version());
-            traceService.markRunSucceeded(run.getRunId(), response);
+            traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
         catch (RuntimeException ex) {
-            traceService.markRunFailed(run.getRunId(), ex);
+            traceService.markRunFailed(run.runId(), ex);
             throw ex;
         }
     }
@@ -85,7 +79,7 @@ public class WorkflowService {
         Page<WorkflowRunRecordEntity> recordPage =
                 workflowRunRecordRepository.searchRuns(definitionId, definitionVersion, status, pageable);
         List<WorkflowRunRecordEntity> records = recordPage.getContent();
-        Map<String, RunEntity> runsById = findRunsById(records);
+        Map<String, RunResponse> runsById = findRunsById(records);
         List<WorkflowRunRecordResponse> content =
                 records.stream().map(entity -> toResponse(entity, runsById.get(entity.getRunId()))).toList();
         return new WorkflowRunPageResponse(content, recordPage.getNumber(), recordPage.getSize(),
@@ -128,35 +122,24 @@ public class WorkflowService {
         }
     }
 
-    private void recordRunMetadata(RunEntity run, WorkflowDefinitionResolution definitionResolution) {
+    private void recordRunMetadata(TraceRun run, WorkflowDefinitionResolution definitionResolution) {
         if (definitionResolution.definitionId() == null || definitionResolution.version() == null) {
             return;
         }
-        workflowRunRecordRepository.save(new WorkflowRunRecordEntity(run.getRunId(),
-                definitionResolution.definitionId(), definitionResolution.version(), run.getStartedAt()));
+        workflowRunRecordRepository.save(new WorkflowRunRecordEntity(run.runId(),
+                definitionResolution.definitionId(), definitionResolution.version(), run.startedAt()));
     }
 
-    private Map<String, RunEntity> findRunsById(List<WorkflowRunRecordEntity> records) {
-        if (records.isEmpty()) {
-            return Collections.emptyMap();
-        }
+    private Map<String, RunResponse> findRunsById(List<WorkflowRunRecordEntity> records) {
         List<String> runIds = records.stream().map(WorkflowRunRecordEntity::getRunId).toList();
-        return runRepository.findAllByRunIdIn(runIds)
-                .stream()
-                .collect(Collectors.toMap(RunEntity::getRunId, Function.identity()));
+        return traceService.findRunsById(runIds);
     }
 
-    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity, RunEntity run) {
+    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity, RunResponse run) {
         if (run == null) {
             return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
                     entity.getDefinitionVersion(), entity.getStartedAt(), null, null, null, null);
         }
-        return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
-                entity.getDefinitionVersion(), entity.getStartedAt(), run.getStatus(), run.getOutput(),
-                run.getErrorMessage(), run.getEndedAt());
-    }
-
-    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity, RunResponse run) {
         return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
                 entity.getDefinitionVersion(), entity.getStartedAt(), run.status(), run.output(), run.errorMessage(),
                 run.endedAt());

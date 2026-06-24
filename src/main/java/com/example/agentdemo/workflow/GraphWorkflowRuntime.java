@@ -6,7 +6,6 @@ import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.example.agentdemo.common.BusinessException;
-import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.TraceService;
 
 import java.util.ArrayList;
@@ -25,14 +24,12 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
     private static final String NODE_OUTPUT_STATE_KEY = "lastNodeOutput";
 
     private final WorkflowNodeExecutor nodeExecutor;
-    private final WorkflowNodeRunner nodeRunner;
-    private final TraceService traceService;
+    private final WorkflowNodeTraceExecutor traceExecutor;
 
     public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService executorService) {
         this.nodeExecutor = nodeExecutor;
-        this.nodeRunner = new WorkflowNodeRunner(nodeExecutor, executorService);
-        this.traceService = traceService;
+        this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService);
     }
 
     @Override
@@ -147,58 +144,28 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
 
     private Map<String, Object> executeGraphNodeLocked(String runId, WorkflowNode node, WorkflowExecutionState state,
             GraphExecutionContext context) {
-        RunStepEntity step = traceService.startStep(runId, "workflow_node_" + node.id(),
-                nodeExecutor.nodeInput(node, state));
         try {
-            WorkflowNodeExecutionResult result = nodeRunner.execute(runId, node, state);
+            WorkflowNodeTraceResult result = traceExecutor.execute(runId, node, state);
             Object output = result.output();
-            state.recordNodeOutput(node.id());
-            traceService.completeStep(step.getStepId(), result.traceOutput());
-            context.addSummary(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "SUCCEEDED",
-                    output));
+            context.addSummary(result.summary());
             return Map.of(NODE_OUTPUT_STATE_KEY, output == null ? "" : output);
         }
-        catch (WorkflowNodeExecutionFailure ex) {
-            traceService.failStep(step.getStepId(), ex.original(), ex.traceOutput());
-            context.addSummary(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED",
-                    ex.summaryOutput()));
+        catch (WorkflowNodeTraceExecutor.TracedWorkflowNodeFailure ex) {
+            context.addSummary(ex.summary());
             throw ex.original();
         }
-        catch (RuntimeException ex) {
-            Object failureOutput = failureOutput(ex);
-            traceService.failStep(step.getStepId(), ex, failureOutput);
-            context.addSummary(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED",
-                    failureOutput));
-            throw ex;
-        }
-    }
-
-    private Object failureOutput(RuntimeException ex) {
-        if (ex instanceof WorkflowNodeExecutionException nodeException) {
-            return nodeException.output();
-        }
-        return nodeExecutor.errorOutput(ex);
     }
 
     private Map<String, BranchPath> branchPathsByStartNodeId(WorkflowExecutionPlan executionPlan) {
         Map<String, BranchPath> branchPaths = new LinkedHashMap<>();
         Set<String> reservedNodeIds = new HashSet<>(executionPlan.nodesById().keySet());
-        for (WorkflowNode node : executionPlan.nodesById().values()) {
-            if (!"parallel".equals(nodeExecutor.normalizeType(node))) {
-                continue;
-            }
-            for (WorkflowExecutionEdge edge : executionPlan.outgoing(node.id())) {
-                String branchStartNodeId = edge.to();
-                WorkflowNode current = executionPlan.node(branchStartNodeId);
-                List<String> nodeIds = new ArrayList<>();
-                while (!"join".equals(nodeExecutor.normalizeType(current))) {
-                    nodeIds.add(current.id());
-                    current = executionPlan.node(executionPlan.outgoing(current.id()).getFirst().to());
-                }
-                String graphNodeId = syntheticBranchNodeId(node.id(), branchStartNodeId, reservedNodeIds);
-                branchPaths.put(branchStartNodeId,
-                        new BranchPath(node.id(), branchStartNodeId, current.id(), graphNodeId,
-                                List.copyOf(nodeIds)));
+        for (WorkflowParallelBlock block : executionPlan.parallelBlocks()) {
+            for (WorkflowBranchPath branch : block.branches()) {
+                String graphNodeId = syntheticBranchNodeId(block.parallelNodeId(), branch.branchStartNodeId(),
+                        reservedNodeIds);
+                branchPaths.put(branch.branchStartNodeId(),
+                        new BranchPath(block.parallelNodeId(), branch.branchStartNodeId(), branch.joinNodeId(),
+                                graphNodeId, branch.nodeIds()));
             }
         }
         return branchPaths;

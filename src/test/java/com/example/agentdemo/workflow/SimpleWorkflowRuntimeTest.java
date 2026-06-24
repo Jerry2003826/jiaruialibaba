@@ -10,9 +10,8 @@ import com.example.agentdemo.tool.ToolExecutionPolicy;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolProvider;
 import com.example.agentdemo.tool.ToolService;
-import com.example.agentdemo.trace.RunStepEntity;
-import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -49,7 +48,7 @@ class SimpleWorkflowRuntimeTest {
     void runsOnlyMatchingConditionBranch() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -70,7 +69,7 @@ class SimpleWorkflowRuntimeTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -100,7 +99,7 @@ class SimpleWorkflowRuntimeTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new MapEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("map_echo"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -132,7 +131,7 @@ class SimpleWorkflowRuntimeTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new MapEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("map_echo"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -180,7 +179,7 @@ class SimpleWorkflowRuntimeTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(provider),
                 ToolExecutionPolicy.allowOnlyRemoteTools("flaky_echo"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -211,7 +210,7 @@ class SimpleWorkflowRuntimeTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new SlowProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("slow_echo"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
@@ -256,8 +255,8 @@ class SimpleWorkflowRuntimeTest {
                         new WorkflowEdge("llm_fallback", "end"))));
     }
 
-    private static RunStepEntity step(String nodeName) {
-        return new RunStepEntity("step-" + nodeName, "run-1", nodeName, "{}", StepStatus.RUNNING, Instant.now());
+    private static TraceStep step(String nodeName) {
+        return new TraceStep("step-" + nodeName, "run-1", nodeName);
     }
 
     private static boolean hasAttemptCount(Object output, int expected) {

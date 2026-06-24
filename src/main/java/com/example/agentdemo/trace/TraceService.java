@@ -9,8 +9,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class TraceService {
@@ -26,13 +30,23 @@ public class TraceService {
     }
 
     @Transactional
-    public RunEntity createRun(RunType type, Object input) {
+    public TraceRun startRun(RunType type, Object input) {
+        RunEntity run = createRun(type, input);
+        return toTraceRun(run);
+    }
+
+    private RunEntity createRun(RunType type, Object input) {
         RunEntity run = new RunEntity(newId(), type, RunStatus.RUNNING, toJson(input), Instant.now());
         return runRepository.save(run);
     }
 
     @Transactional
-    public RunStepEntity startStep(String runId, String nodeName, Object input) {
+    public TraceStep startTraceStep(String runId, String nodeName, Object input) {
+        RunStepEntity step = startStep(runId, nodeName, input);
+        return toTraceStep(step);
+    }
+
+    private RunStepEntity startStep(String runId, String nodeName, Object input) {
         ensureRunExists(runId);
         RunStepEntity step = new RunStepEntity(newId(), runId, nodeName, toJson(input), StepStatus.RUNNING,
                 Instant.now());
@@ -96,6 +110,17 @@ public class TraceService {
     }
 
     @Transactional(readOnly = true)
+    public Map<String, RunResponse> findRunsById(List<String> runIds) {
+        if (runIds == null || runIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return runRepository.findAllByRunIdIn(runIds)
+                .stream()
+                .map(this::toRunResponse)
+                .collect(Collectors.toMap(RunResponse::runId, Function.identity()));
+    }
+
+    @Transactional(readOnly = true)
     public List<RunStepResponse> listSteps(String runId) {
         ensureRunExists(runId);
         return runStepRepository.findByRunIdOrderByStartedAtAsc(runId)
@@ -131,6 +156,14 @@ public class TraceService {
 
     private String newId() {
         return UUID.randomUUID().toString();
+    }
+
+    private TraceRun toTraceRun(RunEntity entity) {
+        return new TraceRun(entity.getRunId(), entity.getStartedAt());
+    }
+
+    private TraceStep toTraceStep(RunStepEntity entity) {
+        return new TraceStep(entity.getStepId(), entity.getRunId(), entity.getNodeName());
     }
 
     private RunResponse toRunResponse(RunEntity entity) {

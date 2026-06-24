@@ -6,10 +6,10 @@ import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
-import com.example.agentdemo.trace.RunEntity;
-import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -42,11 +42,11 @@ public class ToolCallingAgentService {
     }
 
     public ToolChatResponse toolChat(ToolChatRequest request) {
-        RunEntity run = traceService.createRun(RunType.TOOL_CHAT, request);
+        TraceRun run = traceService.startRun(RunType.TOOL_CHAT, request);
         List<ToolExecutionLog> toolCalls = new ArrayList<>();
-        RunStepEntity finalStep = null;
+        TraceStep finalStep = null;
         try {
-            List<ToolPlan> plans = plan(request.message(), run.getRunId());
+            List<ToolPlan> plans = plan(request.message(), run.runId());
             String finalPrompt;
             if (plans.isEmpty()) {
                 finalPrompt = request.message();
@@ -55,7 +55,7 @@ public class ToolCallingAgentService {
                 StringBuilder promptBuilder = new StringBuilder("User question: ")
                         .append(request.message());
                 for (ToolPlan plan : plans) {
-                    ToolExecutionLog log = executeTool(plan, run.getRunId());
+                    ToolExecutionLog log = executeTool(plan, run.runId());
                     toolCalls.add(log);
                     if (!log.succeeded()) {
                         throw new IllegalArgumentException(log.errorMessage());
@@ -70,7 +70,7 @@ public class ToolCallingAgentService {
                 finalPrompt = promptBuilder.toString();
             }
 
-            finalStep = traceService.startStep(run.getRunId(), "agent_final_answer",
+            finalStep = traceService.startTraceStep(run.runId(), "agent_final_answer",
                     Map.of("prompt", finalPrompt, "toolCallCount", toolCalls.size()));
             AiModelResult modelResult = aiModelService.generate(TOOL_SYSTEM_PROMPT, finalPrompt);
             String answer = modelResult.fallback() && !toolCalls.isEmpty()
@@ -78,24 +78,24 @@ public class ToolCallingAgentService {
                             .map(log -> log.toolName() + "=" + log.output())
                             .toList()
                     : modelResult.answer();
-            ToolChatResponse response = new ToolChatResponse(answer, run.getRunId(), toolCalls);
-            traceService.completeStep(finalStep.getStepId(),
+            ToolChatResponse response = new ToolChatResponse(answer, run.runId(), toolCalls);
+            traceService.completeStep(finalStep.stepId(),
                     Map.of("answer", answer, "fallback", modelResult.fallback()));
             finalStep = null;
-            traceService.markRunSucceeded(run.getRunId(), response);
+            traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
         catch (RuntimeException ex) {
             if (finalStep != null) {
-                traceService.failStep(finalStep.getStepId(), ex);
+                traceService.failStep(finalStep.stepId(), ex);
             }
-            traceService.markRunFailed(run.getRunId(), ex);
+            traceService.markRunFailed(run.runId(), ex);
             throw ex;
         }
     }
 
     private List<ToolPlan> plan(String message, String runId) {
-        RunStepEntity step = traceService.startStep(runId, "agent_plan", Map.of("message", message));
+        TraceStep step = traceService.startTraceStep(runId, "agent_plan", Map.of("message", message));
         String lower = message.toLowerCase(Locale.ROOT);
         List<ToolPlan> plans = new ArrayList<>();
         String expression = extractExpression(message);
@@ -106,7 +106,7 @@ public class ToolCallingAgentService {
                 || message.contains("时间") || message.contains("现在")) {
             plans.add(new ToolPlan("getCurrentTime", null));
         }
-        traceService.completeStep(step.getStepId(), Map.of("tools", plans.stream()
+        traceService.completeStep(step.stepId(), Map.of("tools", plans.stream()
                 .map(plan -> Map.of("toolName", nullable(plan.toolName()), "expression", nullable(plan.expression())))
                 .toList()));
         return plans;
@@ -114,14 +114,14 @@ public class ToolCallingAgentService {
 
     private ToolExecutionLog executeTool(ToolPlan plan, String runId) {
         Map<String, Object> arguments = toolArguments(plan);
-        RunStepEntity step = traceService.startStep(runId, "tool_" + plan.toolName(),
+        TraceStep step = traceService.startTraceStep(runId, "tool_" + plan.toolName(),
                 Map.of("toolName", plan.toolName(), "arguments", arguments));
         ToolExecutionLog log = toolGatewayService.execute(plan.toolName(), arguments);
         if (log.succeeded()) {
-            traceService.completeStep(step.getStepId(), log);
+            traceService.completeStep(step.stepId(), log);
         }
         else {
-            traceService.failStep(step.getStepId(), new IllegalArgumentException(log.errorMessage()));
+            traceService.failStep(step.stepId(), new IllegalArgumentException(log.errorMessage()));
         }
         return log;
     }

@@ -10,9 +10,8 @@ import com.example.agentdemo.tool.ToolExecutionPolicy;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolProvider;
 import com.example.agentdemo.tool.ToolService;
-import com.example.agentdemo.trace.RunStepEntity;
-import com.example.agentdemo.trace.StepStatus;
 import com.example.agentdemo.trace.TraceService;
+import com.example.agentdemo.trace.TraceStep;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +50,7 @@ class GraphWorkflowRuntimeTest {
         ToolGatewayService toolGatewayService = new ToolGatewayService(
                 List.of(new LocalToolProvider(new ToolService())));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         when(aiModelService.generate(any(), any()))
                 .thenReturn(AiModelResult.ok("graph answer"));
@@ -79,7 +78,7 @@ class GraphWorkflowRuntimeTest {
     @Test
     void runsConditionBranchWorkflowThroughSpringAiAlibabaGraph() {
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-branch"), any(), any()))
+        when(traceService.startTraceStep(eq("run-branch"), any(), any()))
                 .thenAnswer(invocation -> stepForRun("run-branch", invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
@@ -115,7 +114,7 @@ class GraphWorkflowRuntimeTest {
         ToolGatewayService toolGatewayService = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_fail"));
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService,
@@ -144,7 +143,7 @@ class GraphWorkflowRuntimeTest {
     @Test
     void runsParallelJoinWorkflowThroughSpringAiAlibabaGraph() {
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
@@ -189,7 +188,7 @@ class GraphWorkflowRuntimeTest {
     @Test
     void parallelBranchesKeepLastOutputIsolatedUntilJoin() {
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
@@ -244,7 +243,7 @@ class GraphWorkflowRuntimeTest {
     @Test
     void supportsDirectEmptyBranchFromParallelToJoin() {
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
@@ -285,7 +284,7 @@ class GraphWorkflowRuntimeTest {
     @Test
     void syntheticBranchNodeIdDoesNotCollideWithUserNodeIds() {
         TraceService traceService = mock(TraceService.class);
-        when(traceService.startStep(eq("run-1"), any(), any()))
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
@@ -319,12 +318,12 @@ class GraphWorkflowRuntimeTest {
                 .contains("workflow_branch_parallel_1_tool_a", "tool_a", "tool_b", "join_1");
     }
 
-    private static RunStepEntity step(String nodeName) {
-        return new RunStepEntity("step-" + nodeName, "run-1", nodeName, "{}", StepStatus.RUNNING, Instant.now());
+    private static TraceStep step(String nodeName) {
+        return new TraceStep("step-" + nodeName, "run-1", nodeName);
     }
 
-    private static RunStepEntity stepForRun(String runId, String nodeName) {
-        return new RunStepEntity("step-" + nodeName, runId, nodeName, "{}", StepStatus.RUNNING, Instant.now());
+    private static TraceStep stepForRun(String runId, String nodeName) {
+        return new TraceStep("step-" + nodeName, runId, nodeName);
     }
 
     private static final class FailingRemoteProvider implements ToolProvider {

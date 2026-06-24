@@ -1,7 +1,6 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
-import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.TraceService;
 
 import java.util.ArrayList;
@@ -17,15 +16,13 @@ import java.util.concurrent.Future;
 public class SimpleWorkflowRuntime implements WorkflowRuntime {
 
     private final WorkflowNodeExecutor nodeExecutor;
-    private final WorkflowNodeRunner nodeRunner;
-    private final TraceService traceService;
+    private final WorkflowNodeTraceExecutor traceExecutor;
     private final ExecutorService executorService;
 
     public SimpleWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService executorService) {
         this.nodeExecutor = nodeExecutor;
-        this.nodeRunner = new WorkflowNodeRunner(nodeExecutor, executorService);
-        this.traceService = traceService;
+        this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService);
         this.executorService = executorService;
     }
 
@@ -74,10 +71,11 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
 
     private WorkflowNode executeParallelBranches(String runId, WorkflowExecutionPlan executionPlan,
             WorkflowNode parallelNode, WorkflowExecutionState state, List<WorkflowStepSummary> summaries) {
-        List<BranchPath> branchPaths = branchPaths(executionPlan, parallelNode);
+        WorkflowParallelBlock parallelBlock = executionPlan.parallelBlock(parallelNode.id());
+        List<WorkflowBranchPath> branchPaths = parallelBlock.branches();
         int baseToolCallCount = state.toolCallCount();
         List<Future<BranchExecutionResult>> futures = branchPaths.stream()
-                .map(path -> executorService.submit(() -> executeBranch(runId, path, state)))
+                .map(path -> executorService.submit(() -> executeBranch(runId, executionPlan, path, state)))
                 .toList();
         Map<String, Object> branchOutputs = new LinkedHashMap<>();
         for (int i = 0; i < futures.size(); i++) {
@@ -104,58 +102,19 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
             }
         }
         state.setParallelBranchOutputs(branchOutputs);
-        return branchPaths.getFirst().joinNode();
+        return executionPlan.node(parallelBlock.joinNodeId());
     }
 
-    private BranchExecutionResult executeBranch(String runId, BranchPath path, WorkflowExecutionState parentState) {
+    private BranchExecutionResult executeBranch(String runId, WorkflowExecutionPlan executionPlan,
+            WorkflowBranchPath path, WorkflowExecutionState parentState) {
         WorkflowExecutionState branchState = parentState.copyForBranch();
         List<WorkflowStepSummary> branchSummaries = new ArrayList<>();
-        for (WorkflowNode branchNode : path.nodes()) {
+        for (String nodeId : path.nodeIds()) {
+            WorkflowNode branchNode = executionPlan.node(nodeId);
             executeWithTrace(runId, branchNode, branchState, branchSummaries);
         }
         return new BranchExecutionResult(path.branchStartNodeId(), branchState.lastOutput(), branchState,
                 branchSummaries);
-    }
-
-    private List<BranchPath> branchPaths(WorkflowExecutionPlan executionPlan, WorkflowNode parallelNode) {
-        List<WorkflowExecutionEdge> outgoing = executionPlan.outgoing(parallelNode.id());
-        List<BranchPath> paths = new ArrayList<>();
-        WorkflowNode commonJoin = null;
-        for (WorkflowExecutionEdge edge : outgoing) {
-            BranchPath path = branchPath(executionPlan, edge.to());
-            if (commonJoin == null) {
-                commonJoin = path.joinNode();
-            }
-            else if (!commonJoin.id().equals(path.joinNode().id())) {
-                throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                        "Parallel branches must converge to the same join node: " + parallelNode.id());
-            }
-            paths.add(path);
-        }
-        return paths;
-    }
-
-    private BranchPath branchPath(WorkflowExecutionPlan executionPlan, String branchStartNodeId) {
-        List<WorkflowNode> nodes = new ArrayList<>();
-        Set<String> visited = new HashSet<>();
-        WorkflowNode current = executionPlan.node(branchStartNodeId);
-        while (current != null) {
-            if (!visited.add(current.id())) {
-                throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
-            }
-            if ("join".equals(nodeExecutor.normalizeType(current))) {
-                return new BranchPath(branchStartNodeId, nodes, current);
-            }
-            nodes.add(current);
-            List<WorkflowExecutionEdge> outgoing = executionPlan.outgoing(current.id());
-            if (outgoing.size() != 1 || outgoing.getFirst().conditional()) {
-                throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                        "Parallel branch must be linear before join: " + current.id());
-            }
-            current = executionPlan.node(outgoing.getFirst().to());
-        }
-        throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                "Parallel branch references missing node: " + branchStartNodeId);
     }
 
     private void cancelFutures(List<Future<BranchExecutionResult>> futures) {
@@ -166,42 +125,13 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
 
     private void executeWithTrace(String runId, WorkflowNode node, WorkflowExecutionState state,
             List<WorkflowStepSummary> summaries) {
-        RunStepEntity step = traceService.startStep(runId, "workflow_node_" + node.id(),
-                nodeExecutor.nodeInput(node, state));
         try {
-            WorkflowNodeExecutionResult result = nodeRunner.execute(runId, node, state);
-            Object output = result.output();
-            state.recordNodeOutput(node.id());
-            traceService.completeStep(step.getStepId(), result.traceOutput());
-            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "SUCCEEDED", output));
+            summaries.add(traceExecutor.execute(runId, node, state).summary());
         }
-        catch (WorkflowNodeExecutionFailure ex) {
-            traceService.failStep(step.getStepId(), ex.original(), ex.traceOutput());
-            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED",
-                    ex.summaryOutput()));
+        catch (WorkflowNodeTraceExecutor.TracedWorkflowNodeFailure ex) {
+            summaries.add(ex.summary());
             throw ex.original();
         }
-        catch (RuntimeException ex) {
-            Object failureOutput = failureOutput(ex);
-            traceService.failStep(step.getStepId(), ex, failureOutput);
-            summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "FAILED", failureOutput));
-            throw ex;
-        }
-    }
-
-    private Object failureOutput(RuntimeException ex) {
-        if (ex instanceof WorkflowNodeExecutionException nodeException) {
-            return nodeException.output();
-        }
-        return nodeExecutor.errorOutput(ex);
-    }
-
-    private record BranchPath(String branchStartNodeId, List<WorkflowNode> nodes, WorkflowNode joinNode) {
-
-        private BranchPath {
-            nodes = List.copyOf(nodes);
-        }
-
     }
 
     private record BranchExecutionResult(String branchStartNodeId, Object output, WorkflowExecutionState state,
