@@ -3,7 +3,7 @@ package com.example.agentdemo;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest(properties = {
+@SpringBootTest(classes = AgentBackendDemoApplication.class, properties = {
         "spring.ai.dashscope.api-key=",
         "demo.dashvector.endpoint=",
         "demo.dashvector.api-key=",

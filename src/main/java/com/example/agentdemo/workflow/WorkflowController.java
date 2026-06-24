@@ -22,12 +22,15 @@ public class WorkflowController {
     private final WorkflowService workflowService;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
+    private final WorkflowGraphPreviewService workflowGraphPreviewService;
 
     public WorkflowController(WorkflowService workflowService, WorkflowDefinitionService workflowDefinitionService,
-            WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry) {
+            WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry,
+            WorkflowGraphPreviewService workflowGraphPreviewService) {
         this.workflowService = workflowService;
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
+        this.workflowGraphPreviewService = workflowGraphPreviewService;
     }
 
     @PostMapping("/definitions")
@@ -84,6 +87,12 @@ public class WorkflowController {
     public ApiResponse<WorkflowValidationResponse> validate(
             @Valid @RequestBody WorkflowValidationRequest request) {
         return ApiResponse.ok(workflowService.validate(request));
+    }
+
+    @PostMapping("/preview-graph")
+    public ApiResponse<WorkflowGraphPreviewResponse> previewGraph(
+            @Valid @RequestBody WorkflowGraphPreviewRequest request) {
+        return ApiResponse.ok(workflowGraphPreviewService.preview(request));
     }
 
     @PostMapping("/run")

@@ -16,7 +16,6 @@ import org.springframework.util.StringUtils;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -67,7 +66,8 @@ public class WorkflowService {
     public WorkflowValidationResponse validate(WorkflowValidationRequest request) {
         try {
             WorkflowExecutionPlan executionPlan = workflowCompiler.compile(request.workflowDefinition());
-            return WorkflowValidationResponse.valid(validationSummary(request.workflowDefinition(), executionPlan));
+            return WorkflowValidationResponse.valid(
+                    WorkflowValidationSummaryFactory.from(request.workflowDefinition(), executionPlan));
         }
         catch (BusinessException ex) {
             return WorkflowValidationResponse.invalid(ex.getCode(), ex.getMessage());
@@ -134,17 +134,6 @@ public class WorkflowService {
         }
         workflowRunRecordRepository.save(new WorkflowRunRecordEntity(run.getRunId(),
                 definitionResolution.definitionId(), definitionResolution.version(), run.getStartedAt()));
-    }
-
-    private WorkflowValidationSummary validationSummary(WorkflowDefinition definition,
-            WorkflowExecutionPlan executionPlan) {
-        List<String> nodeTypes = executionPlan.nodesById().values()
-                .stream()
-                .map(node -> node.type().toLowerCase(Locale.ROOT))
-                .distinct()
-                .toList();
-        return new WorkflowValidationSummary(executionPlan.nodesById().size(), definition.edges().size(),
-                executionPlan.linear(), executionPlan.startNode().id(), executionPlan.endNode().id(), nodeTypes);
     }
 
     private Map<String, RunEntity> findRunsById(List<WorkflowRunRecordEntity> records) {

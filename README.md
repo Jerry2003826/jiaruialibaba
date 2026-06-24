@@ -167,6 +167,7 @@ http://localhost:8080
 - `DELETE /api/workflows/definitions/{definitionId}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/validate`
+- `POST /api/workflows/preview-graph`
 - `POST /api/workflows/run`
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
 - `GET /api/workflows/runs/{runId}`
@@ -511,6 +512,30 @@ curl -X POST http://localhost:8080/api/workflows/validate \
 
 该接口只做 DSL schema 和拓扑编译校验，不执行模型、RAG 或工具，也不会创建 run trace。有效定义返回 `valid=true` 和摘要；无效定义返回 `valid=false` 与第一条编译错误。
 
+预览 Workflow 图结构：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/preview-graph \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workflowDefinition": {
+      "nodes": [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "retriever_1", "type": "retriever", "config": {"topK": 3}},
+        {"id": "llm_1", "type": "llm", "config": {"prompt": "基于上下文回答：{{context}}\n用户问题：{{input}}"}},
+        {"id": "end", "type": "end", "config": {}}
+      ],
+      "edges": [
+        {"from": "start", "to": "retriever_1"},
+        {"from": "retriever_1", "to": "llm_1"},
+        {"from": "llm_1", "to": "end"}
+      ]
+    }
+  }'
+```
+
+该接口会复用 `WorkflowCompiler` 校验 DSL，并返回 `summary`、有序 `nodes`、有序 `edges` 和 `mermaid` 文本，方便后续可视化画布或文档预览使用。它不会执行节点、不会调用模型/RAG/工具，也不会创建 run trace。
+
 查看运行轨迹：
 
 ```bash
@@ -530,6 +555,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
 - `WorkflowRunRecord`: 按 `definitionId` / `definitionVersion` 索引已保存定义触发的 workflow run。
 - `WorkflowValidationRequest`: 画布或 DSL 编辑器保存前的编译级校验请求。
+- `WorkflowGraphPreviewRequest`: 画布或 DSL 编辑器的图结构预览请求，返回节点、边和 Mermaid 文本，不执行 workflow。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 执行线性节点、`condition` true/false 分支，以及受限 `parallel` / `join` 并行合流
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行线性节点、`condition` true/false 条件分支，以及受限 `parallel` / `join` 并行合流
@@ -604,6 +630,7 @@ Spring AI Alibaba Graph 接入：
 - 后续可把节点 schema 固化为 registry：节点类型、配置表单、输入输出变量、校验规则。
 - `GET /api/workflows/node-schemas` 可驱动画布节点面板和配置表单。
 - `POST /api/workflows/validate` 可用于保存前校验，不会执行节点或产生 run trace。
+- `POST /api/workflows/preview-graph` 可用于保存前图结构预览，返回后端规范化的节点、边和 Mermaid 文本，不会执行节点或产生 run trace。
 - 当前 API 已支持保存 workflow definition，并可作为画布保存前的运行预览接口。
 
 ## GitHub MCP 本地示例
