@@ -25,6 +25,18 @@ demo:
   mcp:
     enabled: true
     server-name: ${DEMO_MCP_SERVER_NAME:github}
+    registry:
+      servers:
+        - name: ${DEMO_MCP_SERVER_NAME:github}
+          enabled: true
+          transport: stdio
+          connection-name: github
+          description: GitHub MCP server in read-only repos mode
+          command-env: GITHUB_MCP_SERVER_COMMAND
+          required-env:
+            - GITHUB_PERSONAL_ACCESS_TOKEN
+          toolsets:
+            - ${GITHUB_MCP_TOOLSETS:repos}
   tools:
     allow-all-remote-tools: false
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:github:get_file_contents,github:search_repositories,github:list_commits,github:get_commit,github:list_branches}

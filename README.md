@@ -93,6 +93,10 @@ export DEMO_WORKFLOW_RUNTIME=graph
 
 远程工具调用结果会进入 `run_step.outputJson`，包含 `provider`、`remote`、`serverName`、`durationMs`、`errorCategory` 和 `errorType`。`serverName` 由 `demo.mcp.server-name` 配置；例如 `mcp-github` profile 会写入 `github`。`errorType=NORMAL` 表示本地策略、参数或序列化错误，`errorType=RAW_REMOTE` 表示远程 MCP tool callback 抛出的原始调用错误。
 
+`GET /api/tools/mcp/servers` 会返回 MCP server registry 的只读摘要，包括 server 名称、连接名、transport、toolsets、allowlist、已注册工具和必需环境变量是否已配置。它只暴露环境变量名称和布尔状态，不返回任何 token 或 secret 值。
+
+当前 registry 是平台层配置视图。远程 tool 的运行时 `serverName` 仍由 `demo.mcp.server-name` 统一标记；如果同时接入多个 MCP server，后续需要在 provider 层补充更精确的 tool-to-connection 映射。
+
 MCP client 默认关闭，不会在本地启动时主动连接远程 MCP server：
 
 ```bash
@@ -150,6 +154,7 @@ http://localhost:8080
 - `POST /api/chat/stream`
 - `POST /api/agent/tool-chat`
 - `GET /api/tools`
+- `GET /api/tools/mcp/servers`
 - `POST /api/rag/documents`
 - `POST /api/rag/chat`
 - `POST /api/workflows/run`
@@ -197,6 +202,12 @@ curl -X POST http://localhost:8080/api/agent/tool-chat \
 
 ```bash
 curl http://localhost:8080/api/tools
+```
+
+查看 MCP server registry 摘要：
+
+```bash
+curl http://localhost:8080/api/tools/mcp/servers
 ```
 
 提交 RAG 文档：
@@ -304,12 +315,13 @@ export DEMO_TOOLS_ALLOWED_REMOTE_TOOLS=github:get_file_contents,github:search_re
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,mcp-github
 ```
 
-`mcp-github` profile 定义在 `src/main/resources/application-mcp-github.yml`。如果以后接多个 MCP server，可以复制该 profile 的 `spring.ai.mcp.client.stdio.connections.github` 配置块，改成新的连接名和命令，并把允许执行的远程工具加入 `DEMO_TOOLS_ALLOWED_REMOTE_TOOLS`。
+`mcp-github` profile 定义在 `src/main/resources/application-mcp-github.yml`。如果以后接多个 MCP server，可以复制该 profile 的 `spring.ai.mcp.client.stdio.connections.github` 配置块，改成新的连接名和命令，并在 `demo.mcp.registry.servers` 增加对应 server 摘要，把允许执行的远程工具加入 `DEMO_TOOLS_ALLOWED_REMOTE_TOOLS`。
 
 启动后可以先查看 GitHub MCP 暴露的工具名：
 
 ```bash
 curl http://localhost:8080/api/tools
+curl http://localhost:8080/api/tools/mcp/servers
 ```
 
 用 workflow 调用远程 GitHub MCP 工具读取当前仓库 README：

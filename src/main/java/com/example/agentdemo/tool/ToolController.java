@@ -12,14 +12,21 @@ import java.util.List;
 public class ToolController {
 
     private final ToolGatewayService toolGatewayService;
+    private final McpServerRegistryService mcpServerRegistryService;
 
-    public ToolController(ToolGatewayService toolGatewayService) {
+    public ToolController(ToolGatewayService toolGatewayService, McpServerRegistryService mcpServerRegistryService) {
         this.toolGatewayService = toolGatewayService;
+        this.mcpServerRegistryService = mcpServerRegistryService;
     }
 
     @GetMapping
     public ApiResponse<List<ToolDescriptor>> listTools() {
         return ApiResponse.ok(toolGatewayService.listTools());
+    }
+
+    @GetMapping("/mcp/servers")
+    public ApiResponse<List<McpServerSummary>> listMcpServers() {
+        return ApiResponse.ok(mcpServerRegistryService.listServers());
     }
 
 }
