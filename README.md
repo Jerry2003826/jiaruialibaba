@@ -278,6 +278,8 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
 - `WorkflowNodeSchemaRegistry`: 返回当前支持节点的配置字段、默认值、约束和模板变量，供后续画布或 DSL 编辑器使用
 
+`WorkflowCompiler` 会复用节点 schema 做基础 config 校验：不允许未知 config key，常见类型需要匹配，`retriever.topK` 会校验 `1..20` 范围，字符串配置如果显式传入则不能为空。
+
 已支持节点类型：
 
 - `start`: 将请求 `input` 放入 workflow 状态。

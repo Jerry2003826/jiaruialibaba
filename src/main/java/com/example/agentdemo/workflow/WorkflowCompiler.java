@@ -11,12 +11,21 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Component
 public class WorkflowCompiler {
 
     private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "end");
+
+    private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
+
+    public WorkflowCompiler(WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry) {
+        this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
+    }
 
     public List<WorkflowNode> compile(WorkflowDefinition definition) {
         Map<String, WorkflowNode> nodesById = indexNodes(definition.nodes());
@@ -37,9 +46,82 @@ public class WorkflowCompiler {
             if (!SUPPORTED_TYPES.contains(type)) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED", "Unsupported node type: " + node.type());
             }
+            validateConfig(node, type);
             nodesById.put(node.id(), node);
         }
         return nodesById;
+    }
+
+    private void validateConfig(WorkflowNode node, String normalizedType) {
+        WorkflowNodeSchema schema = workflowNodeSchemaRegistry.findSchema(normalizedType)
+                .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Missing workflow node schema for type: " + normalizedType));
+        Map<String, WorkflowNodeConfigField> fieldsByName = schema.configFields().stream()
+                .collect(Collectors.toMap(WorkflowNodeConfigField::name, Function.identity()));
+        for (Map.Entry<String, Object> configEntry : node.config().entrySet()) {
+            WorkflowNodeConfigField field = fieldsByName.get(configEntry.getKey());
+            if (field == null) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Unsupported config key for node " + node.id() + ": " + configEntry.getKey());
+            }
+            validateConfigField(node, field, configEntry.getValue());
+        }
+    }
+
+    private void validateConfigField(WorkflowNode node, WorkflowNodeConfigField field, Object value) {
+        if (value == null) {
+            if (field.required()) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Config " + node.id() + "." + field.name() + " is required");
+            }
+            return;
+        }
+        if (!matchesType(field.type(), value)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + "." + field.name() + " must be " + field.type());
+        }
+        if (value instanceof String text && !StringUtils.hasText(text)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + "." + field.name() + " must not be blank");
+        }
+        validateNumberRange(node, field, value);
+    }
+
+    private boolean matchesType(String type, Object value) {
+        return switch (type) {
+            case "string" -> value instanceof String;
+            case "integer" -> value instanceof Byte || value instanceof Short || value instanceof Integer
+                    || value instanceof Long;
+            case "number" -> value instanceof Number;
+            case "boolean" -> value instanceof Boolean;
+            case "object" -> value instanceof Map<?, ?>;
+            case "array" -> value instanceof Iterable<?> || value.getClass().isArray();
+            default -> true;
+        };
+    }
+
+    private void validateNumberRange(WorkflowNode node, WorkflowNodeConfigField field, Object value) {
+        if (!(value instanceof Number number)) {
+            return;
+        }
+        Optional<Number> min = numberConstraint(field, "min");
+        if (min.isPresent() && number.doubleValue() < min.get().doubleValue()) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + "." + field.name() + " must be >= " + min.get());
+        }
+        Optional<Number> max = numberConstraint(field, "max");
+        if (max.isPresent() && number.doubleValue() > max.get().doubleValue()) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + "." + field.name() + " must be <= " + max.get());
+        }
+    }
+
+    private Optional<Number> numberConstraint(WorkflowNodeConfigField field, String key) {
+        Object value = field.constraints().get(key);
+        if (value instanceof Number number) {
+            return Optional.of(number);
+        }
+        return Optional.empty();
     }
 
     private WorkflowNode singleNodeByType(Map<String, WorkflowNode> nodesById, String type) {

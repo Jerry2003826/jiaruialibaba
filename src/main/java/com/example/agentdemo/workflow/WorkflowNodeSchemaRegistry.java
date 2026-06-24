@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class WorkflowNodeSchemaRegistry {
@@ -24,6 +25,12 @@ public class WorkflowNodeSchemaRegistry {
 
     public List<WorkflowNodeSchema> listSchemas() {
         return schemas;
+    }
+
+    public Optional<WorkflowNodeSchema> findSchema(String type) {
+        return schemas.stream()
+                .filter(schema -> schema.type().equals(type))
+                .findFirst();
     }
 
     private WorkflowNodeSchema startSchema() {
