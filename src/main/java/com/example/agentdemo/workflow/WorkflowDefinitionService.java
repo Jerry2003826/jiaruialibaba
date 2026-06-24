@@ -14,12 +14,15 @@ import java.util.UUID;
 public class WorkflowDefinitionService {
 
     private final WorkflowDefinitionRepository workflowDefinitionRepository;
+    private final WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository;
     private final WorkflowCompiler workflowCompiler;
     private final ObjectMapper objectMapper;
 
     public WorkflowDefinitionService(WorkflowDefinitionRepository workflowDefinitionRepository,
-            WorkflowCompiler workflowCompiler, ObjectMapper objectMapper) {
+            WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository, WorkflowCompiler workflowCompiler,
+            ObjectMapper objectMapper) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
+        this.workflowDefinitionRevisionRepository = workflowDefinitionRevisionRepository;
         this.workflowCompiler = workflowCompiler;
         this.objectMapper = objectMapper;
     }
@@ -29,7 +32,9 @@ public class WorkflowDefinitionService {
         workflowCompiler.compile(request.workflowDefinition());
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity(newId(), request.name().trim(),
                 normalizeDescription(request.description()), toJson(request.workflowDefinition()));
-        return toResponse(workflowDefinitionRepository.save(entity));
+        WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
+        saveRevision(saved);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -38,14 +43,22 @@ public class WorkflowDefinitionService {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.updateDraft(request.name().trim(), normalizeDescription(request.description()),
                 toJson(request.workflowDefinition()));
-        return toResponse(workflowDefinitionRepository.save(entity));
+        WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
+        saveRevision(saved);
+        return toResponse(saved);
     }
 
     @Transactional
     public WorkflowDefinitionResponse publish(String definitionId) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.publish();
-        return toResponse(workflowDefinitionRepository.save(entity));
+        WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
+        workflowDefinitionRevisionRepository.findByDefinitionIdAndVersion(saved.getDefinitionId(), saved.getVersion())
+                .ifPresent(revision -> {
+                    revision.markPublished();
+                    workflowDefinitionRevisionRepository.save(revision);
+                });
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -59,6 +72,15 @@ public class WorkflowDefinitionService {
     @Transactional(readOnly = true)
     public WorkflowDefinitionResponse get(String definitionId) {
         return toResponse(findEntity(definitionId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<WorkflowDefinitionRevisionResponse> listRevisions(String definitionId) {
+        findEntity(definitionId);
+        return workflowDefinitionRevisionRepository.findAllByDefinitionIdOrderByVersionDesc(definitionId)
+                .stream()
+                .map(this::toRevisionResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -80,6 +102,12 @@ public class WorkflowDefinitionService {
                 fromJson(entity), entity.getVersion(), entity.getStatus(), entity.getCreatedAt(), entity.getUpdatedAt());
     }
 
+    private WorkflowDefinitionRevisionResponse toRevisionResponse(WorkflowDefinitionRevisionEntity entity) {
+        return new WorkflowDefinitionRevisionResponse(entity.getDefinitionId(), entity.getVersion(), entity.getStatus(),
+                entity.getName(), entity.getDescription(), fromJson(entity), entity.getCreatedAt(),
+                entity.getUpdatedAt());
+    }
+
     private WorkflowDefinition fromJson(WorkflowDefinitionEntity entity) {
         try {
             return objectMapper.readValue(entity.getDefinitionJson(), WorkflowDefinition.class);
@@ -88,6 +116,24 @@ public class WorkflowDefinitionService {
             throw new BusinessException("WORKFLOW_DEFINITION_DESERIALIZATION_FAILED",
                     "Failed to deserialize workflow definition: " + entity.getDefinitionId(), ex);
         }
+    }
+
+    private WorkflowDefinition fromJson(WorkflowDefinitionRevisionEntity entity) {
+        try {
+            return objectMapper.readValue(entity.getDefinitionJson(), WorkflowDefinition.class);
+        }
+        catch (JsonProcessingException ex) {
+            throw new BusinessException("WORKFLOW_DEFINITION_DESERIALIZATION_FAILED",
+                    "Failed to deserialize workflow definition revision: " + entity.getDefinitionId() + ":"
+                            + entity.getVersion(), ex);
+        }
+    }
+
+    private void saveRevision(WorkflowDefinitionEntity entity) {
+        WorkflowDefinitionRevisionEntity revision = new WorkflowDefinitionRevisionEntity(entity.getDefinitionId(),
+                entity.getVersion(), entity.getStatus(), entity.getName(), entity.getDescription(),
+                entity.getDefinitionJson());
+        workflowDefinitionRevisionRepository.save(revision);
     }
 
     private String toJson(WorkflowDefinition definition) {

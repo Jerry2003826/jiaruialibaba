@@ -160,6 +160,7 @@ http://localhost:8080
 - `POST /api/workflows/definitions`
 - `GET /api/workflows/definitions`
 - `GET /api/workflows/definitions/{definitionId}`
+- `GET /api/workflows/definitions/{definitionId}/revisions`
 - `PUT /api/workflows/definitions/{definitionId}`
 - `POST /api/workflows/definitions/{definitionId}/publish`
 - `GET /api/workflows/node-schemas`
@@ -288,6 +289,12 @@ curl http://localhost:8080/api/workflows/definitions
 curl http://localhost:8080/api/workflows/definitions/{definitionId}
 ```
 
+查看 Workflow 定义 revision 历史：
+
+```bash
+curl http://localhost:8080/api/workflows/definitions/{definitionId}/revisions
+```
+
 更新 Workflow 定义：
 
 ```bash
@@ -353,6 +360,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowEdge`: `from`、`to`
 - `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + `input`
 - `WorkflowDefinitionStatus`: `DRAFT` / `PUBLISHED`
+- `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
@@ -374,7 +382,8 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 只支持线性 DAG：不支持分支、合流、并行、循环、条件边。
 - 复杂图会返回 `WORKFLOW_UNSUPPORTED`。
 - Workflow 定义可保存到 H2 的 `workflow_definitions` 表；新建为 `DRAFT` v1，更新时版本递增并回到 `DRAFT`，发布后状态为 `PUBLISHED`。
-- 当前是轻量版本号，不保留不可变 revision 历史，也没有回滚、租户隔离或发布环境区分。
+- 每次新建和更新都会写入 H2 的 `workflow_definition_revisions` 表；发布时会同步当前版本 revision 的状态为 `PUBLISHED`。
+- 当前还没有回滚、租户隔离或发布环境区分。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
 

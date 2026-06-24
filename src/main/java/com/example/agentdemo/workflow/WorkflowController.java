@@ -43,6 +43,12 @@ public class WorkflowController {
         return ApiResponse.ok(workflowDefinitionService.get(definitionId));
     }
 
+    @GetMapping("/definitions/{definitionId}/revisions")
+    public ApiResponse<List<WorkflowDefinitionRevisionResponse>> listDefinitionRevisions(
+            @PathVariable String definitionId) {
+        return ApiResponse.ok(workflowDefinitionService.listRevisions(definitionId));
+    }
+
     @PutMapping("/definitions/{definitionId}")
     public ApiResponse<WorkflowDefinitionResponse> updateDefinition(@PathVariable String definitionId,
             @Valid @RequestBody WorkflowDefinitionSaveRequest request) {

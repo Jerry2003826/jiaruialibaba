@@ -19,8 +19,9 @@ import static org.mockito.Mockito.when;
 class WorkflowDefinitionServiceTest {
 
     private final WorkflowDefinitionRepository repository = mock(WorkflowDefinitionRepository.class);
+    private final WorkflowDefinitionRevisionRepository revisionRepository = mock(WorkflowDefinitionRevisionRepository.class);
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
-    private final WorkflowDefinitionService service = new WorkflowDefinitionService(repository, compiler,
+    private final WorkflowDefinitionService service = new WorkflowDefinitionService(repository, revisionRepository, compiler,
             new ObjectMapper());
 
     @Test
@@ -46,6 +47,14 @@ class WorkflowDefinitionServiceTest {
         ArgumentCaptor<WorkflowDefinitionEntity> entityCaptor = ArgumentCaptor.forClass(WorkflowDefinitionEntity.class);
         verify(repository).save(entityCaptor.capture());
         assertThat(entityCaptor.getValue().getDefinitionJson()).contains("\"nodes\"");
+
+        ArgumentCaptor<WorkflowDefinitionRevisionEntity> revisionCaptor =
+                ArgumentCaptor.forClass(WorkflowDefinitionRevisionEntity.class);
+        verify(revisionRepository).save(revisionCaptor.capture());
+        assertThat(revisionCaptor.getValue().getDefinitionId()).isEqualTo(response.definitionId());
+        assertThat(revisionCaptor.getValue().getVersion()).isEqualTo(1);
+        assertThat(revisionCaptor.getValue().getStatus()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(revisionCaptor.getValue().getDefinitionJson()).contains("\"nodes\"");
     }
 
     @Test
@@ -117,22 +126,61 @@ class WorkflowDefinitionServiceTest {
         assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
         assertThat(response.workflowDefinition()).isEqualTo(updated);
         verify(repository).save(existing);
+
+        ArgumentCaptor<WorkflowDefinitionRevisionEntity> revisionCaptor =
+                ArgumentCaptor.forClass(WorkflowDefinitionRevisionEntity.class);
+        verify(revisionRepository).save(revisionCaptor.capture());
+        assertThat(revisionCaptor.getValue().getDefinitionId()).isEqualTo("wf-1");
+        assertThat(revisionCaptor.getValue().getVersion()).isEqualTo(2);
+        assertThat(revisionCaptor.getValue().getStatus()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(revisionCaptor.getValue().getDefinitionJson()).contains("getCurrentTime");
     }
 
     @Test
     void publishesStoredDefinitionWithoutChangingVersion() throws Exception {
         WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
+        WorkflowDefinitionRevisionEntity currentRevision = new WorkflowDefinitionRevisionEntity("wf-1", 1,
+                WorkflowDefinitionStatus.DRAFT, "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
         existing.prePersist();
         when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 1)).thenReturn(Optional.of(currentRevision));
 
         WorkflowDefinitionResponse response = service.publish("wf-1");
 
         assertThat(response.definitionId()).isEqualTo("wf-1");
         assertThat(response.version()).isEqualTo(1);
         assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
+        assertThat(currentRevision.getStatus()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
         verify(repository).save(existing);
+        verify(revisionRepository).save(currentRevision);
+    }
+
+    @Test
+    void listsStoredRevisionsNewestFirst() throws Exception {
+        WorkflowDefinition definition = validDefinition();
+        WorkflowDefinition updated = validDefinitionWithToolNode();
+        WorkflowDefinitionEntity current = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(updated));
+        WorkflowDefinitionRevisionEntity revision2 = new WorkflowDefinitionRevisionEntity("wf-1", 2,
+                WorkflowDefinitionStatus.DRAFT, "Support Bot v2", "Updated",
+                new ObjectMapper().writeValueAsString(updated));
+        WorkflowDefinitionRevisionEntity revision1 = new WorkflowDefinitionRevisionEntity("wf-1", 1,
+                WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
+                new ObjectMapper().writeValueAsString(definition));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
+        when(revisionRepository.findAllByDefinitionIdOrderByVersionDesc("wf-1"))
+                .thenReturn(List.of(revision2, revision1));
+
+        List<WorkflowDefinitionRevisionResponse> revisions = service.listRevisions("wf-1");
+
+        assertThat(revisions)
+                .extracting(WorkflowDefinitionRevisionResponse::version)
+                .containsExactly(2, 1);
+        assertThat(revisions.get(0).workflowDefinition()).isEqualTo(updated);
+        assertThat(revisions.get(1).status()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
     }
 
     private WorkflowDefinition validDefinition() {
