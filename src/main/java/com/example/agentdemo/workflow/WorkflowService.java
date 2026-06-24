@@ -1,10 +1,16 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.trace.RunEntity;
 import com.example.agentdemo.trace.RunRepository;
+import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -56,19 +62,26 @@ public class WorkflowService {
     }
 
     public List<WorkflowRunRecordResponse> listRuns(String definitionId, Integer definitionVersion) {
-        List<WorkflowRunRecordEntity> records = definitionVersion == null
-                ? workflowRunRecordRepository.findAllByDefinitionIdOrderByStartedAtDesc(definitionId)
-                : workflowRunRecordRepository.findAllByDefinitionIdAndDefinitionVersionOrderByStartedAtDesc(
-                        definitionId, definitionVersion);
+        return listRuns(definitionId, definitionVersion, null, 0, 20).content();
+    }
+
+    public WorkflowRunPageResponse listRuns(String definitionId, Integer definitionVersion, RunStatus status,
+            int page, int size) {
+        validateRunQuery(definitionId, page, size);
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
+        Page<WorkflowRunRecordEntity> recordPage =
+                workflowRunRecordRepository.searchRuns(definitionId, definitionVersion, status, pageable);
+        List<WorkflowRunRecordEntity> records = recordPage.getContent();
         Map<String, RunEntity> runsById = findRunsById(records);
-        return records.stream().map(entity -> toResponse(entity, runsById.get(entity.getRunId()))).toList();
+        List<WorkflowRunRecordResponse> content =
+                records.stream().map(entity -> toResponse(entity, runsById.get(entity.getRunId()))).toList();
+        return new WorkflowRunPageResponse(content, recordPage.getNumber(), recordPage.getSize(),
+                recordPage.getTotalElements(), recordPage.getTotalPages());
     }
 
     private void requireDefinitionReference(WorkflowRunRequest request) {
-        if (request.workflowDefinition() == null
-                && !org.springframework.util.StringUtils.hasText(request.definitionId())) {
-            throw new com.example.agentdemo.common.BusinessException("WORKFLOW_DEFINITION_REQUIRED",
-                    "workflowDefinition or definitionId is required");
+        if (request.workflowDefinition() == null && !StringUtils.hasText(request.definitionId())) {
+            throw new BusinessException("WORKFLOW_DEFINITION_REQUIRED", "workflowDefinition or definitionId is required");
         }
     }
 
@@ -76,10 +89,22 @@ public class WorkflowService {
         if (request.workflowDefinition() != null) {
             return new WorkflowDefinitionResolution(null, null, request.workflowDefinition());
         }
-        if (org.springframework.util.StringUtils.hasText(request.definitionId())) {
+        if (StringUtils.hasText(request.definitionId())) {
             return workflowDefinitionService.resolveDefinition(request.definitionId(), request.definitionVersion());
         }
         throw new IllegalStateException("Workflow definition reference should have been validated before run creation");
+    }
+
+    private void validateRunQuery(String definitionId, int page, int size) {
+        if (!StringUtils.hasText(definitionId)) {
+            throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "definitionId is required");
+        }
+        if (page < 0) {
+            throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "page must be greater than or equal to 0");
+        }
+        if (size < 1 || size > 100) {
+            throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "size must be between 1 and 100");
+        }
     }
 
     private void recordRunMetadata(RunEntity run, WorkflowDefinitionResolution definitionResolution) {

@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.ApiResponse;
+import com.example.agentdemo.trace.RunStatus;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -78,9 +79,12 @@ public class WorkflowController {
     }
 
     @GetMapping("/runs")
-    public ApiResponse<List<WorkflowRunRecordResponse>> listRuns(@RequestParam String definitionId,
-            @RequestParam(required = false) Integer definitionVersion) {
-        return ApiResponse.ok(workflowService.listRuns(definitionId, definitionVersion));
+    public ApiResponse<WorkflowRunPageResponse> listRuns(@RequestParam String definitionId,
+            @RequestParam(required = false) Integer definitionVersion,
+            @RequestParam(required = false) RunStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.ok(workflowService.listRuns(definitionId, definitionVersion, status, page, size));
     }
 
 }

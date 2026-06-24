@@ -166,7 +166,7 @@ http://localhost:8080
 - `POST /api/workflows/definitions/{definitionId}/rollback/{version}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
-- `GET /api/workflows/runs?definitionId={definitionId}`
+- `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
 - `GET /api/runs`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
@@ -369,9 +369,10 @@ curl -X POST http://localhost:8080/api/workflows/run \
 ```bash
 curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}'
 curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}&definitionVersion=1'
+curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}&status=SUCCEEDED&page=0&size=20'
 ```
 
-该接口返回按 `startedAt` 倒序排列的 workflow run 摘要，包括 `runId`、`definitionId`、`definitionVersion`、`startedAt`、`status`、`output`、`errorMessage` 和 `endedAt`。完整 run input 和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
+该接口返回分页结果：`content`、`page`、`size`、`totalElements`、`totalPages`。`content` 按 `startedAt` 倒序排列，元素包括 `runId`、`definitionId`、`definitionVersion`、`startedAt`、`status`、`output`、`errorMessage` 和 `endedAt`。`status` 可选值为 `RUNNING`、`SUCCEEDED`、`FAILED`。完整 run input 和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
 
 查看 Workflow 节点 schema：
 

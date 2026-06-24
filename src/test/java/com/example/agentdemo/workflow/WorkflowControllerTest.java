@@ -142,14 +142,15 @@ class WorkflowControllerTest {
         WorkflowRunRecordResponse expected = new WorkflowRunRecordResponse("run-1", "wf-1", 2,
                 Instant.parse("2026-06-24T04:00:00Z"), RunStatus.SUCCEEDED, "{\"answer\":\"ok\"}", null,
                 Instant.parse("2026-06-24T04:00:03Z"));
-        when(workflowService.listRuns("wf-1", 2)).thenReturn(List.of(expected));
+        WorkflowRunPageResponse page = new WorkflowRunPageResponse(List.of(expected), 1, 5, 6, 2);
+        when(workflowService.listRuns("wf-1", 2, RunStatus.SUCCEEDED, 1, 5)).thenReturn(page);
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
                 new WorkflowNodeSchemaRegistry());
 
-        ApiResponse<List<WorkflowRunRecordResponse>> response = controller.listRuns("wf-1", 2);
+        ApiResponse<WorkflowRunPageResponse> response = controller.listRuns("wf-1", 2, RunStatus.SUCCEEDED, 1, 5);
 
         assertThat(response.success()).isTrue();
-        assertThat(response.data()).containsExactly(expected);
+        assertThat(response.data()).isEqualTo(page);
     }
 
     private WorkflowDefinition validDefinition() {

@@ -7,6 +7,9 @@ import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceService;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
@@ -102,43 +105,34 @@ class WorkflowServiceDefinitionIdTest {
     }
 
     @Test
-    void listsRunsByDefinitionAndOptionalVersion() {
+    void listsRunsByDefinitionVersionStatusAndPage() {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         RunRepository runRepository = mock(RunRepository.class);
         WorkflowRunRecordEntity v2 = new WorkflowRunRecordEntity("run-2", "wf-1", 2,
                 Instant.parse("2026-06-24T04:00:00Z"));
-        WorkflowRunRecordEntity v1 = new WorkflowRunRecordEntity("run-1", "wf-1", 1,
-                Instant.parse("2026-06-24T03:00:00Z"));
-        when(runRecordRepository.findAllByDefinitionIdOrderByStartedAtDesc("wf-1"))
-                .thenReturn(List.of(v2, v1));
-        when(runRecordRepository.findAllByDefinitionIdAndDefinitionVersionOrderByStartedAtDesc("wf-1", 2))
-                .thenReturn(List.of(v2));
+        PageRequest pageable = PageRequest.of(1, 1, Sort.by(Sort.Direction.DESC, "startedAt"));
+        when(runRecordRepository.searchRuns("wf-1", 2, RunStatus.SUCCEEDED, pageable))
+                .thenReturn(new PageImpl<>(List.of(v2), pageable, 2));
         RunEntity run2 = new RunEntity("run-2", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}", v2.getStartedAt());
         run2.setOutput("{\"answer\":\"v2\"}");
         run2.setEndedAt(Instant.parse("2026-06-24T04:00:03Z"));
-        RunEntity run1 = new RunEntity("run-1", RunType.WORKFLOW, RunStatus.FAILED, "{}", v1.getStartedAt());
-        run1.setErrorMessage("boom");
-        run1.setEndedAt(Instant.parse("2026-06-24T03:00:02Z"));
-        when(runRepository.findAllByRunIdIn(List.of("run-2", "run-1"))).thenReturn(List.of(run1, run2));
         when(runRepository.findAllByRunIdIn(List.of("run-2"))).thenReturn(List.of(run2));
         WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
                 mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
                 runRecordRepository, runRepository);
 
-        List<WorkflowRunRecordResponse> allRuns = service.listRuns("wf-1", null);
-        List<WorkflowRunRecordResponse> v2Runs = service.listRuns("wf-1", 2);
+        WorkflowRunPageResponse response = service.listRuns("wf-1", 2, RunStatus.SUCCEEDED, 1, 1);
 
-        assertThat(allRuns)
-                .extracting(WorkflowRunRecordResponse::runId)
-                .containsExactly("run-2", "run-1");
-        assertThat(v2Runs)
+        assertThat(response.page()).isEqualTo(1);
+        assertThat(response.size()).isEqualTo(1);
+        assertThat(response.totalElements()).isEqualTo(2);
+        assertThat(response.totalPages()).isEqualTo(2);
+        assertThat(response.content())
                 .extracting(WorkflowRunRecordResponse::runId)
                 .containsExactly("run-2");
-        assertThat(allRuns.get(0).status()).isEqualTo(RunStatus.SUCCEEDED);
-        assertThat(allRuns.get(0).output()).isEqualTo("{\"answer\":\"v2\"}");
-        assertThat(allRuns.get(0).endedAt()).isEqualTo(Instant.parse("2026-06-24T04:00:03Z"));
-        assertThat(allRuns.get(1).status()).isEqualTo(RunStatus.FAILED);
-        assertThat(allRuns.get(1).errorMessage()).isEqualTo("boom");
+        assertThat(response.content().getFirst().status()).isEqualTo(RunStatus.SUCCEEDED);
+        assertThat(response.content().getFirst().output()).isEqualTo("{\"answer\":\"v2\"}");
+        assertThat(response.content().getFirst().endedAt()).isEqualTo(Instant.parse("2026-06-24T04:00:03Z"));
     }
 
     @Test
