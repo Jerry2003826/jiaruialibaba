@@ -11,10 +11,10 @@ import java.util.List;
 public class WorkflowService {
 
     private final WorkflowCompiler workflowCompiler;
-    private final SimpleWorkflowRuntime workflowRuntime;
+    private final WorkflowRuntime workflowRuntime;
     private final TraceService traceService;
 
-    public WorkflowService(WorkflowCompiler workflowCompiler, SimpleWorkflowRuntime workflowRuntime,
+    public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
@@ -25,7 +25,7 @@ public class WorkflowService {
         RunEntity run = traceService.createRun(RunType.WORKFLOW, request);
         try {
             List<WorkflowNode> orderedNodes = workflowCompiler.compile(request.workflowDefinition());
-            SimpleWorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), orderedNodes,
+            WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), orderedNodes,
                     request.input());
             WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.getRunId(), result.steps());
             traceService.markRunSucceeded(run.getRunId(), response);

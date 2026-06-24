@@ -12,6 +12,7 @@
 - Spring AI 1.1.2
 - Spring AI Alibaba 1.1.2.2
 - Spring AI Alibaba DashScope starter
+- Spring AI Alibaba Graph Core
 - Spring MVC + `SseEmitter`
 - Spring Data JPA
 - H2 in-memory database
@@ -67,6 +68,16 @@ export DASHVECTOR_METRIC=cosine
 `AI_DASHSCOPE_BASE_URL` 只用于 Chat。`AI_DASHSCOPE_EMBEDDING_BASE_URL` 默认留空，让 embedding 使用 DashScope SDK 默认地址；只有 embedding 也需要专属 endpoint 时才设置它。
 
 RAG 文档写入时，H2 保存 source documents 和 chunk metadata，DashVector 保存向量。当前 retriever 可通过 `DEMO_RAG_RETRIEVER` 选择；设置为 `dashvector` 且 DashVector 已配置时使用向量检索，否则使用 naive keyword retrieval。向量检索失败时，如果 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true`，会回退到 naive keyword retrieval，并在 run trace 中记录 `rag_keyword_fallback_retrieve` 步骤。
+
+## Workflow Runtime
+
+默认 workflow runtime 是 `simple`，可以切换到 Spring AI Alibaba Graph runtime：
+
+```bash
+export DEMO_WORKFLOW_RUNTIME=graph
+```
+
+`graph` runtime 会把当前线性 DSL 编译成 Spring AI Alibaba `StateGraph` / `CompiledGraph`，节点内部仍复用现有 `RagService`、`AiModelService` 和 `ToolService`，并继续写入统一 `run_step`。
 
 ## 启动方式
 
@@ -188,7 +199,9 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowNode`: `id`、`type`、`config`
 - `WorkflowEdge`: `from`、`to`
 - `WorkflowRunRequest`: `workflowDefinition` + `input`
-- `SimpleWorkflowRuntime`: 当前线性 runtime，后续可替换为 Spring AI Alibaba Graph Runtime
+- `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
+- `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
+- `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
 
 已支持节点类型：
 
@@ -206,11 +219,11 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - Workflow 定义暂不持久化，只随请求提交并立即运行。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
 
-Spring AI Alibaba Graph 接入点：
+Spring AI Alibaba Graph 接入：
 
-- 当前项目未直接引入 `spring-ai-alibaba-graph-core`，避免在 demo 中硬编码不确定 Graph API。
-- 后续可以保留 `WorkflowDefinition` 作为产品层 DSL，把 `WorkflowCompiler` 的输出从线性节点列表改为 Spring AI Alibaba `StateGraph` / `CompiledGraph`。
-- `SimpleWorkflowRuntime` 是替换边界：未来可以新增 `GraphWorkflowRuntime`，仍由 `WorkflowService` 创建 run、统一 trace，并让 Graph 节点回调写 `run_step`。
+- 当前项目已接入 `spring-ai-alibaba-graph-core`，版本跟随 Spring AI Alibaba `1.1.2.2`。
+- `WorkflowDefinition` 仍是产品层 DSL；`WorkflowCompiler` 输出线性节点列表，由 `GraphWorkflowRuntime` 编译成 `StateGraph`。
+- 第一版只把线性 DAG 映射到 Graph。分支、合流、并行、循环和条件边仍由 `WorkflowCompiler` 拒绝。
 
 可视化画布接入点：
 
@@ -235,7 +248,7 @@ Password:
 ## 后续扩展方向
 
 - 当前已接入 DashVector + DashScope `EmbeddingModel`；后续可继续替换为 Spring AI `VectorStore` 标准抽象或增加 hybrid retrieval / rerank。
-- 接入 Spring AI Alibaba Graph，把当前 service 编排升级成显式 workflow graph。
+- 扩展 Spring AI Alibaba Graph runtime：条件边、并行节点、子图、持久化 workflow definition。
 - 接入 MCP，把 `ToolService` 扩展为本地工具 + 远程 MCP 工具统一网关。
 - 接入 Cairn Memory，为 coding-agent 或长会话场景补充行为记忆和连续性。
 - 扩展成 Dify-like Workflow DSL：节点、边、变量、条件分支、工具节点、RAG 节点、trace 可视化。

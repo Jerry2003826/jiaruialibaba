@@ -66,5 +66,7 @@ demo:
     collection: ${DASHVECTOR_COLLECTION:agent_rag_docs}
     dimension: ${DASHVECTOR_DIMENSION:1024}
     metric: ${DASHVECTOR_METRIC:cosine}
+  workflow:
+    runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
   sse:
     timeout-ms: 120000
