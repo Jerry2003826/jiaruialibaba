@@ -157,6 +157,7 @@ http://localhost:8080
 - `GET /api/tools/mcp/servers`
 - `POST /api/rag/documents`
 - `POST /api/rag/chat`
+- `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
 - `GET /api/runs`
 - `GET /api/runs/{runId}`
@@ -251,6 +252,12 @@ curl -X POST http://localhost:8080/api/workflows/run \
   }'
 ```
 
+查看 Workflow 节点 schema：
+
+```bash
+curl http://localhost:8080/api/workflows/node-schemas
+```
+
 查看运行轨迹：
 
 ```bash
@@ -269,6 +276,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
+- `WorkflowNodeSchemaRegistry`: 返回当前支持节点的配置字段、默认值、约束和模板变量，供后续画布或 DSL 编辑器使用
 
 已支持节点类型：
 
@@ -284,6 +292,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 只支持线性 DAG：不支持分支、合流、并行、循环、条件边。
 - 复杂图会返回 `WORKFLOW_UNSUPPORTED`。
 - Workflow 定义暂不持久化，只随请求提交并立即运行。
+- 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
 
 Spring AI Alibaba Graph 接入：
@@ -377,6 +386,6 @@ Password:
 
 - 当前已接入 DashVector + DashScope `EmbeddingModel`；后续可继续替换为 Spring AI `VectorStore` 标准抽象或增加 hybrid retrieval / rerank。
 - 扩展 Spring AI Alibaba Graph runtime：条件边、并行节点、子图、持久化 workflow definition。
-- 扩展 MCP：增加远程 server registry、鉴权配置、工具 schema 同步、调用审计和熔断策略。
+- 扩展 MCP：增加鉴权配置、工具 schema 同步、调用审计和熔断策略。
 - 接入 Cairn Memory，为 coding-agent 或长会话场景补充行为记忆和连续性。
 - 扩展成 Dify-like Workflow DSL：节点、边、变量、条件分支、工具节点、RAG 节点、trace 可视化。
