@@ -68,7 +68,7 @@ class WorkflowControllerWebTest {
 
     @Test
     void runGraphRouteReturnsJsonResponse() throws Exception {
-        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowRunGraphService workflowRunGraphService = mock(WorkflowRunGraphService.class);
         WorkflowRunGraphResponse expected = new WorkflowRunGraphResponse("run-1", "wf-1", 2, null,
                 new WorkflowValidationSummary(2, 1, true, "start", "end", List.of("start", "end")),
                 List.of(
@@ -78,8 +78,9 @@ class WorkflowControllerWebTest {
                                 null, null)),
                 List.of(new WorkflowRunGraphEdgeView("start", "end", null, null, false)),
                 "flowchart TD\n  n0[\"start (start) SUCCEEDED\"]");
-        when(workflowService.getRunGraph("run-1")).thenReturn(expected);
-        MockMvc mockMvc = mockMvc(workflowService, mock(WorkflowGraphPreviewService.class));
+        when(workflowRunGraphService.getRunGraph("run-1")).thenReturn(expected);
+        MockMvc mockMvc = mockMvc(mock(WorkflowService.class), mock(WorkflowGraphPreviewService.class),
+                workflowRunGraphService);
 
         mockMvc.perform(get("/api/workflows/runs/run-1/graph"))
                 .andExpect(status().isOk())
@@ -89,16 +90,21 @@ class WorkflowControllerWebTest {
                 .andExpect(jsonPath("$.data.nodes[0].executed").value(true))
                 .andExpect(jsonPath("$.data.edges[0].traversed").value(false));
 
-        verify(workflowService).getRunGraph("run-1");
+        verify(workflowRunGraphService).getRunGraph("run-1");
     }
 
     private MockMvc mockMvc(WorkflowGraphPreviewService previewService) {
-        return mockMvc(mock(WorkflowService.class), previewService);
+        return mockMvc(mock(WorkflowService.class), previewService, mock(WorkflowRunGraphService.class));
     }
 
     private MockMvc mockMvc(WorkflowService workflowService, WorkflowGraphPreviewService previewService) {
+        return mockMvc(workflowService, previewService, mock(WorkflowRunGraphService.class));
+    }
+
+    private MockMvc mockMvc(WorkflowService workflowService, WorkflowGraphPreviewService previewService,
+            WorkflowRunGraphService workflowRunGraphService) {
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
-                new WorkflowNodeSchemaRegistry(), previewService);
+                new WorkflowNodeSchemaRegistry(), previewService, workflowRunGraphService);
         return MockMvcBuilders.standaloneSetup(controller).build();
     }
 

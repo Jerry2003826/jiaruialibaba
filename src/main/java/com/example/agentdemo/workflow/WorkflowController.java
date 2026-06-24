@@ -23,14 +23,17 @@ public class WorkflowController {
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
     private final WorkflowGraphPreviewService workflowGraphPreviewService;
+    private final WorkflowRunGraphService workflowRunGraphService;
 
     public WorkflowController(WorkflowService workflowService, WorkflowDefinitionService workflowDefinitionService,
             WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry,
-            WorkflowGraphPreviewService workflowGraphPreviewService) {
+            WorkflowGraphPreviewService workflowGraphPreviewService,
+            WorkflowRunGraphService workflowRunGraphService) {
         this.workflowService = workflowService;
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
         this.workflowGraphPreviewService = workflowGraphPreviewService;
+        this.workflowRunGraphService = workflowRunGraphService;
     }
 
     @PostMapping("/definitions")
@@ -116,7 +119,7 @@ public class WorkflowController {
 
     @GetMapping("/runs/{runId}/graph")
     public ApiResponse<WorkflowRunGraphResponse> getRunGraph(@PathVariable String runId) {
-        return ApiResponse.ok(workflowService.getRunGraph(runId));
+        return ApiResponse.ok(workflowRunGraphService.getRunGraph(runId));
     }
 
 }

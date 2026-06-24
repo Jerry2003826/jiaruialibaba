@@ -26,7 +26,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
 
@@ -193,110 +192,6 @@ class WorkflowServiceDefinitionIdTest {
     }
 
     @Test
-    void getsWorkflowRunGraphWithTraceStatusOverlay() {
-        WorkflowDefinition definition = branchingDefinition();
-        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
-        when(definitionService.resolveDefinition("wf-1", 2))
-                .thenReturn(new WorkflowDefinitionResolution("wf-1", 2, definition));
-        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-graph", "wf-1", 2,
-                Instant.parse("2026-06-24T05:00:00Z"));
-        when(runRecordRepository.findById("run-graph")).thenReturn(Optional.of(record));
-        TraceService traceService = mock(TraceService.class);
-        RunResponse run = new RunResponse("run-graph", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}",
-                "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T05:00:04Z"));
-        when(traceService.getRun("run-graph")).thenReturn(run);
-        when(traceService.listSteps("run-graph")).thenReturn(List.of(
-                runStep("step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
-                runStep("step-check", "workflow_node_check_intent", StepStatus.SUCCEEDED, null),
-                runStep("step-tool", "workflow_node_tool_time", StepStatus.SUCCEEDED, null),
-                runStep("step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
-        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
-                mock(WorkflowRuntime.class), traceService, definitionService, runRecordRepository,
-                mock(RunRepository.class));
-
-        WorkflowRunGraphResponse response = service.getRunGraph("run-graph");
-
-        assertThat(response.runId()).isEqualTo("run-graph");
-        assertThat(response.definitionId()).isEqualTo("wf-1");
-        assertThat(response.definitionVersion()).isEqualTo(2);
-        assertThat(response.status()).isEqualTo(RunStatus.SUCCEEDED);
-        assertThat(response.summary())
-                .isEqualTo(new WorkflowValidationSummary(5, 5, false, "start", "end",
-                        List.of("start", "condition", "tool", "llm", "end")));
-        assertThat(response.nodes())
-                .extracting(WorkflowRunGraphNodeView::id)
-                .containsExactly("start", "check_intent", "tool_time", "llm_fallback", "end");
-        assertThat(response.nodes().get(2).executed()).isTrue();
-        assertThat(response.nodes().get(2).status()).isEqualTo(StepStatus.SUCCEEDED);
-        assertThat(response.nodes().get(2).stepId()).isEqualTo("step-tool");
-        assertThat(response.nodes().get(3).executed()).isFalse();
-        assertThat(response.nodes().get(3).status()).isNull();
-        assertThat(response.edges())
-                .contains(
-                        new WorkflowRunGraphEdgeView("check_intent", "tool_time", "true", "true", true),
-                        new WorkflowRunGraphEdgeView("check_intent", "llm_fallback", "false", "false", false));
-        assertThat(response.mermaid())
-                .contains("tool_time (tool) SUCCEEDED")
-                .contains("llm_fallback (llm) NOT_EXECUTED")
-                .contains("n1 -- \"true\" --> n2")
-                .contains("n1 -. \"false\" .-> n3")
-                .contains("class n2 succeeded")
-                .contains("class n3 notExecuted");
-        verify(traceService, never()).createRun(any(), any());
-        verify(traceService, never()).startStep(any(), any(), any());
-        verify(traceService, never()).completeStep(any(), any());
-    }
-
-    @Test
-    void getsWorkflowRunGraphWithFailedStepError() {
-        WorkflowDefinition definition = validDefinitionWithToolNode();
-        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
-        when(definitionService.resolveDefinition("wf-1", 3))
-                .thenReturn(new WorkflowDefinitionResolution("wf-1", 3, definition));
-        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-failed", "wf-1", 3,
-                Instant.parse("2026-06-24T05:10:00Z"));
-        when(runRecordRepository.findById("run-failed")).thenReturn(Optional.of(record));
-        TraceService traceService = mock(TraceService.class);
-        RunResponse run = new RunResponse("run-failed", RunType.WORKFLOW, RunStatus.FAILED, "{}", "{}",
-                "tool failed", record.getStartedAt(), Instant.parse("2026-06-24T05:10:03Z"));
-        when(traceService.getRun("run-failed")).thenReturn(run);
-        when(traceService.listSteps("run-failed")).thenReturn(List.of(
-                runStep("step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
-                runStep("step-tool", "workflow_node_tool_time", StepStatus.FAILED, "tool failed")));
-        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
-                mock(WorkflowRuntime.class), traceService, definitionService, runRecordRepository,
-                mock(RunRepository.class));
-
-        WorkflowRunGraphResponse response = service.getRunGraph("run-failed");
-
-        WorkflowRunGraphNodeView toolNode = response.nodes()
-                .stream()
-                .filter(node -> node.id().equals("tool_time"))
-                .findFirst()
-                .orElseThrow();
-        assertThat(toolNode.executed()).isTrue();
-        assertThat(toolNode.status()).isEqualTo(StepStatus.FAILED);
-        assertThat(toolNode.errorMessage()).isEqualTo("tool failed");
-        assertThat(response.mermaid()).contains("class n1 failed");
-    }
-
-    @Test
-    void throwsWhenWorkflowRunGraphRecordIsMissing() {
-        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        when(runRecordRepository.findById("missing-run")).thenReturn(Optional.empty());
-        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
-                mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
-                runRecordRepository, mock(RunRepository.class));
-
-        assertThatThrownBy(() -> service.getRunGraph("missing-run"))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_RUN_NOT_FOUND"))
-                .hasMessage("Workflow run not found: missing-run");
-    }
-
-    @Test
     void rejectsRunRequestWithoutInlineDefinitionOrDefinitionId() {
         WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
                 mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
@@ -354,39 +249,6 @@ class WorkflowServiceDefinitionIdTest {
                         new WorkflowNode("start", "start", Map.of()),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(new WorkflowEdge("start", "end")));
-    }
-
-    private WorkflowDefinition validDefinitionWithToolNode() {
-        return new WorkflowDefinition(
-                List.of(
-                        new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("tool_time", "tool", Map.of("toolName", "getCurrentTime")),
-                        new WorkflowNode("end", "end", Map.of())),
-                List.of(
-                        new WorkflowEdge("start", "tool_time"),
-                        new WorkflowEdge("tool_time", "end")));
-    }
-
-    private WorkflowDefinition branchingDefinition() {
-        return new WorkflowDefinition(
-                List.of(
-                        new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("check_intent", "condition",
-                                Map.of("left", "{{input.intent}}", "operator", "equals", "right", "time")),
-                        new WorkflowNode("tool_time", "tool", Map.of("toolName", "getCurrentTime")),
-                        new WorkflowNode("llm_fallback", "llm", Map.of("prompt", "answer {{input}}")),
-                        new WorkflowNode("end", "end", Map.of())),
-                List.of(
-                        new WorkflowEdge("start", "check_intent"),
-                        new WorkflowEdge("check_intent", "tool_time", "true"),
-                        new WorkflowEdge("check_intent", "llm_fallback", "false"),
-                        new WorkflowEdge("tool_time", "end"),
-                        new WorkflowEdge("llm_fallback", "end")));
-    }
-
-    private RunStepResponse runStep(String stepId, String nodeName, StepStatus status, String errorMessage) {
-        return new RunStepResponse(stepId, "run-graph", nodeName, "{}", "{}", errorMessage, status,
-                Instant.parse("2026-06-24T05:00:01Z"), Instant.parse("2026-06-24T05:00:02Z"));
     }
 
 }
