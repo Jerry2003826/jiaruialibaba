@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,9 +21,10 @@ class WorkflowDefinitionServiceTest {
 
     private final WorkflowDefinitionRepository repository = mock(WorkflowDefinitionRepository.class);
     private final WorkflowDefinitionRevisionRepository revisionRepository = mock(WorkflowDefinitionRevisionRepository.class);
+    private final WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
     private final WorkflowDefinitionService service = new WorkflowDefinitionService(repository, revisionRepository, compiler,
-            new ObjectMapper());
+            new ObjectMapper(), runRecordRepository);
 
     @Test
     void savesWorkflowDefinitionAfterCompilerValidation() {
@@ -256,6 +258,34 @@ class WorkflowDefinitionServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_REVISION_NOT_FOUND"))
                 .hasMessage("Workflow definition revision not found: wf-1:99");
+    }
+
+    @Test
+    void deletesDefinitionAndRevisionsWhenNoRunHistoryExists() throws Exception {
+        WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(runRecordRepository.existsByDefinitionId("wf-1")).thenReturn(false);
+
+        service.delete("wf-1");
+
+        verify(revisionRepository).deleteAllByDefinitionId("wf-1");
+        verify(repository).delete(existing);
+    }
+
+    @Test
+    void rejectsDeleteWhenRunHistoryExists() throws Exception {
+        WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(runRecordRepository.existsByDefinitionId("wf-1")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.delete("wf-1"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_DEFINITION_IN_USE"))
+                .hasMessage("Workflow definition has run history and cannot be deleted: wf-1");
+        verify(revisionRepository, never()).deleteAllByDefinitionId("wf-1");
+        verify(repository, never()).delete(existing);
     }
 
     private WorkflowDefinition validDefinition() {

@@ -15,14 +15,16 @@ public class WorkflowDefinitionService {
 
     private final WorkflowDefinitionRepository workflowDefinitionRepository;
     private final WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository;
+    private final WorkflowRunRecordRepository workflowRunRecordRepository;
     private final WorkflowCompiler workflowCompiler;
     private final ObjectMapper objectMapper;
 
     public WorkflowDefinitionService(WorkflowDefinitionRepository workflowDefinitionRepository,
             WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository, WorkflowCompiler workflowCompiler,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, WorkflowRunRecordRepository workflowRunRecordRepository) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowDefinitionRevisionRepository = workflowDefinitionRevisionRepository;
+        this.workflowRunRecordRepository = workflowRunRecordRepository;
         this.workflowCompiler = workflowCompiler;
         this.objectMapper = objectMapper;
     }
@@ -71,6 +73,17 @@ public class WorkflowDefinitionService {
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
         saveRevision(saved);
         return toResponse(saved);
+    }
+
+    @Transactional
+    public void delete(String definitionId) {
+        WorkflowDefinitionEntity entity = findEntity(definitionId);
+        if (workflowRunRecordRepository.existsByDefinitionId(definitionId)) {
+            throw new BusinessException("WORKFLOW_DEFINITION_IN_USE",
+                    "Workflow definition has run history and cannot be deleted: " + definitionId);
+        }
+        workflowDefinitionRevisionRepository.deleteAllByDefinitionId(definitionId);
+        workflowDefinitionRepository.delete(entity);
     }
 
     @Transactional(readOnly = true)

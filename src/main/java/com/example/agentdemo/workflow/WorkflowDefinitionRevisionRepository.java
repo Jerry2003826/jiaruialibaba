@@ -11,4 +11,6 @@ public interface WorkflowDefinitionRevisionRepository extends JpaRepository<Work
 
     Optional<WorkflowDefinitionRevisionEntity> findByDefinitionIdAndVersion(String definitionId, Integer version);
 
+    void deleteAllByDefinitionId(String definitionId);
+
 }

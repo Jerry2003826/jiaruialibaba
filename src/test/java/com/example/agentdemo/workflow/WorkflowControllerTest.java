@@ -14,6 +14,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowControllerTest {
@@ -138,6 +139,19 @@ class WorkflowControllerTest {
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    void deletesWorkflowDefinition() {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<Void> response = controller.deleteDefinition("wf-1");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isNull();
+        verify(definitionService).delete("wf-1");
     }
 
     @Test

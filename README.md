@@ -164,6 +164,7 @@ http://localhost:8080
 - `PUT /api/workflows/definitions/{definitionId}`
 - `POST /api/workflows/definitions/{definitionId}/publish`
 - `POST /api/workflows/definitions/{definitionId}/rollback/{version}`
+- `DELETE /api/workflows/definitions/{definitionId}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
@@ -336,6 +337,14 @@ curl -X POST http://localhost:8080/api/workflows/definitions/{definitionId}/roll
 
 回滚不会覆盖历史 revision；它会把目标 revision 的快照复制成一个新的 `DRAFT` 版本。
 
+删除 Workflow 定义：
+
+```bash
+curl -X DELETE http://localhost:8080/api/workflows/definitions/{definitionId}
+```
+
+删除只允许用于还没有运行历史的 Workflow 定义。只要该定义已经写入过 `workflow_run_records`，接口会返回 `WORKFLOW_DEFINITION_IN_USE`，避免删除 definition 后破坏 run trace 审计链。
+
 按已保存定义运行 Workflow：
 
 ```bash
@@ -432,6 +441,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 回滚会从历史 revision 复制快照并生成新的 `DRAFT` 版本，不会覆盖旧 revision。
 - 按已保存定义运行时会在响应和 run trace input 中记录实际使用的 `definitionId` / `definitionVersion`。
 - 按已保存定义运行时会写入 H2 的 `workflow_run_records` 表，便于按定义或 revision 查询历史 run；inline workflow 运行不会写入该索引。
+- 删除 Workflow 定义时会先检查 `workflow_run_records`；已有运行历史的定义不能删除，没有运行历史的定义会连同 revision 快照一起删除。
 - 当前还没有租户隔离或发布环境区分。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。

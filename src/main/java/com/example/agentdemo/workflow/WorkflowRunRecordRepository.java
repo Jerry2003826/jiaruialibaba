@@ -9,6 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorkflowRunRecordRepository extends JpaRepository<WorkflowRunRecordEntity, String> {
 
+    boolean existsByDefinitionId(String definitionId);
+
     @Query(value = """
             select record
             from WorkflowRunRecordEntity record

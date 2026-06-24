@@ -3,6 +3,7 @@ package com.example.agentdemo.workflow;
 import com.example.agentdemo.common.ApiResponse;
 import com.example.agentdemo.trace.RunStatus;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -66,6 +67,12 @@ public class WorkflowController {
     public ApiResponse<WorkflowDefinitionResponse> rollbackDefinition(@PathVariable String definitionId,
             @PathVariable Integer version) {
         return ApiResponse.ok(workflowDefinitionService.rollback(definitionId, version));
+    }
+
+    @DeleteMapping("/definitions/{definitionId}")
+    public ApiResponse<Void> deleteDefinition(@PathVariable String definitionId) {
+        workflowDefinitionService.delete(definitionId);
+        return ApiResponse.ok(null);
     }
 
     @GetMapping("/node-schemas")
