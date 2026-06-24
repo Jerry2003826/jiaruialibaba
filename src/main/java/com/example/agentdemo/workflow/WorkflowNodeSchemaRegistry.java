@@ -27,6 +27,8 @@ public class WorkflowNodeSchemaRegistry {
             llmSchema(),
             toolSchema(),
             conditionSchema(),
+            parallelSchema(),
+            joinSchema(),
             endSchema());
 
     public List<WorkflowNodeSchema> listSchemas() {
@@ -157,6 +159,26 @@ public class WorkflowNodeSchemaRegistry {
                                 Map.of()))),
                 TEMPLATE_VARIABLES,
                 "A map containing left, operator, right, caseSensitive and result.");
+    }
+
+    private WorkflowNodeSchema parallelSchema() {
+        return new WorkflowNodeSchema(
+                "parallel",
+                "Parallel",
+                "Starts two or more independent linear branches. Branches must converge on the same join node.",
+                withExecutionControls(List.of()),
+                List.of(),
+                "A map indicating branch execution is ready.");
+    }
+
+    private WorkflowNodeSchema joinSchema() {
+        return new WorkflowNodeSchema(
+                "join",
+                "Join",
+                "Merges outputs from a preceding parallel block.",
+                withExecutionControls(List.of()),
+                List.of(),
+                "A map containing branchOutputs keyed by branch start node id.");
     }
 
     private WorkflowNodeSchema endSchema() {

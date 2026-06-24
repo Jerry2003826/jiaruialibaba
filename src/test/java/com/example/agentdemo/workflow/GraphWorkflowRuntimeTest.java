@@ -141,6 +141,36 @@ class GraphWorkflowRuntimeTest {
                         && ToolExecutionLog.ERROR_REMOTE_TOOL.equals(log.errorCategory())));
     }
 
+    @Test
+    void rejectsParallelJoinWorkflowUntilGraphRuntimeSupportsIt() {
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        variableResolver),
+                mock(TraceService.class), executorService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("tool_a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("tool_b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "tool_a"),
+                        new WorkflowEdge("parallel_1", "tool_b"),
+                        new WorkflowEdge("tool_a", "join_1"),
+                        new WorkflowEdge("tool_b", "join_1"),
+                        new WorkflowEdge("join_1", "end"))));
+
+        assertThatThrownBy(() -> runtime.run("run-1", plan, Map.of("message", "hello")))
+                .isInstanceOfSatisfying(com.example.agentdemo.common.BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_UNSUPPORTED"))
+                .hasMessageContaining("Graph runtime does not support parallel/join workflows yet");
+    }
+
     private static RunStepEntity step(String nodeName) {
         return new RunStepEntity("step-" + nodeName, "run-1", nodeName, "{}", StepStatus.RUNNING, Instant.now());
     }

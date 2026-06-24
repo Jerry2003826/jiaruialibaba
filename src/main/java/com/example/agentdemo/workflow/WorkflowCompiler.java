@@ -20,7 +20,8 @@ import java.util.stream.Collectors;
 @Component
 public class WorkflowCompiler {
 
-    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "condition", "end");
+    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "condition",
+            "parallel", "join", "end");
     private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false");
 
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
@@ -38,7 +39,8 @@ public class WorkflowCompiler {
         List<WorkflowNode> linearNodes = isLinear(edgeIndex)
                 ? orderLinearPath(start, end, nodesById, edgeIndex)
                 : List.of();
-        return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), linearNodes);
+        return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), edgeIndex.incoming(),
+                linearNodes);
     }
 
     private Map<String, WorkflowNode> indexNodes(List<WorkflowNode> nodes) {
@@ -193,6 +195,7 @@ public class WorkflowCompiler {
             EdgeIndex edgeIndex) {
         validateNodeDegrees(start, end, nodesById, edgeIndex);
         validateReachability(start, end, nodesById, edgeIndex);
+        validateParallelJoinBlocks(nodesById, edgeIndex);
     }
 
     private void validateNodeDegrees(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
@@ -210,18 +213,11 @@ public class WorkflowCompiler {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
                         "Every non-start workflow node must have an incoming edge: " + node.id());
             }
-            if ("condition".equals(type)) {
-                validateConditionNodeEdges(node, outgoing);
-            }
-            else {
-                if (outDegree > 1) {
-                    throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                            "Only condition nodes can branch: " + node.id());
-                }
-                if (outgoing.stream().anyMatch(WorkflowExecutionEdge::conditional)) {
-                    throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                            "Only condition node outgoing edges can define conditions: " + node.id());
-                }
+            switch (type) {
+                case "condition" -> validateConditionNodeEdges(node, outgoing);
+                case "parallel" -> validateParallelNodeEdges(node, outgoing);
+                case "join" -> validateJoinNodeEdges(node, outgoing, inDegree);
+                default -> validateSingleOutgoingNodeEdges(node, outgoing);
             }
         }
         if (!edgeIndex.incoming().getOrDefault(start.id(), List.of()).isEmpty()) {
@@ -246,6 +242,36 @@ public class WorkflowCompiler {
         }
     }
 
+    private void validateParallelNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing) {
+        if (outgoing.size() < 2) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Parallel node must have at least two outgoing edges: " + node.id());
+        }
+        if (outgoing.stream().anyMatch(WorkflowExecutionEdge::conditional)) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Parallel node outgoing edges cannot define conditions: " + node.id());
+        }
+    }
+
+    private void validateJoinNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing, int inDegree) {
+        if (inDegree < 2) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Join node must have at least two incoming edges: " + node.id());
+        }
+        validateSingleOutgoingNodeEdges(node, outgoing);
+    }
+
+    private void validateSingleOutgoingNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing) {
+        if (outgoing.size() > 1) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Only condition or parallel nodes can branch: " + node.id());
+        }
+        if (outgoing.stream().anyMatch(WorkflowExecutionEdge::conditional)) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Only condition node outgoing edges can define conditions: " + node.id());
+        }
+    }
+
     private void validateReachability(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
             EdgeIndex edgeIndex) {
         Set<String> reachableFromStart = traverseFrom(start.id(), edgeIndex.outgoing());
@@ -257,6 +283,81 @@ public class WorkflowCompiler {
             throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow nodes must eventually reach end");
         }
         detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>());
+    }
+
+    private void validateParallelJoinBlocks(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        Set<String> joinNodesReachedByParallel = new HashSet<>();
+        for (WorkflowNode node : nodesById.values()) {
+            if (!"parallel".equals(normalizeType(node))) {
+                continue;
+            }
+            List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(node.id(), List.of());
+            String commonJoinId = null;
+            Set<String> branchNodeIds = new HashSet<>();
+            for (WorkflowExecutionEdge edge : outgoing) {
+                ParallelBranchPath path = findParallelBranchPath(edge.to(), nodesById, edgeIndex);
+                if (commonJoinId == null) {
+                    commonJoinId = path.joinNodeId();
+                }
+                else if (!commonJoinId.equals(path.joinNodeId())) {
+                    throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                            "Parallel branches must converge to the same join node: " + node.id());
+                }
+                for (String branchNodeId : path.branchNodeIds()) {
+                    if (!branchNodeIds.add(branchNodeId)) {
+                        throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                                "Parallel branches cannot share intermediate nodes: " + node.id());
+                    }
+                }
+            }
+            if (commonJoinId != null
+                    && edgeIndex.incoming().getOrDefault(commonJoinId, List.of()).size() != outgoing.size()) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Join node can only receive edges from one parallel block: " + commonJoinId);
+            }
+            if (commonJoinId != null) {
+                joinNodesReachedByParallel.add(commonJoinId);
+            }
+        }
+        for (WorkflowNode node : nodesById.values()) {
+            if ("join".equals(normalizeType(node)) && !joinNodesReachedByParallel.contains(node.id())) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Join node must be reached by a parallel node: " + node.id());
+            }
+        }
+    }
+
+    private ParallelBranchPath findParallelBranchPath(String branchStartNodeId, Map<String, WorkflowNode> nodesById,
+            EdgeIndex edgeIndex) {
+        List<String> branchNodeIds = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        WorkflowNode current = nodesById.get(branchStartNodeId);
+        while (current != null) {
+            if (!visited.add(current.id())) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
+            }
+            String type = normalizeType(current);
+            if ("join".equals(type)) {
+                return new ParallelBranchPath(current.id(), branchNodeIds);
+            }
+            if ("condition".equals(type) || "parallel".equals(type)) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Parallel branches only support linear nodes before join: " + current.id());
+            }
+            if ("end".equals(type)) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Parallel branch must reach a join node before end: " + branchStartNodeId);
+            }
+            branchNodeIds.add(current.id());
+            List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(current.id(), List.of());
+            if (outgoing.size() != 1 || outgoing.getFirst().conditional()) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Parallel branch must be linear before join: " + current.id());
+            }
+            current = nodesById.get(outgoing.getFirst().to());
+        }
+        throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                "Parallel branch references missing node: " + branchStartNodeId);
     }
 
     private Set<String> traverseFrom(String startId, Map<String, List<WorkflowExecutionEdge>> outgoing) {
@@ -346,6 +447,14 @@ public class WorkflowCompiler {
             outgoing = Collections.unmodifiableMap(outgoing);
             incoming = Collections.unmodifiableMap(incoming);
         }
+    }
+
+    private record ParallelBranchPath(String joinNodeId, List<String> branchNodeIds) {
+
+        private ParallelBranchPath {
+            branchNodeIds = List.copyOf(branchNodeIds);
+        }
+
     }
 
 }

@@ -68,7 +68,7 @@ class WorkflowCompilerTest {
 
         assertThatThrownBy(() -> compiler.compile(definition))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Only condition nodes can branch: start");
+                .hasMessageContaining("Only condition or parallel nodes can branch: start");
     }
 
     @Test
@@ -176,6 +176,77 @@ class WorkflowCompilerTest {
         assertThat(plan.node("tool").config())
                 .containsEntry("retryCount", 2)
                 .containsEntry("timeoutMs", 5000);
+    }
+
+    @Test
+    void compilesParallelJoinWorkflow() {
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("tool_a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("tool_b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "tool_a"),
+                        new WorkflowEdge("parallel_1", "tool_b"),
+                        new WorkflowEdge("tool_a", "join_1"),
+                        new WorkflowEdge("tool_b", "join_1"),
+                        new WorkflowEdge("join_1", "end"))));
+
+        assertThat(plan.linear()).isFalse();
+        assertThat(plan.hasParallelJoin()).isTrue();
+        assertThat(plan.incomingNodeIds("join_1")).containsExactlyInAnyOrder("tool_a", "tool_b");
+    }
+
+    @Test
+    void rejectsParallelBranchesThatDoNotConvergeToValidJoin() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("tool_a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("tool_b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_a", "join", Map.of()),
+                        new WorkflowNode("join_b", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "tool_a"),
+                        new WorkflowEdge("parallel_1", "tool_b"),
+                        new WorkflowEdge("tool_a", "join_a"),
+                        new WorkflowEdge("tool_b", "join_b"),
+                        new WorkflowEdge("join_a", "end"),
+                        new WorkflowEdge("join_b", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Join node must have at least two incoming edges: join_a");
+    }
+
+    @Test
+    void rejectsJoinNodeWithoutParallelParent() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check", "condition", Map.of("left", "{{input.intent}}")),
+                        new WorkflowNode("a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check"),
+                        new WorkflowEdge("check", "a", "true"),
+                        new WorkflowEdge("check", "b", "false"),
+                        new WorkflowEdge("a", "join_1"),
+                        new WorkflowEdge("b", "join_1"),
+                        new WorkflowEdge("join_1", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Join node must be reached by a parallel node: join_1");
     }
 
     @Test

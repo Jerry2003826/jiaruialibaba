@@ -24,6 +24,21 @@ final class WorkflowExecutionState {
         this.input = input;
     }
 
+    private WorkflowExecutionState(WorkflowExecutionState source) {
+        this.input = source.input;
+        this.retrievedContext = source.retrievedContext;
+        this.toolCalls.addAll(source.toolCalls);
+        this.nodeOutputs.putAll(source.nodeOutputs);
+        this.lastOutput = source.lastOutput;
+        this.finalOutput = source.finalOutput;
+        this.answer = source.answer;
+        this.lastConditionResult = source.lastConditionResult;
+    }
+
+    WorkflowExecutionState copyForBranch() {
+        return new WorkflowExecutionState(this);
+    }
+
     Map<String, Object> input() {
         return input;
     }
@@ -59,6 +74,10 @@ final class WorkflowExecutionState {
         this.toolCalls.add(toolCall);
     }
 
+    int toolCallCount() {
+        return toolCalls.size();
+    }
+
     String lastToolResult() {
         if (toolCalls.isEmpty()) {
             return "";
@@ -85,6 +104,25 @@ final class WorkflowExecutionState {
 
     Map<String, Object> nodeOutputs() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(nodeOutputs));
+    }
+
+    void mergeBranchState(WorkflowExecutionState branchState, int baseToolCallCount) {
+        this.nodeOutputs.putAll(branchState.nodeOutputs);
+        if (branchState.toolCalls.size() > baseToolCallCount) {
+            this.toolCalls.addAll(branchState.toolCalls.subList(baseToolCallCount, branchState.toolCalls.size()));
+        }
+        if (!branchState.retrievedContext.isEmpty()) {
+            this.retrievedContext = branchState.retrievedContext;
+        }
+        if (branchState.answer != null) {
+            this.answer = branchState.answer;
+        }
+    }
+
+    void setParallelBranchOutputs(Map<String, Object> branchOutputs) {
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("branchOutputs", Collections.unmodifiableMap(new LinkedHashMap<>(branchOutputs)));
+        setLastOutput(Collections.unmodifiableMap(output));
     }
 
     Boolean lastConditionResult() {

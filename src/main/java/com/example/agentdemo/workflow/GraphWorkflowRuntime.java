@@ -33,6 +33,10 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
 
     @Override
     public WorkflowExecutionResult run(String runId, WorkflowExecutionPlan executionPlan, Map<String, Object> input) {
+        if (executionPlan.hasParallelJoin()) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Graph runtime does not support parallel/join workflows yet; use demo.workflow.runtime=simple");
+        }
         WorkflowExecutionState state = new WorkflowExecutionState(input);
         List<WorkflowStepSummary> summaries = new ArrayList<>();
         try {

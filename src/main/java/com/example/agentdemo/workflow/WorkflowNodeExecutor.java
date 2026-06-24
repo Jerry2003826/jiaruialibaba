@@ -43,6 +43,8 @@ public class WorkflowNodeExecutor {
             case "llm" -> executeLlm(node, state);
             case "tool" -> executeTool(node, state);
             case "condition" -> executeCondition(node, state);
+            case "parallel" -> executeParallel(state);
+            case "join" -> executeJoin(state);
             case "end" -> executeEnd(state);
             default -> throw new BusinessException("WORKFLOW_UNSUPPORTED", "Unsupported node type: " + node.type());
         };
@@ -130,6 +132,20 @@ public class WorkflowNodeExecutor {
         output.put("right", right);
         output.put("caseSensitive", caseSensitive);
         output.put("result", result);
+        state.setLastOutput(output);
+        return output;
+    }
+
+    private Object executeParallel(WorkflowExecutionState state) {
+        Map<String, Object> output = orderedMap();
+        output.put("status", "READY");
+        output.put("input", state.lastOutput());
+        state.setLastOutput(output);
+        return output;
+    }
+
+    private Object executeJoin(WorkflowExecutionState state) {
+        Object output = state.lastOutput() == null ? Map.of() : state.lastOutput();
         state.setLastOutput(output);
         return output;
     }

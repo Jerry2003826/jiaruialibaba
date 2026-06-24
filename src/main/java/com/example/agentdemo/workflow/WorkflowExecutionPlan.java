@@ -12,6 +12,7 @@ public record WorkflowExecutionPlan(
         WorkflowNode endNode,
         Map<String, WorkflowNode> nodesById,
         Map<String, List<WorkflowExecutionEdge>> outgoingEdges,
+        Map<String, List<String>> incomingNodeIds,
         List<WorkflowNode> linearNodes) {
 
     public WorkflowExecutionPlan {
@@ -21,6 +22,11 @@ public record WorkflowExecutionPlan(
             outgoingCopy.put(entry.getKey(), List.copyOf(entry.getValue()));
         }
         outgoingEdges = Collections.unmodifiableMap(outgoingCopy);
+        Map<String, List<String>> incomingCopy = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : incomingNodeIds.entrySet()) {
+            incomingCopy.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        incomingNodeIds = Collections.unmodifiableMap(incomingCopy);
         linearNodes = List.copyOf(linearNodes);
     }
 
@@ -38,6 +44,16 @@ public record WorkflowExecutionPlan(
 
     public List<WorkflowExecutionEdge> outgoing(String nodeId) {
         return outgoingEdges.getOrDefault(nodeId, List.of());
+    }
+
+    public List<String> incomingNodeIds(String nodeId) {
+        return incomingNodeIds.getOrDefault(nodeId, List.of());
+    }
+
+    public boolean hasParallelJoin() {
+        return nodesById.values()
+                .stream()
+                .anyMatch(node -> "parallel".equalsIgnoreCase(node.type()) || "join".equalsIgnoreCase(node.type()));
     }
 
 }

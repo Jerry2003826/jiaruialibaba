@@ -128,6 +128,53 @@ class SimpleWorkflowRuntimeTest {
     }
 
     @Test
+    void runsParallelBranchesAndMergesAtJoin() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new MapEchoProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("map_echo"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
+                        variableResolver),
+                traceService, executorService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("tool_a", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "A"))),
+                        new WorkflowNode("tool_b", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "B"))),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "tool_a"),
+                        new WorkflowEdge("parallel_1", "tool_b"),
+                        new WorkflowEdge("tool_a", "join_1"),
+                        new WorkflowEdge("tool_b", "join_1"),
+                        new WorkflowEdge("join_1", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", plan, Map.of("message", "hello"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "parallel_1", "tool_a", "tool_b", "join_1", "end");
+        assertThat(result.output()).isInstanceOf(Map.class);
+        Map<?, ?> output = (Map<?, ?>) result.output();
+        assertThat(output.containsKey("branchOutputs")).isTrue();
+        Map<?, ?> branchOutputs = (Map<?, ?>) output.get("branchOutputs");
+        assertThat(branchOutputs.get("tool_a")).isEqualTo(Map.of("text", "A"));
+        assertThat(branchOutputs.get("tool_b")).isEqualTo(Map.of("text", "B"));
+        verify(traceService).completeStep(eq("step-workflow_node_join_1"),
+                argThat(traceOutput -> traceOutput instanceof Map<?, ?> map && map.containsKey("branchOutputs")));
+    }
+
+    @Test
     void retriesConfiguredNodeAndWritesAttemptsToTrace() {
         FlakyProvider provider = new FlakyProvider();
         ToolGatewayService gateway = new ToolGatewayService(List.of(provider),

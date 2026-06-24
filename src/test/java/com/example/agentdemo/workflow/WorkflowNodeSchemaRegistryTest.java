@@ -16,7 +16,7 @@ class WorkflowNodeSchemaRegistryTest {
 
         assertThat(schemas)
                 .extracting(WorkflowNodeSchema::type)
-                .containsExactly("start", "retriever", "llm", "tool", "condition", "end");
+                .containsExactly("start", "retriever", "llm", "tool", "condition", "parallel", "join", "end");
     }
 
     @Test
@@ -53,6 +53,12 @@ class WorkflowNodeSchemaRegistryTest {
         assertThat(field(condition, "operator").constraints())
                 .containsKey("allowedValues");
         assertThat(field(condition, "caseSensitive").defaultValue()).isEqualTo(false);
+    }
+
+    @Test
+    void exposesParallelAndJoinSchemas() {
+        assertThat(schema("parallel").outputDescription()).contains("branch");
+        assertThat(schema("join").outputDescription()).contains("branchOutputs");
     }
 
     @Test

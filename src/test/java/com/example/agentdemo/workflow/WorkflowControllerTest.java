@@ -29,7 +29,7 @@ class WorkflowControllerTest {
         assertThat(response.success()).isTrue();
         assertThat(response.data())
                 .extracting(WorkflowNodeSchema::type)
-                .containsExactly("start", "retriever", "llm", "tool", "condition", "end");
+                .containsExactly("start", "retriever", "llm", "tool", "condition", "parallel", "join", "end");
     }
 
     @Test
