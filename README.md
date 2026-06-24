@@ -157,6 +157,9 @@ http://localhost:8080
 - `GET /api/tools/mcp/servers`
 - `POST /api/rag/documents`
 - `POST /api/rag/chat`
+- `POST /api/workflows/definitions`
+- `GET /api/workflows/definitions`
+- `GET /api/workflows/definitions/{definitionId}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
 - `GET /api/runs`
@@ -252,6 +255,50 @@ curl -X POST http://localhost:8080/api/workflows/run \
   }'
 ```
 
+保存 Workflow 定义：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/definitions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "RAG Answer Workflow",
+    "description": "Retrieve docs, then answer with Qwen.",
+    "workflowDefinition": {
+      "nodes": [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "retriever_1", "type": "retriever", "config": {"topK": 3}},
+        {"id": "llm_1", "type": "llm", "config": {"prompt": "基于上下文回答：{{context}}\n用户问题：{{input}}"}},
+        {"id": "end", "type": "end", "config": {}}
+      ],
+      "edges": [
+        {"from": "start", "to": "retriever_1"},
+        {"from": "retriever_1", "to": "llm_1"},
+        {"from": "llm_1", "to": "end"}
+      ]
+    }
+  }'
+```
+
+查看已保存 Workflow 定义：
+
+```bash
+curl http://localhost:8080/api/workflows/definitions
+curl http://localhost:8080/api/workflows/definitions/{definitionId}
+```
+
+按已保存定义运行 Workflow：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/run \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "definitionId": "{definitionId}",
+    "input": {
+      "message": "What can Spring AI Alibaba build?"
+    }
+  }'
+```
+
 查看 Workflow 节点 schema：
 
 ```bash
@@ -272,7 +319,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowDefinition`: `nodes` + `edges`
 - `WorkflowNode`: `id`、`type`、`config`
 - `WorkflowEdge`: `from`、`to`
-- `WorkflowRunRequest`: `workflowDefinition` + `input`
+- `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + `input`
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
@@ -293,7 +340,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 只支持一个 `start` 和一个 `end`。
 - 只支持线性 DAG：不支持分支、合流、并行、循环、条件边。
 - 复杂图会返回 `WORKFLOW_UNSUPPORTED`。
-- Workflow 定义暂不持久化，只随请求提交并立即运行。
+- Workflow 定义可保存到 H2 的 `workflow_definitions` 表；当前没有版本管理、发布状态或租户隔离。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
 
@@ -307,7 +354,7 @@ Spring AI Alibaba Graph 接入：
 
 - 前端画布只需要生成同样的 `nodes` / `edges` JSON。
 - 后续可把节点 schema 固化为 registry：节点类型、配置表单、输入输出变量、校验规则。
-- 当前 API 已可作为画布保存前的运行预览接口。
+- 当前 API 已支持保存 workflow definition，并可作为画布保存前的运行预览接口。
 
 ## GitHub MCP 本地示例
 

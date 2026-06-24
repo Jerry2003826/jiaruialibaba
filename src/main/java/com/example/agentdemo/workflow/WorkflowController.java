@@ -3,6 +3,7 @@ package com.example.agentdemo.workflow;
 import com.example.agentdemo.common.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,11 +16,30 @@ import java.util.List;
 public class WorkflowController {
 
     private final WorkflowService workflowService;
+    private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
 
-    public WorkflowController(WorkflowService workflowService, WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry) {
+    public WorkflowController(WorkflowService workflowService, WorkflowDefinitionService workflowDefinitionService,
+            WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry) {
         this.workflowService = workflowService;
+        this.workflowDefinitionService = workflowDefinitionService;
         this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
+    }
+
+    @PostMapping("/definitions")
+    public ApiResponse<WorkflowDefinitionResponse> saveDefinition(
+            @Valid @RequestBody WorkflowDefinitionSaveRequest request) {
+        return ApiResponse.ok(workflowDefinitionService.save(request));
+    }
+
+    @GetMapping("/definitions")
+    public ApiResponse<List<WorkflowDefinitionResponse>> listDefinitions() {
+        return ApiResponse.ok(workflowDefinitionService.list());
+    }
+
+    @GetMapping("/definitions/{definitionId}")
+    public ApiResponse<WorkflowDefinitionResponse> getDefinition(@PathVariable String definitionId) {
+        return ApiResponse.ok(workflowDefinitionService.get(definitionId));
     }
 
     @GetMapping("/node-schemas")
