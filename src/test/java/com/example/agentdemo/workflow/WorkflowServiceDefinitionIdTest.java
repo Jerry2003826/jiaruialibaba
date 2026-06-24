@@ -26,6 +26,7 @@ class WorkflowServiceDefinitionIdTest {
     void runsWorkflowByPersistedDefinitionId() {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         when(definitionService.resolveDefinition("wf-1", null))
                 .thenReturn(new WorkflowDefinitionResolution("wf-1", 7, definition));
         WorkflowRuntime runtime = mock(WorkflowRuntime.class);
@@ -35,7 +36,7 @@ class WorkflowServiceDefinitionIdTest {
         when(traceService.createRun(eq(RunType.WORKFLOW), any()))
                 .thenReturn(new RunEntity("run-1", RunType.WORKFLOW, RunStatus.RUNNING, "{}", Instant.now()));
         WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()), runtime,
-                traceService, definitionService);
+                traceService, definitionService, runRecordRepository);
 
         WorkflowRunResponse response = service.run(new WorkflowRunRequest(null, "wf-1", Map.of("message", "hello")));
 
@@ -51,6 +52,12 @@ class WorkflowServiceDefinitionIdTest {
                     assertThat(traceInput.definitionId()).isEqualTo("wf-1");
                     assertThat(traceInput.definitionVersion()).isEqualTo(7);
                 });
+        ArgumentCaptor<WorkflowRunRecordEntity> runRecordCaptor =
+                ArgumentCaptor.forClass(WorkflowRunRecordEntity.class);
+        verify(runRecordRepository).save(runRecordCaptor.capture());
+        assertThat(runRecordCaptor.getValue().getRunId()).isEqualTo("run-1");
+        assertThat(runRecordCaptor.getValue().getDefinitionId()).isEqualTo("wf-1");
+        assertThat(runRecordCaptor.getValue().getDefinitionVersion()).isEqualTo(7);
         verify(traceService).markRunSucceeded(eq("run-1"), any());
     }
 
@@ -58,6 +65,7 @@ class WorkflowServiceDefinitionIdTest {
     void runsWorkflowByPinnedDefinitionVersion() {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         when(definitionService.resolveDefinition("wf-1", 2))
                 .thenReturn(new WorkflowDefinitionResolution("wf-1", 2, definition));
         WorkflowRuntime runtime = mock(WorkflowRuntime.class);
@@ -67,7 +75,7 @@ class WorkflowServiceDefinitionIdTest {
         when(traceService.createRun(eq(RunType.WORKFLOW), any()))
                 .thenReturn(new RunEntity("run-2", RunType.WORKFLOW, RunStatus.RUNNING, "{}", Instant.now()));
         WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()), runtime,
-                traceService, definitionService);
+                traceService, definitionService, runRecordRepository);
 
         WorkflowRunResponse response = service.run(new WorkflowRunRequest(null, "wf-1", 2,
                 Map.of("message", "pinned")));
@@ -84,12 +92,64 @@ class WorkflowServiceDefinitionIdTest {
                     assertThat(traceInput.definitionId()).isEqualTo("wf-1");
                     assertThat(traceInput.definitionVersion()).isEqualTo(2);
                 });
+        ArgumentCaptor<WorkflowRunRecordEntity> runRecordCaptor =
+                ArgumentCaptor.forClass(WorkflowRunRecordEntity.class);
+        verify(runRecordRepository).save(runRecordCaptor.capture());
+        assertThat(runRecordCaptor.getValue().getDefinitionVersion()).isEqualTo(2);
+    }
+
+    @Test
+    void listsRunsByDefinitionAndOptionalVersion() {
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
+        WorkflowRunRecordEntity v2 = new WorkflowRunRecordEntity("run-2", "wf-1", 2,
+                Instant.parse("2026-06-24T04:00:00Z"));
+        WorkflowRunRecordEntity v1 = new WorkflowRunRecordEntity("run-1", "wf-1", 1,
+                Instant.parse("2026-06-24T03:00:00Z"));
+        when(runRecordRepository.findAllByDefinitionIdOrderByStartedAtDesc("wf-1"))
+                .thenReturn(List.of(v2, v1));
+        when(runRecordRepository.findAllByDefinitionIdAndDefinitionVersionOrderByStartedAtDesc("wf-1", 2))
+                .thenReturn(List.of(v2));
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
+                runRecordRepository);
+
+        List<WorkflowRunRecordResponse> allRuns = service.listRuns("wf-1", null);
+        List<WorkflowRunRecordResponse> v2Runs = service.listRuns("wf-1", 2);
+
+        assertThat(allRuns)
+                .extracting(WorkflowRunRecordResponse::runId)
+                .containsExactly("run-2", "run-1");
+        assertThat(v2Runs)
+                .extracting(WorkflowRunRecordResponse::runId)
+                .containsExactly("run-2");
+    }
+
+    @Test
+    void marksRunFailedWhenRunRecordCannotBeSaved() {
+        WorkflowDefinition definition = validDefinition();
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        when(definitionService.resolveDefinition("wf-1", null))
+                .thenReturn(new WorkflowDefinitionResolution("wf-1", 1, definition));
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
+        IllegalStateException failure = new IllegalStateException("metadata write failed");
+        when(runRecordRepository.save(any(WorkflowRunRecordEntity.class))).thenThrow(failure);
+        WorkflowRuntime runtime = mock(WorkflowRuntime.class);
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.createRun(eq(RunType.WORKFLOW), any()))
+                .thenReturn(new RunEntity("run-3", RunType.WORKFLOW, RunStatus.RUNNING, "{}", Instant.now()));
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()), runtime,
+                traceService, definitionService, runRecordRepository);
+
+        assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, "wf-1", Map.of("message", "hello"))))
+                .isSameAs(failure);
+        verify(traceService).markRunFailed("run-3", failure);
     }
 
     @Test
     void rejectsRunRequestWithoutInlineDefinitionOrDefinitionId() {
         WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
-                mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class));
+                mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
+                mock(WorkflowRunRecordRepository.class));
 
         assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, null, Map.of())))
                 .isInstanceOfSatisfying(BusinessException.class,

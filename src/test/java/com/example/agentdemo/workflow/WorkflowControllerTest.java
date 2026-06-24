@@ -134,6 +134,20 @@ class WorkflowControllerTest {
         assertThat(response.data()).isEqualTo(expected);
     }
 
+    @Test
+    void listsWorkflowRunsByDefinition() {
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowRunRecordResponse expected = new WorkflowRunRecordResponse("run-1", "wf-1", 2, null);
+        when(workflowService.listRuns("wf-1", 2)).thenReturn(List.of(expected));
+        WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<List<WorkflowRunRecordResponse>> response = controller.listRuns("wf-1", 2);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).containsExactly(expected);
+    }
+
     private WorkflowDefinition validDefinition() {
         return new WorkflowDefinition(
                 List.of(

@@ -166,6 +166,7 @@ http://localhost:8080
 - `POST /api/workflows/definitions/{definitionId}/rollback/{version}`
 - `GET /api/workflows/node-schemas`
 - `POST /api/workflows/run`
+- `GET /api/workflows/runs?definitionId={definitionId}`
 - `GET /api/runs`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
@@ -363,6 +364,15 @@ curl -X POST http://localhost:8080/api/workflows/run \
 
 如果请求只传 `definitionId`，运行时会解析当前版本，并在响应与 run trace input 中记录实际使用的 `definitionId` / `definitionVersion`。如果同时传 `definitionVersion`，运行会固定到对应 revision，便于之后复现历史 run。
 
+查看已保存 Workflow 定义的运行记录：
+
+```bash
+curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}'
+curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}&definitionVersion=1'
+```
+
+该接口返回按 `startedAt` 倒序排列的 `runId`、`definitionId`、`definitionVersion` 和 `startedAt`。完整运行状态、输出和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
+
 查看 Workflow 节点 schema：
 
 ```bash
@@ -386,6 +396,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + 可选 `definitionVersion` + `input`
 - `WorkflowDefinitionStatus`: `DRAFT` / `PUBLISHED`
 - `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
+- `WorkflowRunRecord`: 按 `definitionId` / `definitionVersion` 索引已保存定义触发的 workflow run。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
@@ -410,6 +421,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - 每次新建和更新都会写入 H2 的 `workflow_definition_revisions` 表；发布时会同步当前版本 revision 的状态为 `PUBLISHED`。
 - 回滚会从历史 revision 复制快照并生成新的 `DRAFT` 版本，不会覆盖旧 revision。
 - 按已保存定义运行时会在响应和 run trace input 中记录实际使用的 `definitionId` / `definitionVersion`。
+- 按已保存定义运行时会写入 H2 的 `workflow_run_records` 表，便于按定义或 revision 查询历史 run；inline workflow 运行不会写入该索引。
 - 当前还没有租户隔离或发布环境区分。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。
