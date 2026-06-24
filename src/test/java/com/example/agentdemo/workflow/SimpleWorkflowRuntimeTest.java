@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 class SimpleWorkflowRuntimeTest {
 
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
+    private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
 
     @Test
     void runsOnlyMatchingConditionBranch() {
@@ -38,7 +39,8 @@ class SimpleWorkflowRuntimeTest {
         when(traceService.startStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
-                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway),
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
+                        variableResolver),
                 traceService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", conditionalPlan(),
@@ -58,7 +60,8 @@ class SimpleWorkflowRuntimeTest {
         when(traceService.startStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
-                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway),
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
+                        variableResolver),
                 traceService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -77,6 +80,38 @@ class SimpleWorkflowRuntimeTest {
                 argThat(output -> output instanceof ToolExecutionLog log
                         && "remote_fail".equals(log.toolName())
                         && ToolExecutionLog.ERROR_REMOTE_TOOL.equals(log.errorCategory())));
+    }
+
+    @Test
+    void laterNodeCanReferenceEarlierNodeOutput() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new MapEchoProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("map_echo"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
+                        variableResolver),
+                traceService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_first", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "from first"))),
+                        new WorkflowNode("tool_second", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "{{nodes.tool_first.text}}"))),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_first"),
+                        new WorkflowEdge("tool_first", "tool_second"),
+                        new WorkflowEdge("tool_second", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", plan, Map.of("message", "hello"));
+
+        assertThat(result.output()).isEqualTo(Map.of("text", "from first"));
     }
 
     private WorkflowExecutionPlan conditionalPlan() {
@@ -125,6 +160,32 @@ class SimpleWorkflowRuntimeTest {
         @Override
         public List<ToolDescriptor> tools() {
             return List.of(new ToolDescriptor("remote_fail", "Remote failure", providerName(), true));
+        }
+
+    }
+
+    private static final class MapEchoProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "test-mcp";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "map_echo".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            return ToolExecutionLog.success(toolName, arguments, Map.of("text", arguments.get("text")), now, now,
+                    new ToolDescriptor(toolName, "Map echo", providerName(), true));
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("map_echo", "Map echo", providerName(), true));
         }
 
     }

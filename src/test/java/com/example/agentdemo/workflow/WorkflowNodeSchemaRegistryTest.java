@@ -31,7 +31,8 @@ class WorkflowNodeSchemaRegistryTest {
 
         WorkflowNodeSchema llm = schema("llm");
         assertThat(llm.templateVariables())
-                .contains("{{input}}", "{{context}}", "{{lastOutput}}", "{{toolResult}}");
+                .contains("{{input}}", "{{input.field}}", "{{context}}", "{{lastOutput}}",
+                        "{{lastOutput.field}}", "{{nodes.nodeId.field}}", "{{toolResult}}", "{{answer}}");
         assertThat(field(llm, "prompt").defaultValue()).asString().contains("{{context}}");
     }
 

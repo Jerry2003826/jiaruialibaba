@@ -14,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 public class WorkflowNodeExecutor {
@@ -24,18 +22,18 @@ public class WorkflowNodeExecutor {
             You are a workflow LLM node. Use the workflow input and retrieved context when available.
             If context is missing, say what is missing instead of inventing details.
             """;
-    private static final Pattern TEMPLATE_PATTERN =
-            Pattern.compile("\\{\\{\\s*([a-zA-Z][a-zA-Z0-9_.]*)\\s*}}");
 
     private final RagService ragService;
     private final AiModelService aiModelService;
     private final ToolGatewayService toolGatewayService;
+    private final WorkflowVariableResolver variableResolver;
 
     public WorkflowNodeExecutor(RagService ragService, AiModelService aiModelService,
-            ToolGatewayService toolGatewayService) {
+            ToolGatewayService toolGatewayService, WorkflowVariableResolver variableResolver) {
         this.ragService = ragService;
         this.aiModelService = aiModelService;
         this.toolGatewayService = toolGatewayService;
+        this.variableResolver = variableResolver;
     }
 
     Object execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -57,6 +55,7 @@ public class WorkflowNodeExecutor {
         input.put("config", node.config());
         input.put("workflowInput", state.input());
         input.put("lastOutput", state.lastOutput());
+        input.put("nodeOutputs", state.nodeOutputs());
         return input;
     }
 
@@ -91,7 +90,7 @@ public class WorkflowNodeExecutor {
     private Object executeLlm(WorkflowNode node, WorkflowExecutionState state) {
         String promptTemplate = configString(node, "prompt",
                 "Answer the workflow input using this context: {{context}}\nInput: {{input}}");
-        String prompt = renderTemplate(promptTemplate, state);
+        String prompt = variableResolver.renderString(promptTemplate, state);
         AiModelResult result = aiModelService.generate(WORKFLOW_SYSTEM_PROMPT, prompt);
         String answer = result.fallback() ? fallbackAnswer(prompt, state) : result.answer();
         state.setAnswer(answer);
@@ -118,7 +117,7 @@ public class WorkflowNodeExecutor {
     }
 
     private Object executeCondition(WorkflowNode node, WorkflowExecutionState state) {
-        String left = renderTemplate(configString(node, "left", "{{input}}"), state);
+        String left = variableResolver.renderString(configString(node, "left", "{{input}}"), state);
         String operator = configString(node, "operator", "contains").toLowerCase(Locale.ROOT);
         Object right = renderArgument(node.config().getOrDefault("right", ""), state);
         boolean caseSensitive = configBoolean(node, "caseSensitive", false);
@@ -166,16 +165,13 @@ public class WorkflowNodeExecutor {
         }
         if ("calculate".equals(configString(node, "toolName", "getCurrentTime"))
                 && !arguments.containsKey("expression")) {
-            arguments.put("expression", renderTemplate(configString(node, "expression", ""), state));
+            arguments.put("expression", variableResolver.renderString(configString(node, "expression", ""), state));
         }
         return arguments;
     }
 
     private Object renderArgument(Object value, WorkflowExecutionState state) {
-        if (value instanceof String text) {
-            return renderTemplate(text, state);
-        }
-        return value;
+        return variableResolver.renderValue(value, state);
     }
 
     private Object executeEnd(WorkflowExecutionState state) {
@@ -197,55 +193,6 @@ public class WorkflowNodeExecutor {
             return "Workflow fallback answer. Context: " + state.contextText();
         }
         return "Workflow fallback answer. Prompt: " + prompt;
-    }
-
-    private String renderTemplate(String template, WorkflowExecutionState state) {
-        Matcher matcher = TEMPLATE_PATTERN.matcher(template);
-        StringBuffer rendered = new StringBuffer();
-        while (matcher.find()) {
-            matcher.appendReplacement(rendered, Matcher.quoteReplacement(resolveTemplateVariable(matcher.group(1),
-                    state)));
-        }
-        matcher.appendTail(rendered);
-        return rendered.toString();
-    }
-
-    private String resolveTemplateVariable(String name, WorkflowExecutionState state) {
-        return switch (name) {
-            case "input" -> state.primaryInput();
-            case "context" -> state.contextText();
-            case "lastOutput" -> state.lastOutput() == null ? "" : String.valueOf(state.lastOutput());
-            case "toolResult" -> state.lastToolResult();
-            default -> resolveDottedTemplateVariable(name, state);
-        };
-    }
-
-    private String resolveDottedTemplateVariable(String name, WorkflowExecutionState state) {
-        if (name.startsWith("input.")) {
-            return stringValue(resolvePath(state.input(), name.substring("input.".length())));
-        }
-        if (name.startsWith("lastOutput.")) {
-            return stringValue(resolvePath(state.lastOutput(), name.substring("lastOutput.".length())));
-        }
-        return "";
-    }
-
-    private Object resolvePath(Object root, String path) {
-        Object current = root;
-        for (String part : path.split("\\.")) {
-            if (!(current instanceof Map<?, ?> map)) {
-                return null;
-            }
-            current = map.get(part);
-            if (current == null) {
-                return null;
-            }
-        }
-        return current;
-    }
-
-    private String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value);
     }
 
     private String configString(WorkflowNode node, String key, String defaultValue) {

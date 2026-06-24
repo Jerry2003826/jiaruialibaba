@@ -20,12 +20,14 @@ import static org.mockito.Mockito.mock;
 
 class WorkflowNodeExecutorTest {
 
+    private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
+
     @Test
     void toolNodeUsesToolGatewaySoRemoteToolsCanBeCalled() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_echo"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway);
+                gateway, variableResolver);
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         Object output = executor.execute("run-1",
@@ -45,7 +47,7 @@ class WorkflowNodeExecutorTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway);
+                gateway, variableResolver);
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         assertThatThrownBy(() -> executor.execute("run-1",

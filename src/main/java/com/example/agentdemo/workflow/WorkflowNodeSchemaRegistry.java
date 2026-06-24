@@ -12,9 +12,13 @@ public class WorkflowNodeSchemaRegistry {
 
     private static final List<String> TEMPLATE_VARIABLES = List.of(
             "{{input}}",
+            "{{input.field}}",
             "{{context}}",
             "{{lastOutput}}",
-            "{{toolResult}}");
+            "{{lastOutput.field}}",
+            "{{nodes.nodeId.field}}",
+            "{{toolResult}}",
+            "{{answer}}");
 
     private final List<WorkflowNodeSchema> schemas = List.of(
             startSchema(),
@@ -55,7 +59,7 @@ public class WorkflowNodeSchemaRegistry {
                                 "string",
                                 false,
                                 null,
-                                "Optional query template. Defaults to the primary workflow input message.",
+                                "Optional query template. Defaults to the primary workflow input message. Supports workflow variables.",
                                 Map.of("templateVariables", TEMPLATE_VARIABLES)),
                         new WorkflowNodeConfigField(
                                 "topK",
@@ -78,7 +82,7 @@ public class WorkflowNodeSchemaRegistry {
                         "string",
                         false,
                         "Answer the workflow input using this context: {{context}}\nInput: {{input}}",
-                        "Prompt template sent to the model.",
+                        "Prompt template sent to the model. Supports workflow variables.",
                         Map.of("templateVariables", TEMPLATE_VARIABLES))),
                 TEMPLATE_VARIABLES,
                 "A map containing prompt, answer, fallback and errorMessage.");
@@ -102,7 +106,7 @@ public class WorkflowNodeSchemaRegistry {
                                 "object",
                                 false,
                                 Map.of(),
-                                "Tool argument object. String values can use workflow template variables.",
+                                "Tool argument object. String values can use workflow variables. Exact variable templates preserve the resolved value type.",
                                 Map.of("templateVariables", TEMPLATE_VARIABLES)),
                         new WorkflowNodeConfigField(
                                 "expression",
@@ -126,7 +130,7 @@ public class WorkflowNodeSchemaRegistry {
                                 "string",
                                 false,
                                 "{{input}}",
-                                "Left value template. Supports {{input}}, {{input.field}}, {{context}}, {{lastOutput}}, {{lastOutput.field}} and {{toolResult}}.",
+                                "Left value template. Supports workflow variables.",
                                 Map.of("templateVariables", TEMPLATE_VARIABLES)),
                         new WorkflowNodeConfigField(
                                 "operator",
@@ -141,7 +145,7 @@ public class WorkflowNodeSchemaRegistry {
                                 "any",
                                 false,
                                 "",
-                                "Right value. String values can use workflow template variables.",
+                                "Right value. String values can use workflow variables. Exact variable templates preserve the resolved value type.",
                                 Map.of("templateVariables", TEMPLATE_VARIABLES)),
                         new WorkflowNodeConfigField(
                                 "caseSensitive",

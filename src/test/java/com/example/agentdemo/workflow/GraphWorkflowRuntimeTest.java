@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 class GraphWorkflowRuntimeTest {
 
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
+    private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
 
     @Test
     void runsLinearWorkflowThroughSpringAiAlibabaGraph() {
@@ -45,7 +46,7 @@ class GraphWorkflowRuntimeTest {
                 .thenReturn(AiModelResult.ok("graph answer"));
 
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService),
+                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService, variableResolver),
                 traceService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", compiler.compile(new WorkflowDefinition(
@@ -71,7 +72,8 @@ class GraphWorkflowRuntimeTest {
                 .thenAnswer(invocation -> stepForRun("run-branch", invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())))),
+                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        variableResolver),
                 traceService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -105,7 +107,8 @@ class GraphWorkflowRuntimeTest {
         when(traceService.startStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService),
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService,
+                        variableResolver),
                 traceService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(

@@ -65,6 +65,7 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
                 nodeExecutor.nodeInput(node, state));
         try {
             Object output = nodeExecutor.execute(runId, node, state);
+            state.recordNodeOutput(node.id());
             traceService.completeStep(step.getStepId(), output);
             summaries.add(new WorkflowStepSummary(node.id(), nodeExecutor.normalizeType(node), "SUCCEEDED", output));
         }

@@ -4,6 +4,8 @@ import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.tool.ToolExecutionLog;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -12,6 +14,7 @@ final class WorkflowExecutionState {
     private final Map<String, Object> input;
     private List<RetrievedContext> retrievedContext = List.of();
     private final List<ToolExecutionLog> toolCalls = new ArrayList<>();
+    private final Map<String, Object> nodeOutputs = new LinkedHashMap<>();
     private Object lastOutput;
     private Object finalOutput;
     private String answer;
@@ -70,6 +73,18 @@ final class WorkflowExecutionState {
 
     void setLastOutput(Object lastOutput) {
         this.lastOutput = lastOutput;
+    }
+
+    void recordNodeOutput(String nodeId) {
+        this.nodeOutputs.put(nodeId, lastOutput);
+    }
+
+    Object nodeOutput(String nodeId) {
+        return nodeOutputs.get(nodeId);
+    }
+
+    Map<String, Object> nodeOutputs() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(nodeOutputs));
     }
 
     Boolean lastConditionResult() {

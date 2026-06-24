@@ -456,12 +456,22 @@ curl http://localhost:8080/api/runs/{runId}/steps
 
 - `start`: 将请求 `input` 放入 workflow 状态。
 - `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
-- `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持模板变量 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`。
+- `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持 workflow 变量。
 - `tool`: 复用 `ToolGatewayService`，当前本地支持 `getCurrentTime` 和 `calculate`；开启 MCP 后可调用远程 MCP tool 名称。
 - `condition`: 计算一个布尔条件，并从 `condition=true` 或 `condition=false` 的 outgoing edge 中选择下一节点。支持 `equals`、`notEquals`、`contains`、`notContains`、`startsWith`、`endsWith`、`exists`、`notExists`。
 - `end`: 输出最终 workflow 结果。
 
-`condition` 节点支持简单模板变量。除了原有 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`，还可以读取输入或上游输出中的一层/多层字段，例如 `{{input.intent}}`、`{{lastOutput.result}}`。
+Workflow 变量第一版由 `WorkflowVariableResolver` 统一解析，当前支持：
+
+- `{{input}}`: 主要用户输入，优先取 `input.message`，其次取 `input.query`。
+- `{{input.field}}`: 读取请求 input 中的字段，支持多层 Map 路径和 List 下标，例如 `{{input.intent}}`、`{{input.items.0}}`。
+- `{{context}}`: 当前 RAG retrieved context 的文本拼接。
+- `{{lastOutput}}` / `{{lastOutput.field}}`: 上一个节点输出。
+- `{{nodes.nodeId.field}}`: 指定节点的已记录输出，例如 `{{nodes.tool_first.text}}`。
+- `{{toolResult}}`: 最近一次工具调用输出。
+- `{{answer}}`: 最近一次 LLM 节点生成的答案。
+
+当字符串完全等于一个变量模板时，解析器会保留原始类型，例如 `{"count": "{{input.count}}"}` 会把数字继续作为数字传给工具；普通插值如 `"count={{input.count}}"` 仍会渲染成字符串。
 
 当前限制：
 
