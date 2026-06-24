@@ -39,6 +39,8 @@ class WorkflowDefinitionServiceTest {
         assertThat(response.definitionId()).isNotBlank();
         assertThat(response.name()).isEqualTo("Support Bot");
         assertThat(response.description()).isEqualTo("Answers docs");
+        assertThat(response.version()).isEqualTo(1);
+        assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
         assertThat(response.workflowDefinition()).isEqualTo(definition);
 
         ArgumentCaptor<WorkflowDefinitionEntity> entityCaptor = ArgumentCaptor.forClass(WorkflowDefinitionEntity.class);
@@ -96,6 +98,43 @@ class WorkflowDefinitionServiceTest {
                 .containsExactly("wf-2", "wf-1");
     }
 
+    @Test
+    void updatesStoredDefinitionWithNextVersionAndDraftStatus() throws Exception {
+        WorkflowDefinition updated = validDefinitionWithToolNode();
+        WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
+        existing.prePersist();
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        WorkflowDefinitionResponse response = service.update("wf-1",
+                new WorkflowDefinitionSaveRequest("Support Bot v2", "Updated", updated));
+
+        assertThat(response.definitionId()).isEqualTo("wf-1");
+        assertThat(response.name()).isEqualTo("Support Bot v2");
+        assertThat(response.description()).isEqualTo("Updated");
+        assertThat(response.version()).isEqualTo(2);
+        assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(response.workflowDefinition()).isEqualTo(updated);
+        verify(repository).save(existing);
+    }
+
+    @Test
+    void publishesStoredDefinitionWithoutChangingVersion() throws Exception {
+        WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(validDefinition()));
+        existing.prePersist();
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        WorkflowDefinitionResponse response = service.publish("wf-1");
+
+        assertThat(response.definitionId()).isEqualTo("wf-1");
+        assertThat(response.version()).isEqualTo(1);
+        assertThat(response.status()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
+        verify(repository).save(existing);
+    }
+
     private WorkflowDefinition validDefinition() {
         return new WorkflowDefinition(
                 List.of(
@@ -105,6 +144,17 @@ class WorkflowDefinitionServiceTest {
                 List.of(
                         new WorkflowEdge("start", "llm"),
                         new WorkflowEdge("llm", "end")));
+    }
+
+    private WorkflowDefinition validDefinitionWithToolNode() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool"),
+                        new WorkflowEdge("tool", "end")));
     }
 
 }

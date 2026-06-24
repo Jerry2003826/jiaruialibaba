@@ -7,6 +7,8 @@ public record WorkflowDefinitionResponse(
         String name,
         String description,
         WorkflowDefinition workflowDefinition,
+        Integer version,
+        WorkflowDefinitionStatus status,
         Instant createdAt,
         Instant updatedAt) {
 }

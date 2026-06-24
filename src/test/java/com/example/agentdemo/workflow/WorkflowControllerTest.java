@@ -30,7 +30,7 @@ class WorkflowControllerTest {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot", null,
-                definition, null, null);
+                definition, 1, WorkflowDefinitionStatus.DRAFT, null, null);
         WorkflowDefinitionSaveRequest request = new WorkflowDefinitionSaveRequest("Support Bot", null, definition);
         when(definitionService.save(request)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
@@ -46,7 +46,7 @@ class WorkflowControllerTest {
     void listsWorkflowDefinitions() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot", null,
-                validDefinition(), null, null);
+                validDefinition(), 1, WorkflowDefinitionStatus.DRAFT, null, null);
         when(definitionService.list()).thenReturn(List.of(expected));
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry());
@@ -61,12 +61,44 @@ class WorkflowControllerTest {
     void getsWorkflowDefinition() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot", null,
-                validDefinition(), null, null);
+                validDefinition(), 1, WorkflowDefinitionStatus.DRAFT, null, null);
         when(definitionService.get("wf-1")).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.getDefinition("wf-1");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    void updatesWorkflowDefinition() {
+        WorkflowDefinition definition = validDefinition();
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowDefinitionSaveRequest request = new WorkflowDefinitionSaveRequest("Support Bot v2", null, definition);
+        WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot v2", null,
+                definition, 2, WorkflowDefinitionStatus.DRAFT, null, null);
+        when(definitionService.update("wf-1", request)).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<WorkflowDefinitionResponse> response = controller.updateDefinition("wf-1", request);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    void publishesWorkflowDefinition() {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowDefinitionResponse expected = new WorkflowDefinitionResponse("wf-1", "Support Bot", null,
+                validDefinition(), 1, WorkflowDefinitionStatus.PUBLISHED, null, null);
+        when(definitionService.publish("wf-1")).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<WorkflowDefinitionResponse> response = controller.publishDefinition("wf-1");
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isEqualTo(expected);

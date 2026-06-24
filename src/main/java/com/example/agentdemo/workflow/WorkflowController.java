@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,6 +41,17 @@ public class WorkflowController {
     @GetMapping("/definitions/{definitionId}")
     public ApiResponse<WorkflowDefinitionResponse> getDefinition(@PathVariable String definitionId) {
         return ApiResponse.ok(workflowDefinitionService.get(definitionId));
+    }
+
+    @PutMapping("/definitions/{definitionId}")
+    public ApiResponse<WorkflowDefinitionResponse> updateDefinition(@PathVariable String definitionId,
+            @Valid @RequestBody WorkflowDefinitionSaveRequest request) {
+        return ApiResponse.ok(workflowDefinitionService.update(definitionId, request));
+    }
+
+    @PostMapping("/definitions/{definitionId}/publish")
+    public ApiResponse<WorkflowDefinitionResponse> publishDefinition(@PathVariable String definitionId) {
+        return ApiResponse.ok(workflowDefinitionService.publish(definitionId));
     }
 
     @GetMapping("/node-schemas")

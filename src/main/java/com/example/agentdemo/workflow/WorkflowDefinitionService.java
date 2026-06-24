@@ -32,6 +32,22 @@ public class WorkflowDefinitionService {
         return toResponse(workflowDefinitionRepository.save(entity));
     }
 
+    @Transactional
+    public WorkflowDefinitionResponse update(String definitionId, WorkflowDefinitionSaveRequest request) {
+        workflowCompiler.compile(request.workflowDefinition());
+        WorkflowDefinitionEntity entity = findEntity(definitionId);
+        entity.updateDraft(request.name().trim(), normalizeDescription(request.description()),
+                toJson(request.workflowDefinition()));
+        return toResponse(workflowDefinitionRepository.save(entity));
+    }
+
+    @Transactional
+    public WorkflowDefinitionResponse publish(String definitionId) {
+        WorkflowDefinitionEntity entity = findEntity(definitionId);
+        entity.publish();
+        return toResponse(workflowDefinitionRepository.save(entity));
+    }
+
     @Transactional(readOnly = true)
     public List<WorkflowDefinitionResponse> list() {
         return workflowDefinitionRepository.findAllByOrderByCreatedAtDesc()
@@ -61,7 +77,7 @@ public class WorkflowDefinitionService {
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinitionEntity entity) {
         return new WorkflowDefinitionResponse(entity.getDefinitionId(), entity.getName(), entity.getDescription(),
-                fromJson(entity), entity.getCreatedAt(), entity.getUpdatedAt());
+                fromJson(entity), entity.getVersion(), entity.getStatus(), entity.getCreatedAt(), entity.getUpdatedAt());
     }
 
     private WorkflowDefinition fromJson(WorkflowDefinitionEntity entity) {

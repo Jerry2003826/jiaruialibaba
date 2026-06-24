@@ -2,6 +2,8 @@ package com.example.agentdemo.workflow;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -34,6 +36,13 @@ public class WorkflowDefinitionEntity {
     private String definitionJson;
 
     @Column(nullable = false)
+    private Integer version;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private WorkflowDefinitionStatus status;
+
+    @Column(nullable = false)
     private Instant createdAt;
 
     @Column(nullable = false)
@@ -47,11 +56,19 @@ public class WorkflowDefinitionEntity {
         this.name = name;
         this.description = description;
         this.definitionJson = definitionJson;
+        this.version = 1;
+        this.status = WorkflowDefinitionStatus.DRAFT;
     }
 
     @PrePersist
     void prePersist() {
         Instant now = Instant.now();
+        if (version == null) {
+            version = 1;
+        }
+        if (status == null) {
+            status = WorkflowDefinitionStatus.DRAFT;
+        }
         if (createdAt == null) {
             createdAt = now;
         }
@@ -63,6 +80,22 @@ public class WorkflowDefinitionEntity {
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
+    }
+
+    void updateDraft(String name, String description, String definitionJson) {
+        this.name = name;
+        this.description = description;
+        this.definitionJson = definitionJson;
+        this.version = currentVersion() + 1;
+        this.status = WorkflowDefinitionStatus.DRAFT;
+    }
+
+    void publish() {
+        this.status = WorkflowDefinitionStatus.PUBLISHED;
+    }
+
+    private int currentVersion() {
+        return version == null ? 0 : version;
     }
 
     public Long getId() {
@@ -83,6 +116,14 @@ public class WorkflowDefinitionEntity {
 
     public String getDefinitionJson() {
         return definitionJson;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public WorkflowDefinitionStatus getStatus() {
+        return status;
     }
 
     public Instant getCreatedAt() {
