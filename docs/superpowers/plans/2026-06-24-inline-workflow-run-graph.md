@@ -20,4 +20,4 @@ Make `/api/workflows/runs/{runId}/graph` work for both saved-definition workflow
 - [x] Wire `WorkflowController` to the new service and update existing tests.
 - [x] Update README limitations and examples.
 - [x] Run focused tests and `./mvnw clean package`.
-- [ ] Commit and push through the configured proxy.
+- [x] Commit and push through the configured proxy.
