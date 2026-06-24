@@ -137,7 +137,7 @@ Expected:
 - `git diff --check` has no output.
 - Secret scan only reports placeholders or no output.
 
-- [ ] **Step 4: Mark plan complete, commit and push**
+- [x] **Step 4: Mark plan complete, commit and push**
 
 Run:
 
