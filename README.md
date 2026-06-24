@@ -347,6 +347,22 @@ curl -X POST http://localhost:8080/api/workflows/run \
   }'
 ```
 
+按指定 revision 运行 Workflow：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/run \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "definitionId": "{definitionId}",
+    "definitionVersion": 1,
+    "input": {
+      "message": "Run against a pinned workflow revision."
+    }
+  }'
+```
+
+如果请求只传 `definitionId`，运行时会解析当前版本，并在响应与 run trace input 中记录实际使用的 `definitionId` / `definitionVersion`。如果同时传 `definitionVersion`，运行会固定到对应 revision，便于之后复现历史 run。
+
 查看 Workflow 节点 schema：
 
 ```bash
@@ -367,7 +383,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowDefinition`: `nodes` + `edges`
 - `WorkflowNode`: `id`、`type`、`config`
 - `WorkflowEdge`: `from`、`to`
-- `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + `input`
+- `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + 可选 `definitionVersion` + `input`
 - `WorkflowDefinitionStatus`: `DRAFT` / `PUBLISHED`
 - `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
@@ -393,6 +409,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - Workflow 定义可保存到 H2 的 `workflow_definitions` 表；新建为 `DRAFT` v1，更新时版本递增并回到 `DRAFT`，发布后状态为 `PUBLISHED`。
 - 每次新建和更新都会写入 H2 的 `workflow_definition_revisions` 表；发布时会同步当前版本 revision 的状态为 `PUBLISHED`。
 - 回滚会从历史 revision 复制快照并生成新的 `DRAFT` 版本，不会覆盖旧 revision。
+- 按已保存定义运行时会在响应和 run trace input 中记录实际使用的 `definitionId` / `definitionVersion`。
 - 当前还没有租户隔离或发布环境区分。
 - 节点 schema registry 是只读内置列表，还不是数据库驱动的动态节点市场。
 - 每个节点都会写入 `run_step`，整体 run type 为 `WORKFLOW`。

@@ -25,13 +25,16 @@ public class WorkflowService {
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
         requireDefinitionReference(request);
-        RunEntity run = traceService.createRun(RunType.WORKFLOW, request);
+        WorkflowDefinitionResolution definitionResolution = resolveDefinition(request);
+        RunEntity run = traceService.createRun(RunType.WORKFLOW,
+                new WorkflowRunTraceInput(request, definitionResolution.definitionId(), definitionResolution.version()));
         try {
-            WorkflowDefinition definition = resolveDefinition(request);
+            WorkflowDefinition definition = definitionResolution.workflowDefinition();
             List<WorkflowNode> orderedNodes = workflowCompiler.compile(definition);
             WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), orderedNodes,
                     request.input());
-            WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.getRunId(), result.steps());
+            WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.getRunId(), result.steps(),
+                    definitionResolution.definitionId(), definitionResolution.version());
             traceService.markRunSucceeded(run.getRunId(), response);
             return response;
         }
@@ -49,12 +52,12 @@ public class WorkflowService {
         }
     }
 
-    private WorkflowDefinition resolveDefinition(WorkflowRunRequest request) {
+    private WorkflowDefinitionResolution resolveDefinition(WorkflowRunRequest request) {
         if (request.workflowDefinition() != null) {
-            return request.workflowDefinition();
+            return new WorkflowDefinitionResolution(null, null, request.workflowDefinition());
         }
         if (org.springframework.util.StringUtils.hasText(request.definitionId())) {
-            return workflowDefinitionService.resolveDefinition(request.definitionId());
+            return workflowDefinitionService.resolveDefinition(request.definitionId(), request.definitionVersion());
         }
         throw new IllegalStateException("Workflow definition reference should have been validated before run creation");
     }

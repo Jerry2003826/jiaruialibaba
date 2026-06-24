@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class WorkflowServiceDefinitionIdTest {
 
@@ -25,7 +26,8 @@ class WorkflowServiceDefinitionIdTest {
     void runsWorkflowByPersistedDefinitionId() {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
-        when(definitionService.resolveDefinition("wf-1")).thenReturn(definition);
+        when(definitionService.resolveDefinition("wf-1", null))
+                .thenReturn(new WorkflowDefinitionResolution("wf-1", 7, definition));
         WorkflowRuntime runtime = mock(WorkflowRuntime.class);
         when(runtime.run(eq("run-1"), any(), eq(Map.of("message", "hello"))))
                 .thenReturn(new WorkflowRuntime.WorkflowExecutionResult(Map.of("answer", "ok"), List.of()));
@@ -39,8 +41,49 @@ class WorkflowServiceDefinitionIdTest {
 
         assertThat(response.runId()).isEqualTo("run-1");
         assertThat(response.output()).isEqualTo(Map.of("answer", "ok"));
-        verify(definitionService).resolveDefinition("wf-1");
+        assertThat(response.definitionId()).isEqualTo("wf-1");
+        assertThat(response.definitionVersion()).isEqualTo(7);
+        verify(definitionService).resolveDefinition("wf-1", null);
+        ArgumentCaptor<Object> traceInputCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(traceService).createRun(eq(RunType.WORKFLOW), traceInputCaptor.capture());
+        assertThat(traceInputCaptor.getValue())
+                .isInstanceOfSatisfying(WorkflowRunTraceInput.class, traceInput -> {
+                    assertThat(traceInput.definitionId()).isEqualTo("wf-1");
+                    assertThat(traceInput.definitionVersion()).isEqualTo(7);
+                });
         verify(traceService).markRunSucceeded(eq("run-1"), any());
+    }
+
+    @Test
+    void runsWorkflowByPinnedDefinitionVersion() {
+        WorkflowDefinition definition = validDefinition();
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        when(definitionService.resolveDefinition("wf-1", 2))
+                .thenReturn(new WorkflowDefinitionResolution("wf-1", 2, definition));
+        WorkflowRuntime runtime = mock(WorkflowRuntime.class);
+        when(runtime.run(eq("run-2"), any(), eq(Map.of("message", "pinned"))))
+                .thenReturn(new WorkflowRuntime.WorkflowExecutionResult(Map.of("answer", "v2"), List.of()));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.createRun(eq(RunType.WORKFLOW), any()))
+                .thenReturn(new RunEntity("run-2", RunType.WORKFLOW, RunStatus.RUNNING, "{}", Instant.now()));
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()), runtime,
+                traceService, definitionService);
+
+        WorkflowRunResponse response = service.run(new WorkflowRunRequest(null, "wf-1", 2,
+                Map.of("message", "pinned")));
+
+        assertThat(response.runId()).isEqualTo("run-2");
+        assertThat(response.output()).isEqualTo(Map.of("answer", "v2"));
+        assertThat(response.definitionId()).isEqualTo("wf-1");
+        assertThat(response.definitionVersion()).isEqualTo(2);
+        verify(definitionService).resolveDefinition("wf-1", 2);
+        ArgumentCaptor<Object> traceInputCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(traceService).createRun(eq(RunType.WORKFLOW), traceInputCaptor.capture());
+        assertThat(traceInputCaptor.getValue())
+                .isInstanceOfSatisfying(WorkflowRunTraceInput.class, traceInput -> {
+                    assertThat(traceInput.definitionId()).isEqualTo("wf-1");
+                    assertThat(traceInput.definitionVersion()).isEqualTo(2);
+                });
     }
 
     @Test

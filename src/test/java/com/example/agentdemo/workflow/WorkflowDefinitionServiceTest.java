@@ -82,6 +82,36 @@ class WorkflowDefinitionServiceTest {
     }
 
     @Test
+    void resolvesCurrentDefinitionWithVersionMetadata() throws Exception {
+        WorkflowDefinition definition = validDefinition();
+        WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
+                new ObjectMapper().writeValueAsString(definition));
+        entity.updateDraft("Support Bot v2", null, new ObjectMapper().writeValueAsString(definition));
+        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(entity));
+
+        WorkflowDefinitionResolution resolution = service.resolveDefinition("wf-1", null);
+
+        assertThat(resolution.definitionId()).isEqualTo("wf-1");
+        assertThat(resolution.version()).isEqualTo(2);
+        assertThat(resolution.workflowDefinition()).isEqualTo(definition);
+    }
+
+    @Test
+    void resolvesPinnedRevisionWithVersionMetadata() throws Exception {
+        WorkflowDefinition definition = validDefinitionWithToolNode();
+        WorkflowDefinitionRevisionEntity revision = new WorkflowDefinitionRevisionEntity("wf-1", 3,
+                WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
+                new ObjectMapper().writeValueAsString(definition));
+        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 3)).thenReturn(Optional.of(revision));
+
+        WorkflowDefinitionResolution resolution = service.resolveDefinition("wf-1", 3);
+
+        assertThat(resolution.definitionId()).isEqualTo("wf-1");
+        assertThat(resolution.version()).isEqualTo(3);
+        assertThat(resolution.workflowDefinition()).isEqualTo(definition);
+    }
+
+    @Test
     void throwsWhenDefinitionIdIsMissing() {
         when(repository.findByDefinitionId("missing")).thenReturn(Optional.empty());
 

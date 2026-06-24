@@ -97,7 +97,17 @@ public class WorkflowDefinitionService {
 
     @Transactional(readOnly = true)
     public WorkflowDefinition resolveDefinition(String definitionId) {
-        return fromJson(findEntity(definitionId));
+        return resolveDefinition(definitionId, null).workflowDefinition();
+    }
+
+    @Transactional(readOnly = true)
+    public WorkflowDefinitionResolution resolveDefinition(String definitionId, Integer version) {
+        if (version == null) {
+            WorkflowDefinitionEntity entity = findEntity(definitionId);
+            return new WorkflowDefinitionResolution(entity.getDefinitionId(), entity.getVersion(), fromJson(entity));
+        }
+        WorkflowDefinitionRevisionEntity revision = findRevision(definitionId, version);
+        return new WorkflowDefinitionResolution(revision.getDefinitionId(), revision.getVersion(), fromJson(revision));
     }
 
     private WorkflowDefinitionEntity findEntity(String definitionId) {
