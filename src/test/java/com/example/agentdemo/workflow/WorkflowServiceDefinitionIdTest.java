@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
 
@@ -199,6 +200,47 @@ class WorkflowServiceDefinitionIdTest {
         assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, null, Map.of())))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_DEFINITION_REQUIRED"));
+    }
+
+    @Test
+    void validatesWorkflowDefinitionWithoutCreatingRunTrace() {
+        TraceService traceService = mock(TraceService.class);
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), traceService, mock(WorkflowDefinitionService.class),
+                mock(WorkflowRunRecordRepository.class), mock(RunRepository.class));
+
+        WorkflowValidationResponse response = service.validate(new WorkflowValidationRequest(validDefinition()));
+
+        assertThat(response.valid()).isTrue();
+        assertThat(response.errors()).isEmpty();
+        assertThat(response.summary())
+                .isEqualTo(new WorkflowValidationSummary(2, 1, true, "start", "end", List.of("start", "end")));
+        verifyNoInteractions(traceService);
+    }
+
+    @Test
+    void returnsValidationErrorForInvalidWorkflowDefinition() {
+        TraceService traceService = mock(TraceService.class);
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), traceService, mock(WorkflowDefinitionService.class),
+                mock(WorkflowRunRecordRepository.class), mock(RunRepository.class));
+        WorkflowDefinition invalidDefinition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool", "tool", Map.of("unexpected", true)),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool"),
+                        new WorkflowEdge("tool", "end")));
+
+        WorkflowValidationResponse response = service.validate(new WorkflowValidationRequest(invalidDefinition));
+
+        assertThat(response.valid()).isFalse();
+        assertThat(response.summary()).isNull();
+        assertThat(response.errors())
+                .containsExactly(new WorkflowValidationError("WORKFLOW_VALIDATION_FAILED",
+                        "Unsupported config key for node tool: unexpected"));
+        verifyNoInteractions(traceService);
     }
 
     private WorkflowDefinition validDefinition() {

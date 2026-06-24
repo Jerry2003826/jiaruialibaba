@@ -166,6 +166,7 @@ http://localhost:8080
 - `POST /api/workflows/definitions/{definitionId}/rollback/{version}`
 - `DELETE /api/workflows/definitions/{definitionId}`
 - `GET /api/workflows/node-schemas`
+- `POST /api/workflows/validate`
 - `POST /api/workflows/run`
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
 - `GET /api/workflows/runs/{runId}`
@@ -458,6 +459,28 @@ curl http://localhost:8080/api/workflows/runs/{runId}
 curl http://localhost:8080/api/workflows/node-schemas
 ```
 
+校验 Workflow 定义：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/validate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workflowDefinition": {
+      "nodes": [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "tool_time", "type": "tool", "config": {"toolName": "getCurrentTime"}},
+        {"id": "end", "type": "end", "config": {}}
+      ],
+      "edges": [
+        {"from": "start", "to": "tool_time"},
+        {"from": "tool_time", "to": "end"}
+      ]
+    }
+  }'
+```
+
+该接口只做 DSL schema 和拓扑编译校验，不执行模型、RAG 或工具，也不会创建 run trace。有效定义返回 `valid=true` 和摘要；无效定义返回 `valid=false` 与第一条编译错误。
+
 查看运行轨迹：
 
 ```bash
@@ -476,6 +499,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `WorkflowDefinitionStatus`: `DRAFT` / `PUBLISHED`
 - `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
 - `WorkflowRunRecord`: 按 `definitionId` / `definitionVersion` 索引已保存定义触发的 workflow run。
+- `WorkflowValidationRequest`: 画布或 DSL 编辑器保存前的编译级校验请求。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
 - `SimpleWorkflowRuntime`: 执行线性节点，或根据 `condition` 节点输出选择 true/false 分支
 - `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行线性节点和 `condition` true/false 条件分支
@@ -542,6 +566,8 @@ Spring AI Alibaba Graph 接入：
 
 - 前端画布只需要生成同样的 `nodes` / `edges` JSON。
 - 后续可把节点 schema 固化为 registry：节点类型、配置表单、输入输出变量、校验规则。
+- `GET /api/workflows/node-schemas` 可驱动画布节点面板和配置表单。
+- `POST /api/workflows/validate` 可用于保存前校验，不会执行节点或产生 run trace。
 - 当前 API 已支持保存 workflow definition，并可作为画布保存前的运行预览接口。
 
 ## GitHub MCP 本地示例

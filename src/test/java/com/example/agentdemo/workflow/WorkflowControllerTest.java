@@ -33,6 +33,22 @@ class WorkflowControllerTest {
     }
 
     @Test
+    void validatesWorkflowDefinition() {
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowValidationRequest request = new WorkflowValidationRequest(validDefinition());
+        WorkflowValidationResponse expected = WorkflowValidationResponse.valid(
+                new WorkflowValidationSummary(2, 1, true, "start", "end", List.of("start", "end")));
+        when(workflowService.validate(request)).thenReturn(expected);
+        WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
+                new WorkflowNodeSchemaRegistry());
+
+        ApiResponse<WorkflowValidationResponse> response = controller.validate(request);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
     void savesWorkflowDefinition() {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);

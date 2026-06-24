@@ -80,6 +80,12 @@ public class WorkflowController {
         return ApiResponse.ok(workflowNodeSchemaRegistry.listSchemas());
     }
 
+    @PostMapping("/validate")
+    public ApiResponse<WorkflowValidationResponse> validate(
+            @Valid @RequestBody WorkflowValidationRequest request) {
+        return ApiResponse.ok(workflowService.validate(request));
+    }
+
     @PostMapping("/run")
     public ApiResponse<WorkflowRunResponse> run(@Valid @RequestBody WorkflowRunRequest request) {
         return ApiResponse.ok(workflowService.run(request));
