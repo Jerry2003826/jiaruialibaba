@@ -262,6 +262,35 @@ curl -X POST http://localhost:8080/api/workflows/run \
   }'
 ```
 
+条件分支 Workflow：
+
+```bash
+curl -X POST http://localhost:8080/api/workflows/run \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workflowDefinition": {
+      "nodes": [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "check_intent", "type": "condition", "config": {"left": "{{input.intent}}", "operator": "equals", "right": "time"}},
+        {"id": "tool_time", "type": "tool", "config": {"toolName": "getCurrentTime"}},
+        {"id": "llm_fallback", "type": "llm", "config": {"prompt": "回答用户问题：{{input}}"}},
+        {"id": "end", "type": "end", "config": {}}
+      ],
+      "edges": [
+        {"from": "start", "to": "check_intent"},
+        {"from": "check_intent", "to": "tool_time", "condition": "true"},
+        {"from": "check_intent", "to": "llm_fallback", "condition": "false"},
+        {"from": "tool_time", "to": "end"},
+        {"from": "llm_fallback", "to": "end"}
+      ]
+    },
+    "input": {
+      "message": "现在几点？",
+      "intent": "time"
+    }
+  }'
+```
+
 保存 Workflow 定义：
 
 ```bash
@@ -411,14 +440,14 @@ curl http://localhost:8080/api/runs/{runId}/steps
 
 - `WorkflowDefinition`: `nodes` + `edges`
 - `WorkflowNode`: `id`、`type`、`config`
-- `WorkflowEdge`: `from`、`to`
+- `WorkflowEdge`: `from`、`to`，条件分支边可增加 `condition: "true" | "false"`
 - `WorkflowRunRequest`: `workflowDefinition` + `input`，或 `definitionId` + 可选 `definitionVersion` + `input`
 - `WorkflowDefinitionStatus`: `DRAFT` / `PUBLISHED`
 - `WorkflowDefinitionRevision`: 每次新建和更新都会保存一条定义快照，便于后续回滚和审计。
 - `WorkflowRunRecord`: 按 `definitionId` / `definitionVersion` 索引已保存定义触发的 workflow run。
 - `WorkflowRuntime`: runtime 抽象，当前支持 `simple` 和 `graph`
-- `SimpleWorkflowRuntime`: 直接按线性节点顺序执行
-- `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行同一组线性节点
+- `SimpleWorkflowRuntime`: 执行线性节点，或根据 `condition` 节点输出选择 true/false 分支
+- `GraphWorkflowRuntime`: 使用 Spring AI Alibaba `StateGraph` / `CompiledGraph` 执行线性节点和 `condition` true/false 条件分支
 - `WorkflowNodeSchemaRegistry`: 返回当前支持节点的配置字段、默认值、约束和模板变量，供后续画布或 DSL 编辑器使用
 
 `WorkflowCompiler` 会复用节点 schema 做基础 config 校验：不允许未知 config key，常见类型需要匹配，`retriever.topK` 会校验 `1..20` 范围，字符串配置如果显式传入则不能为空。
@@ -429,13 +458,19 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
 - `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持模板变量 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`。
 - `tool`: 复用 `ToolGatewayService`，当前本地支持 `getCurrentTime` 和 `calculate`；开启 MCP 后可调用远程 MCP tool 名称。
+- `condition`: 计算一个布尔条件，并从 `condition=true` 或 `condition=false` 的 outgoing edge 中选择下一节点。支持 `equals`、`notEquals`、`contains`、`notContains`、`startsWith`、`endsWith`、`exists`、`notExists`。
 - `end`: 输出最终 workflow 结果。
+
+`condition` 节点支持简单模板变量。除了原有 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`，还可以读取输入或上游输出中的一层/多层字段，例如 `{{input.intent}}`、`{{lastOutput.result}}`。
 
 当前限制：
 
 - 只支持一个 `start` 和一个 `end`。
-- 只支持线性 DAG：不支持分支、合流、并行、循环、条件边。
-- 复杂图会返回 `WORKFLOW_UNSUPPORTED`。
+- `simple` 和 `graph` runtime 都支持线性 DAG 和 `condition` 节点的 true/false 分支，可以在后续节点或 `end` 合流。
+- `condition` 节点必须有且只有两条 outgoing edge，分别声明 `condition: "true"` 和 `condition: "false"`。
+- 不支持并行、循环、子图、动态节点展开或任意表达式执行。
+- 非条件节点不能有多条 outgoing edge，复杂图会返回 `WORKFLOW_UNSUPPORTED`。
+- `graph` runtime 当前只支持普通边和 `condition` true/false 条件边；还不支持并行边、循环、子图或动态节点展开。
 - Workflow 定义可保存到 H2 的 `workflow_definitions` 表；新建为 `DRAFT` v1，更新时版本递增并回到 `DRAFT`，发布后状态为 `PUBLISHED`。
 - 每次新建和更新都会写入 H2 的 `workflow_definition_revisions` 表；发布时会同步当前版本 revision 的状态为 `PUBLISHED`。
 - 回滚会从历史 revision 复制快照并生成新的 `DRAFT` 版本，不会覆盖旧 revision。
@@ -449,8 +484,9 @@ curl http://localhost:8080/api/runs/{runId}/steps
 Spring AI Alibaba Graph 接入：
 
 - 当前项目已接入 `spring-ai-alibaba-graph-core`，版本跟随 Spring AI Alibaba `1.1.2.2`。
-- `WorkflowDefinition` 仍是产品层 DSL；`WorkflowCompiler` 输出线性节点列表，由 `GraphWorkflowRuntime` 编译成 `StateGraph`。
-- 第一版只把线性 DAG 映射到 Graph。分支、合流、并行、循环和条件边仍由 `WorkflowCompiler` 拒绝。
+- `WorkflowDefinition` 仍是产品层 DSL；`WorkflowCompiler` 会先输出平台层 execution plan。
+- `GraphWorkflowRuntime` 会把普通边映射为 `StateGraph.addEdge`，把 `condition` true/false 边映射为 `StateGraph.addConditionalEdges`。
+- 当前 Graph 接入已经覆盖线性 DAG 和最小条件分支；后续要继续补并行、子图、循环防护策略和状态合并策略。
 
 可视化画布接入点：
 

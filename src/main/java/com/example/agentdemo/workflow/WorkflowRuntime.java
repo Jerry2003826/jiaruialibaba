@@ -5,7 +5,7 @@ import java.util.Map;
 
 public interface WorkflowRuntime {
 
-    WorkflowExecutionResult run(String runId, List<WorkflowNode> orderedNodes, Map<String, Object> input);
+    WorkflowExecutionResult run(String runId, WorkflowExecutionPlan executionPlan, Map<String, Object> input);
 
     record WorkflowExecutionResult(Object output, List<WorkflowStepSummary> steps) {
     }

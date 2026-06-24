@@ -10,8 +10,10 @@ import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.TraceService;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class GraphWorkflowRuntime implements WorkflowRuntime {
 
@@ -26,11 +28,11 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
     }
 
     @Override
-    public WorkflowExecutionResult run(String runId, List<WorkflowNode> orderedNodes, Map<String, Object> input) {
+    public WorkflowExecutionResult run(String runId, WorkflowExecutionPlan executionPlan, Map<String, Object> input) {
         WorkflowExecutionState state = new WorkflowExecutionState(input);
         List<WorkflowStepSummary> summaries = new ArrayList<>();
         try {
-            CompiledGraph graph = compileGraph(runId, orderedNodes, state, summaries);
+            CompiledGraph graph = compileGraph(runId, executionPlan, state, summaries);
             graph.invoke(Map.of("workflowInput", input));
             return new WorkflowExecutionResult(state.finalOutput(), summaries);
         }
@@ -45,20 +47,47 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
         }
     }
 
-    private CompiledGraph compileGraph(String runId, List<WorkflowNode> orderedNodes, WorkflowExecutionState state,
+    private CompiledGraph compileGraph(String runId, WorkflowExecutionPlan executionPlan, WorkflowExecutionState state,
             List<WorkflowStepSummary> summaries) throws GraphStateException {
         StateGraph graph = new StateGraph("workflow-" + runId,
                 KeyStrategy.builder().defaultStrategy(KeyStrategy.REPLACE).build());
-        for (WorkflowNode node : orderedNodes) {
+        for (WorkflowNode node : executionPlan.nodesById().values()) {
             graph.addNode(node.id(), AsyncNodeAction.node_async(overAllState ->
                     executeGraphNode(runId, node, state, summaries)));
         }
-        graph.addEdge(StateGraph.START, orderedNodes.getFirst().id());
-        for (int i = 0; i < orderedNodes.size() - 1; i++) {
-            graph.addEdge(orderedNodes.get(i).id(), orderedNodes.get(i + 1).id());
+        graph.addEdge(StateGraph.START, executionPlan.startNode().id());
+        for (WorkflowNode node : executionPlan.nodesById().values()) {
+            if (node.id().equals(executionPlan.endNode().id())) {
+                continue;
+            }
+            addOutgoingEdges(graph, node, executionPlan.outgoing(node.id()), state);
         }
-        graph.addEdge(orderedNodes.getLast().id(), StateGraph.END);
+        graph.addEdge(executionPlan.endNode().id(), StateGraph.END);
         return graph.compile();
+    }
+
+    private void addOutgoingEdges(StateGraph graph, WorkflowNode node, List<WorkflowExecutionEdge> outgoing,
+            WorkflowExecutionState state) throws GraphStateException {
+        if (outgoing.size() == 1 && !outgoing.getFirst().conditional()) {
+            graph.addEdge(node.id(), outgoing.getFirst().to());
+            return;
+        }
+        Map<String, String> mappings = new LinkedHashMap<>();
+        for (WorkflowExecutionEdge edge : outgoing) {
+            mappings.put(edge.condition(), edge.to());
+        }
+        graph.addConditionalEdges(node.id(),
+                ignored -> CompletableFuture.completedFuture(conditionRouteKey(node, state)),
+                mappings);
+    }
+
+    private String conditionRouteKey(WorkflowNode node, WorkflowExecutionState state) {
+        Boolean conditionResult = state.lastConditionResult();
+        if (conditionResult == null) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Condition node did not produce a boolean result: " + node.id());
+        }
+        return conditionResult.toString();
     }
 
     private Map<String, Object> executeGraphNode(String runId, WorkflowNode node, WorkflowExecutionState state,

@@ -21,6 +21,7 @@ public class WorkflowNodeSchemaRegistry {
             retrieverSchema(),
             llmSchema(),
             toolSchema(),
+            conditionSchema(),
             endSchema());
 
     public List<WorkflowNodeSchema> listSchemas() {
@@ -112,6 +113,45 @@ public class WorkflowNodeSchemaRegistry {
                                 Map.of("onlyForTool", "calculate"))),
                 TEMPLATE_VARIABLES,
                 "A ToolExecutionLog for the tool call.");
+    }
+
+    private WorkflowNodeSchema conditionSchema() {
+        return new WorkflowNodeSchema(
+                "condition",
+                "Condition",
+                "Evaluates a boolean expression and routes to condition=true or condition=false outgoing edge.",
+                List.of(
+                        new WorkflowNodeConfigField(
+                                "left",
+                                "string",
+                                false,
+                                "{{input}}",
+                                "Left value template. Supports {{input}}, {{input.field}}, {{context}}, {{lastOutput}}, {{lastOutput.field}} and {{toolResult}}.",
+                                Map.of("templateVariables", TEMPLATE_VARIABLES)),
+                        new WorkflowNodeConfigField(
+                                "operator",
+                                "string",
+                                false,
+                                "contains",
+                                "Comparison operator.",
+                                orderedMap("allowedValues", List.of("equals", "notEquals", "contains", "notContains",
+                                        "startsWith", "endsWith", "exists", "notExists"))),
+                        new WorkflowNodeConfigField(
+                                "right",
+                                "any",
+                                false,
+                                "",
+                                "Right value. String values can use workflow template variables.",
+                                Map.of("templateVariables", TEMPLATE_VARIABLES)),
+                        new WorkflowNodeConfigField(
+                                "caseSensitive",
+                                "boolean",
+                                false,
+                                false,
+                                "Whether string comparison should be case-sensitive.",
+                                Map.of())),
+                TEMPLATE_VARIABLES,
+                "A map containing left, operator, right, caseSensitive and result.");
     }
 
     private WorkflowNodeSchema endSchema() {

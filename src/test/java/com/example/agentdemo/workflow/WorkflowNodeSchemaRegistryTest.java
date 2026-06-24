@@ -16,7 +16,7 @@ class WorkflowNodeSchemaRegistryTest {
 
         assertThat(schemas)
                 .extracting(WorkflowNodeSchema::type)
-                .containsExactly("start", "retriever", "llm", "tool", "end");
+                .containsExactly("start", "retriever", "llm", "tool", "condition", "end");
     }
 
     @Test
@@ -42,6 +42,16 @@ class WorkflowNodeSchemaRegistryTest {
         assertThat(field(tool, "toolName").defaultValue()).isEqualTo("getCurrentTime");
         assertThat(field(tool, "arguments").type()).isEqualTo("object");
         assertThat(field(tool, "expression").constraints()).containsEntry("onlyForTool", "calculate");
+    }
+
+    @Test
+    void exposesConditionOperatorConstraints() {
+        WorkflowNodeSchema condition = schema("condition");
+
+        assertThat(field(condition, "left").defaultValue()).isEqualTo("{{input}}");
+        assertThat(field(condition, "operator").constraints())
+                .containsKey("allowedValues");
+        assertThat(field(condition, "caseSensitive").defaultValue()).isEqualTo(false);
     }
 
     private WorkflowNodeSchema schema(String type) {

@@ -15,6 +15,7 @@ final class WorkflowExecutionState {
     private Object lastOutput;
     private Object finalOutput;
     private String answer;
+    private Boolean lastConditionResult;
 
     WorkflowExecutionState(Map<String, Object> input) {
         this.input = input;
@@ -69,6 +70,14 @@ final class WorkflowExecutionState {
 
     void setLastOutput(Object lastOutput) {
         this.lastOutput = lastOutput;
+    }
+
+    Boolean lastConditionResult() {
+        return lastConditionResult;
+    }
+
+    void setLastConditionResult(Boolean lastConditionResult) {
+        this.lastConditionResult = lastConditionResult;
     }
 
     Object finalOutput() {

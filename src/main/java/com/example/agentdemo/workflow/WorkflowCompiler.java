@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -19,7 +20,8 @@ import java.util.stream.Collectors;
 @Component
 public class WorkflowCompiler {
 
-    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "end");
+    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "condition", "end");
+    private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false");
 
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
 
@@ -27,13 +29,16 @@ public class WorkflowCompiler {
         this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
     }
 
-    public List<WorkflowNode> compile(WorkflowDefinition definition) {
+    public WorkflowExecutionPlan compile(WorkflowDefinition definition) {
         Map<String, WorkflowNode> nodesById = indexNodes(definition.nodes());
         WorkflowNode start = singleNodeByType(nodesById, "start");
         WorkflowNode end = singleNodeByType(nodesById, "end");
         EdgeIndex edgeIndex = indexEdges(definition.edges(), nodesById);
-        rejectComplexTopology(start, end, nodesById, edgeIndex);
-        return orderLinearPath(start, end, nodesById, edgeIndex);
+        validateSupportedTopology(start, end, nodesById, edgeIndex);
+        List<WorkflowNode> linearNodes = isLinear(edgeIndex)
+                ? orderLinearPath(start, end, nodesById, edgeIndex)
+                : List.of();
+        return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), linearNodes);
     }
 
     private Map<String, WorkflowNode> indexNodes(List<WorkflowNode> nodes) {
@@ -85,6 +90,21 @@ public class WorkflowCompiler {
                     "Config " + node.id() + "." + field.name() + " must not be blank");
         }
         validateNumberRange(node, field, value);
+        validateAllowedValues(node, field, value);
+    }
+
+    private void validateAllowedValues(WorkflowNode node, WorkflowNodeConfigField field, Object value) {
+        Object allowedValues = field.constraints().get("allowedValues");
+        if (!(allowedValues instanceof Iterable<?> iterable) || !(value instanceof String text)) {
+            return;
+        }
+        for (Object allowedValue : iterable) {
+            if (String.valueOf(allowedValue).equalsIgnoreCase(text)) {
+                return;
+            }
+        }
+        throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                "Config " + node.id() + "." + field.name() + " must be one of " + allowedValues);
     }
 
     private boolean matchesType(String type, Object value) {
@@ -139,7 +159,7 @@ public class WorkflowCompiler {
     }
 
     private EdgeIndex indexEdges(List<WorkflowEdge> edges, Map<String, WorkflowNode> nodesById) {
-        Map<String, List<String>> outgoing = new HashMap<>();
+        Map<String, List<WorkflowExecutionEdge>> outgoing = new HashMap<>();
         Map<String, List<String>> incoming = new HashMap<>();
         Set<String> uniqueEdges = new HashSet<>();
         for (WorkflowEdge edge : edges) {
@@ -154,20 +174,54 @@ public class WorkflowCompiler {
             if (!uniqueEdges.add(edgeKey)) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED", "Duplicate edge is not supported: " + edgeKey);
             }
-            outgoing.computeIfAbsent(edge.from(), ignored -> new ArrayList<>()).add(edge.to());
+            WorkflowExecutionEdge executionEdge = new WorkflowExecutionEdge(edge);
+            validateEdgeCondition(executionEdge);
+            outgoing.computeIfAbsent(edge.from(), ignored -> new ArrayList<>()).add(executionEdge);
             incoming.computeIfAbsent(edge.to(), ignored -> new ArrayList<>()).add(edge.from());
         }
         return new EdgeIndex(outgoing, incoming);
     }
 
-    private void rejectComplexTopology(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
+    private void validateEdgeCondition(WorkflowExecutionEdge edge) {
+        if (edge.conditional() && !SUPPORTED_EDGE_CONDITIONS.contains(edge.condition())) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Unsupported edge condition " + edge.condition() + " on " + edge.from() + " -> " + edge.to());
+        }
+    }
+
+    private void validateSupportedTopology(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
+            EdgeIndex edgeIndex) {
+        validateNodeDegrees(start, end, nodesById, edgeIndex);
+        validateReachability(start, end, nodesById, edgeIndex);
+    }
+
+    private void validateNodeDegrees(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
             EdgeIndex edgeIndex) {
         for (WorkflowNode node : nodesById.values()) {
-            int outDegree = edgeIndex.outgoing().getOrDefault(node.id(), List.of()).size();
+            List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(node.id(), List.of());
+            int outDegree = outgoing.size();
             int inDegree = edgeIndex.incoming().getOrDefault(node.id(), List.of()).size();
-            if (outDegree > 1 || inDegree > 1) {
+            String type = normalizeType(node);
+            if (!node.id().equals(end.id()) && outDegree == 0) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                        "Only linear DAG workflow is supported in this demo");
+                        "Every non-end workflow node must have an outgoing edge: " + node.id());
+            }
+            if (!node.id().equals(start.id()) && inDegree == 0) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Every non-start workflow node must have an incoming edge: " + node.id());
+            }
+            if ("condition".equals(type)) {
+                validateConditionNodeEdges(node, outgoing);
+            }
+            else {
+                if (outDegree > 1) {
+                    throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                            "Only condition nodes can branch: " + node.id());
+                }
+                if (outgoing.stream().anyMatch(WorkflowExecutionEdge::conditional)) {
+                    throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                            "Only condition node outgoing edges can define conditions: " + node.id());
+                }
             }
         }
         if (!edgeIndex.incoming().getOrDefault(start.id(), List.of()).isEmpty()) {
@@ -176,6 +230,83 @@ public class WorkflowCompiler {
         if (!edgeIndex.outgoing().getOrDefault(end.id(), List.of()).isEmpty()) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED", "End node cannot have outgoing edges");
         }
+    }
+
+    private void validateConditionNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing) {
+        if (outgoing.size() != 2) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Condition node must have exactly true and false outgoing edges: " + node.id());
+        }
+        Set<String> conditions = outgoing.stream()
+                .map(WorkflowExecutionEdge::condition)
+                .collect(Collectors.toSet());
+        if (!conditions.equals(Set.of("true", "false"))) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Condition node outgoing edges must use condition=true and condition=false: " + node.id());
+        }
+    }
+
+    private void validateReachability(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
+            EdgeIndex edgeIndex) {
+        Set<String> reachableFromStart = traverseFrom(start.id(), edgeIndex.outgoing());
+        if (!reachableFromStart.containsAll(nodesById.keySet())) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow nodes must be reachable from start");
+        }
+        Set<String> nodesReachingEnd = traverseReverseFrom(end.id(), edgeIndex.incoming());
+        if (!nodesReachingEnd.containsAll(nodesById.keySet())) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow nodes must eventually reach end");
+        }
+        detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>());
+    }
+
+    private Set<String> traverseFrom(String startId, Map<String, List<WorkflowExecutionEdge>> outgoing) {
+        Set<String> visited = new HashSet<>();
+        ArrayList<String> stack = new ArrayList<>();
+        stack.add(startId);
+        while (!stack.isEmpty()) {
+            String current = stack.removeLast();
+            if (!visited.add(current)) {
+                continue;
+            }
+            for (WorkflowExecutionEdge edge : outgoing.getOrDefault(current, List.of())) {
+                stack.add(edge.to());
+            }
+        }
+        return visited;
+    }
+
+    private Set<String> traverseReverseFrom(String endId, Map<String, List<String>> incoming) {
+        Set<String> visited = new HashSet<>();
+        ArrayList<String> stack = new ArrayList<>();
+        stack.add(endId);
+        while (!stack.isEmpty()) {
+            String current = stack.removeLast();
+            if (!visited.add(current)) {
+                continue;
+            }
+            stack.addAll(incoming.getOrDefault(current, List.of()));
+        }
+        return visited;
+    }
+
+    private void detectCycles(String nodeId, Map<String, List<WorkflowExecutionEdge>> outgoing, Set<String> visiting,
+            Set<String> visited) {
+        if (visited.contains(nodeId)) {
+            return;
+        }
+        if (!visiting.add(nodeId)) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
+        }
+        for (WorkflowExecutionEdge edge : outgoing.getOrDefault(nodeId, List.of())) {
+            detectCycles(edge.to(), outgoing, visiting, visited);
+        }
+        visiting.remove(nodeId);
+        visited.add(nodeId);
+    }
+
+    private boolean isLinear(EdgeIndex edgeIndex) {
+        return edgeIndex.outgoing().values().stream()
+                .allMatch(edges -> edges.size() <= 1 && edges.stream().noneMatch(WorkflowExecutionEdge::conditional));
     }
 
     private List<WorkflowNode> orderLinearPath(WorkflowNode start, WorkflowNode end, Map<String, WorkflowNode> nodesById,
@@ -191,12 +322,12 @@ public class WorkflowCompiler {
             if (current.id().equals(end.id())) {
                 break;
             }
-            List<String> nextIds = edgeIndex.outgoing().getOrDefault(current.id(), List.of());
-            if (nextIds.size() != 1) {
+            List<WorkflowExecutionEdge> nextEdges = edgeIndex.outgoing().getOrDefault(current.id(), List.of());
+            if (nextEdges.size() != 1) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
                         "Workflow must be a single path from start to end");
             }
-            current = nodesById.get(nextIds.getFirst());
+            current = nodesById.get(nextEdges.getFirst().to());
         }
         if (!ordered.getLast().id().equals(end.id()) || visited.size() != nodesById.size()) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED",
@@ -209,7 +340,12 @@ public class WorkflowCompiler {
         return StringUtils.hasText(node.type()) ? node.type().toLowerCase(Locale.ROOT) : "";
     }
 
-    private record EdgeIndex(Map<String, List<String>> outgoing, Map<String, List<String>> incoming) {
+    private record EdgeIndex(Map<String, List<WorkflowExecutionEdge>> outgoing, Map<String, List<String>> incoming) {
+
+        private EdgeIndex {
+            outgoing = Collections.unmodifiableMap(outgoing);
+            incoming = Collections.unmodifiableMap(incoming);
+        }
     }
 
 }

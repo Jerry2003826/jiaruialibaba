@@ -49,8 +49,8 @@ public class WorkflowService {
         try {
             recordRunMetadata(run, definitionResolution);
             WorkflowDefinition definition = definitionResolution.workflowDefinition();
-            List<WorkflowNode> orderedNodes = workflowCompiler.compile(definition);
-            WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), orderedNodes,
+            WorkflowExecutionPlan executionPlan = workflowCompiler.compile(definition);
+            WorkflowRuntime.WorkflowExecutionResult result = workflowRuntime.run(run.getRunId(), executionPlan,
                     request.input());
             WorkflowRunResponse response = new WorkflowRunResponse(result.output(), run.getRunId(), result.steps(),
                     definitionResolution.definitionId(), definitionResolution.version());

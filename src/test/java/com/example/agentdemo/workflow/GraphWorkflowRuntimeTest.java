@@ -30,6 +30,8 @@ import static org.mockito.Mockito.when;
 
 class GraphWorkflowRuntimeTest {
 
+    private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
+
     @Test
     void runsLinearWorkflowThroughSpringAiAlibabaGraph() {
         RagService ragService = mock(RagService.class);
@@ -46,16 +48,53 @@ class GraphWorkflowRuntimeTest {
                 new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService),
                 traceService);
 
-        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", List.of(
-                new WorkflowNode("start", "start", Map.of()),
-                new WorkflowNode("llm_1", "llm", Map.of("prompt", "Question: {{input}}")),
-                new WorkflowNode("end", "end", Map.of())
-        ), Map.of("message", "hello graph"));
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("llm_1", "llm", Map.of("prompt", "Question: {{input}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "llm_1"),
+                        new WorkflowEdge("llm_1", "end")))),
+                Map.of("message", "hello graph"));
 
         assertThat(result.steps())
                 .extracting(WorkflowStepSummary::nodeId)
                 .containsExactly("start", "llm_1", "end");
         assertThat(result.output()).asString().contains("graph answer");
+    }
+
+    @Test
+    void runsConditionBranchWorkflowThroughSpringAiAlibabaGraph() {
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startStep(eq("run-branch"), any(), any()))
+                .thenAnswer(invocation -> stepForRun("run-branch", invocation.getArgument(1)));
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())))),
+                traceService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check", "condition", Map.of("left", "{{input.intent}}")),
+                        new WorkflowNode("time", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("fallback", "llm", Map.of("prompt", "Answer {{input}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check"),
+                        new WorkflowEdge("check", "time", "true"),
+                        new WorkflowEdge("check", "fallback", "false"),
+                        new WorkflowEdge("time", "end"),
+                        new WorkflowEdge("fallback", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-branch", plan,
+                Map.of("message", "what time is it?", "intent", "time"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "check", "time", "end");
+        verify(traceService).completeStep(eq("step-workflow_node_time"), any());
     }
 
     @Test
@@ -69,9 +108,17 @@ class GraphWorkflowRuntimeTest {
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService),
                 traceService);
 
-        assertThatThrownBy(() -> runtime.run("run-1", List.of(
-                new WorkflowNode("tool_1", "tool", Map.of("toolName", "remote_fail"))
-        ), Map.of("message", "hello"))).isInstanceOf(RuntimeException.class);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of("toolName", "remote_fail")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end"))));
+
+        assertThatThrownBy(() -> runtime.run("run-1", plan, Map.of("message", "hello")))
+                .isInstanceOf(RuntimeException.class);
 
         verify(traceService).failStep(eq("step-workflow_node_tool_1"), any(RuntimeException.class),
                 argThat(output -> output instanceof ToolExecutionLog log
@@ -82,6 +129,10 @@ class GraphWorkflowRuntimeTest {
 
     private static RunStepEntity step(String nodeName) {
         return new RunStepEntity("step-" + nodeName, "run-1", nodeName, "{}", StepStatus.RUNNING, Instant.now());
+    }
+
+    private static RunStepEntity stepForRun(String runId, String nodeName) {
+        return new RunStepEntity("step-" + nodeName, runId, nodeName, "{}", StepStatus.RUNNING, Instant.now());
     }
 
     private static final class FailingRemoteProvider implements ToolProvider {

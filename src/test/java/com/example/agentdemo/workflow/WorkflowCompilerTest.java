@@ -15,15 +15,93 @@ class WorkflowCompilerTest {
 
     @Test
     void compilesValidLinearWorkflow() {
-        List<WorkflowNode> nodes = compiler.compile(definition(
+        WorkflowExecutionPlan plan = compiler.compile(definition(
                 new WorkflowNode("start", "start", Map.of()),
                 new WorkflowNode("retriever", "retriever", Map.of("topK", 3)),
                 new WorkflowNode("llm", "llm", Map.of("prompt", "Answer: {{context}}")),
                 new WorkflowNode("end", "end", Map.of())));
 
-        assertThat(nodes)
+        assertThat(plan.linear()).isTrue();
+        assertThat(plan.linearNodes())
                 .extracting(WorkflowNode::id)
                 .containsExactly("start", "retriever", "llm", "end");
+    }
+
+    @Test
+    void compilesConditionBranchWorkflow() {
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check_intent", "condition", Map.of(
+                                "left", "{{input.intent}}",
+                                "operator", "equals",
+                                "right", "time")),
+                        new WorkflowNode("tool_time", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("llm_fallback", "llm", Map.of("prompt", "Answer {{input}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check_intent"),
+                        new WorkflowEdge("check_intent", "tool_time", "true"),
+                        new WorkflowEdge("check_intent", "llm_fallback", "false"),
+                        new WorkflowEdge("tool_time", "end"),
+                        new WorkflowEdge("llm_fallback", "end"))));
+
+        assertThat(plan.linear()).isFalse();
+        assertThat(plan.outgoing("check_intent"))
+                .extracting(WorkflowExecutionEdge::condition)
+                .containsExactlyInAnyOrder("true", "false");
+    }
+
+    @Test
+    void rejectsBranchingFromNonConditionNode() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "a"),
+                        new WorkflowEdge("start", "b"),
+                        new WorkflowEdge("a", "end"),
+                        new WorkflowEdge("b", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Only condition nodes can branch: start");
+    }
+
+    @Test
+    void rejectsConditionNodeWithoutTrueAndFalseEdges() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check", "condition", Map.of("left", "{{input.intent}}")),
+                        new WorkflowNode("a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check"),
+                        new WorkflowEdge("check", "a", "true"),
+                        new WorkflowEdge("check", "b", "true"),
+                        new WorkflowEdge("a", "end"),
+                        new WorkflowEdge("b", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Condition node outgoing edges must use condition=true and condition=false");
+    }
+
+    @Test
+    void rejectsUnsupportedConditionOperator() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("check", "condition", Map.of("operator", "matchesRegex")),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config check.operator must be one of");
     }
 
     @Test
