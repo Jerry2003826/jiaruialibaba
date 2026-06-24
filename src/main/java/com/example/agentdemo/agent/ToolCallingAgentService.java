@@ -5,7 +5,7 @@ import com.example.agentdemo.agent.dto.ToolChatResponse;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.tool.ToolExecutionLog;
-import com.example.agentdemo.tool.ToolService;
+import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.trace.RunEntity;
 import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.RunType;
@@ -30,13 +30,13 @@ public class ToolCallingAgentService {
             Keep the answer short. Do not claim that a tool was used if no tool result is provided.
             """;
 
-    private final ToolService toolService;
+    private final ToolGatewayService toolGatewayService;
     private final AiModelService aiModelService;
     private final TraceService traceService;
 
-    public ToolCallingAgentService(ToolService toolService, AiModelService aiModelService,
+    public ToolCallingAgentService(ToolGatewayService toolGatewayService, AiModelService aiModelService,
             TraceService traceService) {
-        this.toolService = toolService;
+        this.toolGatewayService = toolGatewayService;
         this.aiModelService = aiModelService;
         this.traceService = traceService;
     }
@@ -113,13 +113,10 @@ public class ToolCallingAgentService {
     }
 
     private ToolExecutionLog executeTool(ToolPlan plan, String runId) {
+        Map<String, Object> arguments = toolArguments(plan);
         RunStepEntity step = traceService.startStep(runId, "tool_" + plan.toolName(),
-                Map.of("toolName", plan.toolName(), "expression", nullable(plan.expression())));
-        ToolExecutionLog log = switch (plan.toolName()) {
-            case "getCurrentTime" -> toolService.executeGetCurrentTime();
-            case "calculate" -> toolService.executeCalculate(plan.expression());
-            default -> throw new IllegalArgumentException("Unsupported tool: " + plan.toolName());
-        };
+                Map.of("toolName", plan.toolName(), "arguments", arguments));
+        ToolExecutionLog log = toolGatewayService.execute(plan.toolName(), arguments);
         if (log.succeeded()) {
             traceService.completeStep(step.getStepId(), log);
         }
@@ -127,6 +124,13 @@ public class ToolCallingAgentService {
             traceService.failStep(step.getStepId(), new IllegalArgumentException(log.errorMessage()));
         }
         return log;
+    }
+
+    private Map<String, Object> toolArguments(ToolPlan plan) {
+        if ("calculate".equals(plan.toolName())) {
+            return Map.of("expression", nullable(plan.expression()));
+        }
+        return Map.of();
     }
 
     private String extractExpression(String message) {

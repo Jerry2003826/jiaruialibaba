@@ -14,3 +14,30 @@ spring:
 #   jpa:
 #     hibernate:
 #       ddl-auto: validate
+
+# Future MCP switch point. Keep real server URLs, commands, and tokens local.
+# spring:
+#   ai:
+#     mcp:
+#       client:
+#         enabled: true
+#         annotation-scanner:
+#           enabled: false
+#         toolcallback:
+#           enabled: true
+#         sse:
+#           connections:
+#             demo:
+#               url: http://localhost:3001
+#               sse-endpoint: /sse
+#         streamable-http:
+#           connections:
+#             demo:
+#               url: http://localhost:3002
+#               endpoint: /mcp
+#         stdio:
+#           connections:
+#             demo:
+#               command: node
+#               args:
+#                 - /path/to/mcp-server.js

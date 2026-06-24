@@ -18,6 +18,13 @@ spring:
   profiles:
     active: dev
   ai:
+    mcp:
+      client:
+        enabled: ${DEMO_MCP_ENABLED:false}
+        annotation-scanner:
+          enabled: ${DEMO_MCP_ANNOTATION_SCANNER_ENABLED:false}
+        toolcallback:
+          enabled: ${DEMO_MCP_TOOLCALLBACK_ENABLED:${DEMO_MCP_ENABLED:false}}
     dashscope:
       api-key: ${AI_DASHSCOPE_API_KEY:${DASHSCOPE_API_KEY:}}
       base-url: ${AI_DASHSCOPE_BASE_URL:}
@@ -68,5 +75,10 @@ demo:
     metric: ${DASHVECTOR_METRIC:cosine}
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
+  tools:
+    allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
+    allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}
+  mcp:
+    enabled: ${DEMO_MCP_ENABLED:false}
   sse:
     timeout-ms: 120000

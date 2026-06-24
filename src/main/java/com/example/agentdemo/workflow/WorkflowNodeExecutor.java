@@ -6,7 +6,7 @@ import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.tool.ToolExecutionLog;
-import com.example.agentdemo.tool.ToolService;
+import com.example.agentdemo.tool.ToolGatewayService;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -25,12 +25,13 @@ public class WorkflowNodeExecutor {
 
     private final RagService ragService;
     private final AiModelService aiModelService;
-    private final ToolService toolService;
+    private final ToolGatewayService toolGatewayService;
 
-    public WorkflowNodeExecutor(RagService ragService, AiModelService aiModelService, ToolService toolService) {
+    public WorkflowNodeExecutor(RagService ragService, AiModelService aiModelService,
+            ToolGatewayService toolGatewayService) {
         this.ragService = ragService;
         this.aiModelService = aiModelService;
-        this.toolService = toolService;
+        this.toolGatewayService = toolGatewayService;
     }
 
     Object execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -101,17 +102,38 @@ public class WorkflowNodeExecutor {
 
     private Object executeTool(WorkflowNode node, WorkflowExecutionState state) {
         String toolName = configString(node, "toolName", "getCurrentTime");
-        ToolExecutionLog log = switch (toolName) {
-            case "getCurrentTime" -> toolService.executeGetCurrentTime();
-            case "calculate" -> toolService.executeCalculate(renderTemplate(configString(node, "expression", ""), state));
-            default -> throw new BusinessException("WORKFLOW_UNSUPPORTED", "Unsupported workflow tool: " + toolName);
-        };
+        Map<String, Object> arguments = toolArguments(node, state);
+        ToolExecutionLog log = toolGatewayService.execute(toolName, arguments);
         state.addToolCall(log);
         if (!log.succeeded()) {
             throw new IllegalArgumentException(log.errorMessage());
         }
         state.setLastOutput(log.output());
         return log;
+    }
+
+    private Map<String, Object> toolArguments(WorkflowNode node, WorkflowExecutionState state) {
+        Map<String, Object> arguments = orderedMap();
+        Object configuredArguments = node.config().get("arguments");
+        if (configuredArguments instanceof Map<?, ?> argumentMap) {
+            for (Map.Entry<?, ?> entry : argumentMap.entrySet()) {
+                if (entry.getKey() instanceof String key) {
+                    arguments.put(key, renderArgument(entry.getValue(), state));
+                }
+            }
+        }
+        if ("calculate".equals(configString(node, "toolName", "getCurrentTime"))
+                && !arguments.containsKey("expression")) {
+            arguments.put("expression", renderTemplate(configString(node, "expression", ""), state));
+        }
+        return arguments;
+    }
+
+    private Object renderArgument(Object value, WorkflowExecutionState state) {
+        if (value instanceof String text) {
+            return renderTemplate(text, state);
+        }
+        return value;
     }
 
     private Object executeEnd(WorkflowExecutionState state) {

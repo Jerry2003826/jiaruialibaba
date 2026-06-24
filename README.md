@@ -13,6 +13,7 @@
 - Spring AI Alibaba 1.1.2.2
 - Spring AI Alibaba DashScope starter
 - Spring AI Alibaba Graph Core
+- Spring AI MCP Client starter
 - Spring MVC + `SseEmitter`
 - Spring Data JPA
 - H2 in-memory database
@@ -77,7 +78,51 @@ RAG 文档写入时，H2 保存 source documents 和 chunk metadata，DashVector
 export DEMO_WORKFLOW_RUNTIME=graph
 ```
 
-`graph` runtime 会把当前线性 DSL 编译成 Spring AI Alibaba `StateGraph` / `CompiledGraph`，节点内部仍复用现有 `RagService`、`AiModelService` 和 `ToolService`，并继续写入统一 `run_step`。
+`graph` runtime 会把当前线性 DSL 编译成 Spring AI Alibaba `StateGraph` / `CompiledGraph`，节点内部仍复用现有 `RagService`、`AiModelService` 和 `ToolGatewayService`，并继续写入统一 `run_step`。
+
+## MCP Tool Gateway
+
+当前已增加统一工具网关：
+
+- `ToolService`: 只保留本地工具实现，例如 `getCurrentTime` 和安全四则运算 `calculate`。
+- `LocalToolProvider`: 把本地工具注册到统一网关。
+- `McpToolProvider`: 读取 Spring AI MCP client 暴露的 `ToolCallbackProvider`，把远程 MCP tools 注册到统一网关。
+- `ToolGatewayService`: agent 和 workflow 的统一工具调用入口。
+
+MCP client 默认关闭，不会在本地启动时主动连接远程 MCP server：
+
+```bash
+export DEMO_MCP_ENABLED=false
+```
+
+配置远程 MCP server 后再开启：
+
+```bash
+export DEMO_MCP_ENABLED=true
+export DEMO_MCP_TOOLCALLBACK_ENABLED=true
+```
+
+`DEMO_MCP_ANNOTATION_SCANNER_ENABLED` 默认是 `false`。当前 demo 不使用 MCP 注解扫描，只有后续需要扫描本地 `@Mcp*` 注解时再开启。
+
+远程 MCP tools 默认不允许执行，需要显式配置 allowlist：
+
+```bash
+export DEMO_TOOLS_ALLOWED_REMOTE_TOOLS=remote_echo,another_remote_tool
+```
+
+只在完全可信的本地 demo 环境中才建议打开全部远程工具：
+
+```bash
+export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
+```
+
+远程 server 连接使用 Spring AI MCP client 标准配置前缀：
+
+- `spring.ai.mcp.client.stdio.connections.*`
+- `spring.ai.mcp.client.sse.connections.*`
+- `spring.ai.mcp.client.streamable-http.connections.*`
+
+建议把具体远程 MCP server 地址、命令或鉴权信息放在本地 `application-dev.yml` 或环境变量中，不要提交真实密钥。当前 demo 不内置任何远程 MCP server。
 
 ## 启动方式
 
@@ -208,7 +253,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `start`: 将请求 `input` 放入 workflow 状态。
 - `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
 - `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持模板变量 `{{input}}`、`{{context}}`、`{{lastOutput}}`、`{{toolResult}}`。
-- `tool`: 复用 `ToolService`，当前支持 `getCurrentTime` 和 `calculate`。
+- `tool`: 复用 `ToolGatewayService`，当前本地支持 `getCurrentTime` 和 `calculate`；开启 MCP 后可调用远程 MCP tool 名称。
 - `end`: 输出最终 workflow 结果。
 
 当前限制：
@@ -249,6 +294,6 @@ Password:
 
 - 当前已接入 DashVector + DashScope `EmbeddingModel`；后续可继续替换为 Spring AI `VectorStore` 标准抽象或增加 hybrid retrieval / rerank。
 - 扩展 Spring AI Alibaba Graph runtime：条件边、并行节点、子图、持久化 workflow definition。
-- 接入 MCP，把 `ToolService` 扩展为本地工具 + 远程 MCP 工具统一网关。
+- 扩展 MCP：增加远程 server registry、鉴权配置、工具 schema 同步、调用审计和熔断策略。
 - 接入 Cairn Memory，为 coding-agent 或长会话场景补充行为记忆和连续性。
 - 扩展成 Dify-like Workflow DSL：节点、边、变量、条件分支、工具节点、RAG 节点、trace 可视化。

@@ -3,6 +3,8 @@ package com.example.agentdemo.workflow;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.rag.RagService;
+import com.example.agentdemo.tool.LocalToolProvider;
+import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolService;
 import com.example.agentdemo.trace.RunStepEntity;
 import com.example.agentdemo.trace.StepStatus;
@@ -25,7 +27,8 @@ class GraphWorkflowRuntimeTest {
     void runsLinearWorkflowThroughSpringAiAlibabaGraph() {
         RagService ragService = mock(RagService.class);
         AiModelService aiModelService = mock(AiModelService.class);
-        ToolService toolService = new ToolService();
+        ToolGatewayService toolGatewayService = new ToolGatewayService(
+                List.of(new LocalToolProvider(new ToolService())));
         TraceService traceService = mock(TraceService.class);
         when(traceService.startStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
@@ -33,7 +36,7 @@ class GraphWorkflowRuntimeTest {
                 .thenReturn(AiModelResult.ok("graph answer"));
 
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(ragService, aiModelService, toolService),
+                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService),
                 traceService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", List.of(
