@@ -1,11 +1,16 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.trace.RunEntity;
+import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceService;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class WorkflowService {
@@ -15,15 +20,17 @@ public class WorkflowService {
     private final TraceService traceService;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
+    private final RunRepository runRepository;
 
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
-            WorkflowRunRecordRepository workflowRunRecordRepository) {
+            WorkflowRunRecordRepository workflowRunRecordRepository, RunRepository runRepository) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
         this.traceService = traceService;
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowRunRecordRepository = workflowRunRecordRepository;
+        this.runRepository = runRepository;
     }
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
@@ -53,7 +60,8 @@ public class WorkflowService {
                 ? workflowRunRecordRepository.findAllByDefinitionIdOrderByStartedAtDesc(definitionId)
                 : workflowRunRecordRepository.findAllByDefinitionIdAndDefinitionVersionOrderByStartedAtDesc(
                         definitionId, definitionVersion);
-        return records.stream().map(this::toResponse).toList();
+        Map<String, RunEntity> runsById = findRunsById(records);
+        return records.stream().map(entity -> toResponse(entity, runsById.get(entity.getRunId()))).toList();
     }
 
     private void requireDefinitionReference(WorkflowRunRequest request) {
@@ -82,9 +90,24 @@ public class WorkflowService {
                 definitionResolution.definitionId(), definitionResolution.version(), run.getStartedAt()));
     }
 
-    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity) {
+    private Map<String, RunEntity> findRunsById(List<WorkflowRunRecordEntity> records) {
+        if (records.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> runIds = records.stream().map(WorkflowRunRecordEntity::getRunId).toList();
+        return runRepository.findAllByRunIdIn(runIds)
+                .stream()
+                .collect(Collectors.toMap(RunEntity::getRunId, Function.identity()));
+    }
+
+    private WorkflowRunRecordResponse toResponse(WorkflowRunRecordEntity entity, RunEntity run) {
+        if (run == null) {
+            return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
+                    entity.getDefinitionVersion(), entity.getStartedAt(), null, null, null, null);
+        }
         return new WorkflowRunRecordResponse(entity.getRunId(), entity.getDefinitionId(),
-                entity.getDefinitionVersion(), entity.getStartedAt());
+                entity.getDefinitionVersion(), entity.getStartedAt(), run.getStatus(), run.getOutput(),
+                run.getErrorMessage(), run.getEndedAt());
     }
 
 }

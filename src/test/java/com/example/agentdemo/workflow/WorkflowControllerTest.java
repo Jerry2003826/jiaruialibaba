@@ -1,8 +1,10 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.ApiResponse;
+import com.example.agentdemo.trace.RunStatus;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -137,7 +139,9 @@ class WorkflowControllerTest {
     @Test
     void listsWorkflowRunsByDefinition() {
         WorkflowService workflowService = mock(WorkflowService.class);
-        WorkflowRunRecordResponse expected = new WorkflowRunRecordResponse("run-1", "wf-1", 2, null);
+        WorkflowRunRecordResponse expected = new WorkflowRunRecordResponse("run-1", "wf-1", 2,
+                Instant.parse("2026-06-24T04:00:00Z"), RunStatus.SUCCEEDED, "{\"answer\":\"ok\"}", null,
+                Instant.parse("2026-06-24T04:00:03Z"));
         when(workflowService.listRuns("wf-1", 2)).thenReturn(List.of(expected));
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
                 new WorkflowNodeSchemaRegistry());

@@ -8,4 +8,6 @@ public interface RunRepository extends JpaRepository<RunEntity, String> {
 
     List<RunEntity> findAllByOrderByStartedAtDesc();
 
+    List<RunEntity> findAllByRunIdIn(List<String> runIds);
+
 }

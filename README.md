@@ -371,7 +371,7 @@ curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}'
 curl 'http://localhost:8080/api/workflows/runs?definitionId={definitionId}&definitionVersion=1'
 ```
 
-该接口返回按 `startedAt` 倒序排列的 `runId`、`definitionId`、`definitionVersion` 和 `startedAt`。完整运行状态、输出和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
+该接口返回按 `startedAt` 倒序排列的 workflow run 摘要，包括 `runId`、`definitionId`、`definitionVersion`、`startedAt`、`status`、`output`、`errorMessage` 和 `endedAt`。完整 run input 和节点步骤仍通过 `/api/runs/{runId}` 与 `/api/runs/{runId}/steps` 查询。
 
 查看 Workflow 节点 schema：
 
