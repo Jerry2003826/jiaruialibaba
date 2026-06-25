@@ -5,6 +5,7 @@ import com.example.agentdemo.tool.ToolExecutionLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ final class WorkflowExecutionState {
     private Object finalOutput;
     private String answer;
     private Boolean lastConditionResult;
+    private final Map<String, Integer> loopIterations = new HashMap<>();
 
     WorkflowExecutionState(Map<String, Object> input) {
         this.input = input;
@@ -33,6 +35,7 @@ final class WorkflowExecutionState {
         this.finalOutput = source.finalOutput;
         this.answer = source.answer;
         this.lastConditionResult = source.lastConditionResult;
+        this.loopIterations.putAll(source.loopIterations);
     }
 
     WorkflowExecutionState copyForBranch() {
@@ -147,6 +150,14 @@ final class WorkflowExecutionState {
 
     void setAnswer(String answer) {
         this.answer = answer;
+    }
+
+    int loopIteration(String loopNodeId) {
+        return loopIterations.getOrDefault(loopNodeId, 0);
+    }
+
+    void incrementLoopIteration(String loopNodeId) {
+        loopIterations.put(loopNodeId, loopIteration(loopNodeId) + 1);
     }
 
 }

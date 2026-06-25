@@ -68,9 +68,9 @@ Spec: `docs/superpowers/specs/2026-06-25-graph-workflow-design.md`
 **Files:**
 - Modify: `README.md`
 
-- [ ] Dev defaults graph via profile; health fields; remove outdated canvas line
+- [x] Dev defaults graph via profile; health fields; remove outdated canvas line
 
 ### Task 7: Verify and commit
 
-- [ ] `./mvnw test` all green
-- [ ] Commit with descriptive message
+- [x] `./mvnw test` all green
+- [x] Commit with descriptive message

@@ -25,29 +25,37 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
 
     private final WorkflowNodeExecutor nodeExecutor;
     private final WorkflowNodeTraceExecutor traceExecutor;
+    private final WorkflowInlineExecutionService inlineExecutionService;
 
     public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
-            ExecutorService executorService) {
+            ExecutorService executorService, WorkflowInlineExecutionService inlineExecutionService) {
         this.nodeExecutor = nodeExecutor;
         this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService);
+        this.inlineExecutionService = inlineExecutionService;
     }
 
     @Override
     public WorkflowExecutionResult run(String runId, WorkflowExecutionPlan executionPlan, Map<String, Object> input) {
-        GraphExecutionContext context = new GraphExecutionContext(executionPlan, new WorkflowExecutionState(input));
+        inlineExecutionService.bindPlan(executionPlan);
         try {
-            CompiledGraph graph = compileGraph(runId, executionPlan, context);
-            graph.invoke(Map.of("workflowInput", input));
-            return new WorkflowExecutionResult(context.rootState().finalOutput(), context.summaries());
+            GraphExecutionContext context = new GraphExecutionContext(executionPlan, new WorkflowExecutionState(input));
+            try {
+                CompiledGraph graph = compileGraph(runId, executionPlan, context);
+                graph.invoke(Map.of("workflowInput", input));
+                return new WorkflowExecutionResult(context.rootState().finalOutput(), context.summaries());
+            }
+            catch (GraphStateException ex) {
+                throw new BusinessException("WORKFLOW_GRAPH_FAILED", "Failed to compile Spring AI Alibaba Graph", ex);
+            }
+            catch (RuntimeException ex) {
+                throw ex;
+            }
+            catch (Exception ex) {
+                throw new BusinessException("WORKFLOW_GRAPH_FAILED", "Failed to run Spring AI Alibaba Graph", ex);
+            }
         }
-        catch (GraphStateException ex) {
-            throw new BusinessException("WORKFLOW_GRAPH_FAILED", "Failed to compile Spring AI Alibaba Graph", ex);
-        }
-        catch (RuntimeException ex) {
-            throw ex;
-        }
-        catch (Exception ex) {
-            throw new BusinessException("WORKFLOW_GRAPH_FAILED", "Failed to run Spring AI Alibaba Graph", ex);
+        finally {
+            inlineExecutionService.clearPlan();
         }
     }
 
@@ -56,6 +64,9 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
         StateGraph graph = new StateGraph("workflow-" + runId,
                 KeyStrategy.builder().defaultStrategy(KeyStrategy.REPLACE).build());
         for (WorkflowNode node : executionPlan.nodesById().values()) {
+            if (executionPlan.isCompositeScopedNode(node.id())) {
+                continue;
+            }
             graph.addNode(node.id(), AsyncNodeAction.node_async(overAllState ->
                     executeGraphNode(runId, node, context)));
         }
@@ -66,6 +77,9 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
         graph.addEdge(StateGraph.START, executionPlan.startNode().id());
         for (WorkflowNode node : executionPlan.nodesById().values()) {
             if (node.id().equals(executionPlan.endNode().id())) {
+                continue;
+            }
+            if (executionPlan.isCompositeScopedNode(node.id())) {
                 continue;
             }
             if (context.branchStartNodeId(node.id()) != null) {
@@ -85,6 +99,15 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
             return;
         }
         String type = nodeExecutor.normalizeType(node);
+        if ("loop".equals(type)) {
+            WorkflowExecutionEdge exitEdge = outgoing.stream()
+                    .filter(edge -> "exit".equals(edge.condition()))
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
+                            "Loop node missing exit edge: " + node.id()));
+            graph.addEdge(node.id(), exitEdge.to());
+            return;
+        }
         if ("parallel".equals(type)) {
             graph.addEdge(node.id(), outgoing.stream()
                     .map(edge -> context.branchGraphNodeId(edge.to()))

@@ -3,12 +3,25 @@ package com.example.agentdemo.support;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolProvider;
+import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.mockito.Mockito.mock;
+
+import com.example.agentdemo.workflow.WorkflowCompiler;
+import com.example.agentdemo.workflow.WorkflowDefinitionService;
+import com.example.agentdemo.workflow.WorkflowInlineExecutionService;
+import com.example.agentdemo.workflow.WorkflowNodeExecutor;
+import com.example.agentdemo.workflow.WorkflowNodeSchemaRegistry;
+import com.example.agentdemo.workflow.WorkflowRuntime;
+import com.example.agentdemo.workflow.WorkflowVariableResolver;
 
 public final class WorkflowRuntimeTestSupport {
 
@@ -17,6 +30,20 @@ public final class WorkflowRuntimeTestSupport {
 
     public static TraceStep traceStep(String runId, String nodeName) {
         return new TraceStep("step-" + nodeName, runId, nodeName);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static WorkflowInlineExecutionService inlineExecutionService(WorkflowNodeExecutor nodeExecutor,
+            TraceService traceService, ExecutorService executorService) {
+        ObjectProvider<WorkflowRuntime> workflowRuntimeProvider = mock(ObjectProvider.class);
+        return new WorkflowInlineExecutionService(
+                mock(WorkflowDefinitionService.class),
+                new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                workflowRuntimeProvider,
+                nodeExecutor,
+                new WorkflowVariableResolver(),
+                traceService,
+                executorService);
     }
 
     public static boolean hasAttemptCount(Object output, int expected) {

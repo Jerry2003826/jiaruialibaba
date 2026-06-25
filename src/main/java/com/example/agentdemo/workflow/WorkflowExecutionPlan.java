@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public record WorkflowExecutionPlan(
         WorkflowNode startNode,
@@ -14,7 +15,9 @@ public record WorkflowExecutionPlan(
         Map<String, List<WorkflowExecutionEdge>> outgoingEdges,
         Map<String, List<String>> incomingNodeIds,
         List<WorkflowNode> linearNodes,
-        List<WorkflowParallelBlock> parallelBlocks) {
+        List<WorkflowParallelBlock> parallelBlocks,
+        List<WorkflowLoopBlock> loopBlocks,
+        Set<String> compositeScopedNodeIds) {
 
     public WorkflowExecutionPlan {
         nodesById = Collections.unmodifiableMap(new LinkedHashMap<>(nodesById));
@@ -30,6 +33,15 @@ public record WorkflowExecutionPlan(
         incomingNodeIds = Collections.unmodifiableMap(incomingCopy);
         linearNodes = List.copyOf(linearNodes);
         parallelBlocks = List.copyOf(parallelBlocks);
+        loopBlocks = List.copyOf(loopBlocks);
+        compositeScopedNodeIds = Set.copyOf(compositeScopedNodeIds);
+    }
+
+    public WorkflowExecutionPlan(WorkflowNode startNode, WorkflowNode endNode, Map<String, WorkflowNode> nodesById,
+            Map<String, List<WorkflowExecutionEdge>> outgoingEdges, Map<String, List<String>> incomingNodeIds,
+            List<WorkflowNode> linearNodes, List<WorkflowParallelBlock> parallelBlocks) {
+        this(startNode, endNode, nodesById, outgoingEdges, incomingNodeIds, linearNodes, parallelBlocks, List.of(),
+                Set.of());
     }
 
     public boolean linear() {
@@ -62,6 +74,27 @@ public record WorkflowExecutionPlan(
                 .findFirst()
                 .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
                         "Missing compiled parallel block: " + parallelNodeId));
+    }
+
+    public WorkflowLoopBlock loopBlock(String loopNodeId) {
+        return loopBlocks.stream()
+                .filter(block -> block.loopNodeId().equals(loopNodeId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Missing compiled loop block: " + loopNodeId));
+    }
+
+    public boolean isCompositeScopedNode(String nodeId) {
+        return compositeScopedNodeIds.contains(nodeId);
+    }
+
+    public boolean isCompositeContainerNode(String nodeId) {
+        WorkflowNode node = nodesById.get(nodeId);
+        if (node == null) {
+            return false;
+        }
+        String type = node.type().toLowerCase();
+        return "loop".equals(type) || "subgraph".equals(type) || "dynamic".equals(type);
     }
 
 }

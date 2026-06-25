@@ -30,7 +30,7 @@ class WorkflowNodeExecutorTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_echo"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         Object output = executor.execute("run-1",
@@ -52,7 +52,7 @@ class WorkflowNodeExecutorTest {
                 org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(AiModelResult.fallback("Workflow fallback answer. Prompt: test", "model unavailable"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
-                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode());
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         assertThatThrownBy(() -> executor.execute("run-1", new WorkflowNode("llm_1", "llm", Map.of()), state))
@@ -66,7 +66,7 @@ class WorkflowNodeExecutorTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         assertThatThrownBy(() -> executor.execute("run-1",

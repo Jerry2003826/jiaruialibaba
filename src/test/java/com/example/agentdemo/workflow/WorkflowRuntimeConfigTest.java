@@ -13,6 +13,7 @@ class WorkflowRuntimeConfigTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(WorkflowNodeExecutor.class, () -> mock(WorkflowNodeExecutor.class))
+            .withBean(WorkflowInlineExecutionService.class, () -> mock(WorkflowInlineExecutionService.class))
             .withBean(TraceService.class, () -> mock(TraceService.class))
             .withUserConfiguration(WorkflowRuntimeConfig.class);
 

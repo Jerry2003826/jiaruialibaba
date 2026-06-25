@@ -8,6 +8,7 @@ import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
+import com.example.agentdemo.tool.ToolGatewayService;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -29,15 +30,17 @@ public class WorkflowNodeExecutor {
     private final ToolGatewayService toolGatewayService;
     private final WorkflowVariableResolver variableResolver;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
+    private final WorkflowInlineExecutionService inlineExecutionService;
 
     public WorkflowNodeExecutor(RagService ragService, AiModelService aiModelService,
             ToolGatewayService toolGatewayService, WorkflowVariableResolver variableResolver,
-            AlibabaRuntimePolicy alibabaRuntimePolicy) {
+            AlibabaRuntimePolicy alibabaRuntimePolicy, WorkflowInlineExecutionService inlineExecutionService) {
         this.ragService = ragService;
         this.aiModelService = aiModelService;
         this.toolGatewayService = toolGatewayService;
         this.variableResolver = variableResolver;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.inlineExecutionService = inlineExecutionService;
     }
 
     Object execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -50,6 +53,10 @@ public class WorkflowNodeExecutor {
             case "parallel" -> executeParallel(state);
             case "join" -> executeJoin(state);
             case "end" -> executeEnd(state);
+            case "loop" -> inlineExecutionService.executeLoop(runId, node, state);
+            case "loop_back" -> executeLoopBack(node, state);
+            case "subgraph" -> inlineExecutionService.executeSubgraph(runId, node, state);
+            case "dynamic" -> inlineExecutionService.executeDynamic(runId, node, state);
             default -> throw new BusinessException("WORKFLOW_UNSUPPORTED", "Unsupported node type: " + node.type());
         };
     }
@@ -154,7 +161,15 @@ public class WorkflowNodeExecutor {
         return output;
     }
 
-    private boolean evaluateCondition(String left, String operator, Object right, boolean caseSensitive) {
+    private Object executeLoopBack(WorkflowNode node, WorkflowExecutionState state) {
+        Map<String, Object> output = orderedMap();
+        output.put("status", "LOOP_BACK");
+        output.put("nodeId", node.id());
+        state.setLastOutput(output);
+        return output;
+    }
+
+    boolean evaluateCondition(String left, String operator, Object right, boolean caseSensitive) {
         String leftText = left == null ? "" : left;
         String rightText = right == null ? "" : String.valueOf(right);
         String comparableLeft = caseSensitive ? leftText : leftText.toLowerCase(Locale.ROOT);
@@ -168,9 +183,23 @@ public class WorkflowNodeExecutor {
             case "endswith" -> comparableLeft.endsWith(comparableRight);
             case "exists" -> StringUtils.hasText(leftText);
             case "notexists" -> !StringUtils.hasText(leftText);
+            case "greaterthan" -> compareNumbers(leftText, rightText) > 0;
+            case "lessthan" -> compareNumbers(leftText, rightText) < 0;
             default -> throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
                     "Unsupported condition operator: " + operator);
         };
+    }
+
+    private int compareNumbers(String leftText, String rightText) {
+        try {
+            double leftValue = Double.parseDouble(leftText);
+            double rightValue = Double.parseDouble(rightText);
+            return Double.compare(leftValue, rightValue);
+        }
+        catch (NumberFormatException ex) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Numeric comparison requires numeric left/right values");
+        }
     }
 
     private Map<String, Object> toolArguments(WorkflowNode node, WorkflowExecutionState state) {

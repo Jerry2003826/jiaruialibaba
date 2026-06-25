@@ -16,7 +16,8 @@ class WorkflowNodeSchemaRegistryTest {
 
         assertThat(schemas)
                 .extracting(WorkflowNodeSchema::type)
-                .containsExactly("start", "retriever", "llm", "tool", "condition", "parallel", "join", "end");
+                .containsExactly("start", "retriever", "llm", "tool", "condition", "parallel", "join", "loop",
+                        "loop_back", "subgraph", "dynamic", "end");
     }
 
     @Test

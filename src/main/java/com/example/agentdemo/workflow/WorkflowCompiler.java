@@ -21,8 +21,8 @@ import java.util.stream.Collectors;
 public class WorkflowCompiler {
 
     private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "condition",
-            "parallel", "join", "end");
-    private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false");
+            "parallel", "join", "end", "loop", "loop_back", "subgraph", "dynamic");
+    private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false", "body", "exit");
 
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
 
@@ -36,11 +36,13 @@ public class WorkflowCompiler {
         WorkflowNode end = singleNodeByType(nodesById, "end");
         EdgeIndex edgeIndex = indexEdges(definition.edges(), nodesById);
         List<WorkflowParallelBlock> parallelBlocks = validateSupportedTopology(start, end, nodesById, edgeIndex);
+        List<WorkflowLoopBlock> loopBlocks = validateLoopBlocks(nodesById, edgeIndex);
+        Set<String> compositeScopedNodeIds = compositeScopedNodeIds(loopBlocks, nodesById);
         List<WorkflowNode> linearNodes = isLinear(edgeIndex)
                 ? orderLinearPath(start, end, nodesById, edgeIndex)
                 : List.of();
         return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), edgeIndex.incoming(),
-                linearNodes, parallelBlocks);
+                linearNodes, parallelBlocks, loopBlocks, compositeScopedNodeIds);
     }
 
     private Map<String, WorkflowNode> indexNodes(List<WorkflowNode> nodes) {
@@ -224,6 +226,8 @@ public class WorkflowCompiler {
                 case "condition" -> validateConditionNodeEdges(node, outgoing);
                 case "parallel" -> validateParallelNodeEdges(node, outgoing);
                 case "join" -> validateJoinNodeEdges(node, outgoing, inDegree);
+                case "loop" -> validateLoopNodeEdges(node, outgoing);
+                case "loop_back" -> validateLoopBackNodeEdges(node, outgoing, nodesById);
                 default -> validateSingleOutgoingNodeEdges(node, outgoing);
             }
         }
@@ -289,7 +293,143 @@ public class WorkflowCompiler {
         if (!nodesReachingEnd.containsAll(nodesById.keySet())) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow nodes must eventually reach end");
         }
-        detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>());
+        detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>(), allowedLoopBackEdges(nodesById));
+    }
+
+    private Set<String> allowedLoopBackEdges(Map<String, WorkflowNode> nodesById) {
+        Set<String> allowed = new HashSet<>();
+        for (WorkflowNode node : nodesById.values()) {
+            if ("loop_back".equals(normalizeType(node))) {
+                allowed.add(node.id());
+            }
+        }
+        return allowed;
+    }
+
+    private List<WorkflowLoopBlock> validateLoopBlocks(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        List<WorkflowLoopBlock> loopBlocks = new ArrayList<>();
+        for (WorkflowNode node : nodesById.values()) {
+            if (!"loop".equals(normalizeType(node))) {
+                continue;
+            }
+            WorkflowExecutionEdge bodyEdge = findEdgeWithCondition(edgeIndex, node.id(), "body");
+            WorkflowExecutionEdge exitEdge = findEdgeWithCondition(edgeIndex, node.id(), "exit");
+            List<String> bodyNodeIds = collectLoopBodyNodeIds(bodyEdge.to(), node.id(), nodesById, edgeIndex);
+            int maxIterations = resolveMaxIterations(node);
+            loopBlocks.add(new WorkflowLoopBlock(node.id(), exitEdge.to(), bodyNodeIds, maxIterations));
+        }
+        return List.copyOf(loopBlocks);
+    }
+
+    private int resolveMaxIterations(WorkflowNode loopNode) {
+        Object value = loopNode.config().get("maxIterations");
+        int maxIterations = 10;
+        if (value instanceof Number number) {
+            maxIterations = number.intValue();
+        }
+        else if (value != null) {
+            maxIterations = Integer.parseInt(String.valueOf(value));
+        }
+        if (maxIterations < 1 || maxIterations > 50) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Loop maxIterations must be between 1 and 50: " + loopNode.id());
+        }
+        return maxIterations;
+    }
+
+    private List<String> collectLoopBodyNodeIds(String bodyStartNodeId, String loopNodeId,
+            Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        List<String> bodyNodeIds = new ArrayList<>();
+        String currentId = bodyStartNodeId;
+        Set<String> visited = new HashSet<>();
+        while (true) {
+            WorkflowNode current = nodesById.get(currentId);
+            if (current == null) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Loop body references missing node: " + currentId);
+            }
+            String type = normalizeType(current);
+            if ("loop_back".equals(type)) {
+                validateLoopBackTarget(current, loopNodeId, edgeIndex);
+                return List.copyOf(bodyNodeIds);
+            }
+            if (!visited.add(currentId)) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Loop body must be linear before loop_back: " + currentId);
+            }
+            if ("loop".equals(type) || "parallel".equals(type) || "condition".equals(type)) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Loop body cannot contain branching nodes: " + currentId);
+            }
+            bodyNodeIds.add(currentId);
+            List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(currentId, List.of());
+            if (outgoing.size() != 1 || outgoing.getFirst().conditional()) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Loop body nodes must have exactly one unconditional outgoing edge: " + currentId);
+            }
+            currentId = outgoing.getFirst().to();
+        }
+    }
+
+    private void validateLoopBackTarget(WorkflowNode loopBackNode, String expectedLoopNodeId, EdgeIndex edgeIndex) {
+        List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(loopBackNode.id(), List.of());
+        if (outgoing.size() != 1 || !expectedLoopNodeId.equals(outgoing.getFirst().to())) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "loop_back node must point back to its loop node: " + loopBackNode.id());
+        }
+    }
+
+    private WorkflowExecutionEdge findEdgeWithCondition(EdgeIndex edgeIndex, String fromNodeId, String condition) {
+        return edgeIndex.outgoing().getOrDefault(fromNodeId, List.of()).stream()
+                .filter(edge -> condition.equals(edge.condition()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Loop node must define outgoing edge condition=" + condition + ": " + fromNodeId));
+    }
+
+    private Set<String> compositeScopedNodeIds(List<WorkflowLoopBlock> loopBlocks,
+            Map<String, WorkflowNode> nodesById) {
+        Set<String> scoped = new HashSet<>();
+        for (WorkflowLoopBlock block : loopBlocks) {
+            scoped.addAll(block.bodyNodeIds());
+        }
+        for (WorkflowNode node : nodesById.values()) {
+            if ("loop_back".equals(normalizeType(node))) {
+                scoped.add(node.id());
+            }
+        }
+        return Set.copyOf(scoped);
+    }
+
+    private void validateLoopNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing) {
+        if (outgoing.size() != 2) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Loop node must have body and exit outgoing edges: " + node.id());
+        }
+        Set<String> conditions = outgoing.stream()
+                .map(WorkflowExecutionEdge::condition)
+                .collect(Collectors.toSet());
+        if (!conditions.equals(Set.of("body", "exit"))) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Loop node outgoing edges must use condition=body and condition=exit: " + node.id());
+        }
+    }
+
+    private void validateLoopBackNodeEdges(WorkflowNode node, List<WorkflowExecutionEdge> outgoing,
+            Map<String, WorkflowNode> nodesById) {
+        if (outgoing.size() != 1) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "loop_back node must have exactly one outgoing edge: " + node.id());
+        }
+        if (outgoing.getFirst().conditional()) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "loop_back outgoing edge cannot define a condition: " + node.id());
+        }
+        WorkflowNode target = nodesById.get(outgoing.getFirst().to());
+        if (target == null || !"loop".equals(normalizeType(target))) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "loop_back node must point to a loop node: " + node.id());
+        }
     }
 
     private List<WorkflowParallelBlock> validateParallelJoinBlocks(Map<String, WorkflowNode> nodesById,
@@ -404,7 +544,7 @@ public class WorkflowCompiler {
     }
 
     private void detectCycles(String nodeId, Map<String, List<WorkflowExecutionEdge>> outgoing, Set<String> visiting,
-            Set<String> visited) {
+            Set<String> visited, Set<String> allowedLoopBackNodeIds) {
         if (visited.contains(nodeId)) {
             return;
         }
@@ -412,7 +552,10 @@ public class WorkflowCompiler {
             throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
         }
         for (WorkflowExecutionEdge edge : outgoing.getOrDefault(nodeId, List.of())) {
-            detectCycles(edge.to(), outgoing, visiting, visited);
+            if (allowedLoopBackNodeIds.contains(nodeId)) {
+                continue;
+            }
+            detectCycles(edge.to(), outgoing, visiting, visited, allowedLoopBackNodeIds);
         }
         visiting.remove(nodeId);
         visited.add(nodeId);

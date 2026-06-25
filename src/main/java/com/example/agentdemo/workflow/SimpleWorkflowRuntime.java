@@ -18,27 +18,48 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
     private final WorkflowNodeExecutor nodeExecutor;
     private final WorkflowNodeTraceExecutor traceExecutor;
     private final ExecutorService executorService;
+    private final WorkflowInlineExecutionService inlineExecutionService;
 
     public SimpleWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
-            ExecutorService executorService) {
+            ExecutorService executorService, WorkflowInlineExecutionService inlineExecutionService) {
         this.nodeExecutor = nodeExecutor;
         this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService);
         this.executorService = executorService;
+        this.inlineExecutionService = inlineExecutionService;
     }
 
     @Override
     public WorkflowExecutionResult run(String runId, WorkflowExecutionPlan executionPlan, Map<String, Object> input) {
+        inlineExecutionService.bindPlan(executionPlan);
+        try {
+            return runBound(runId, executionPlan, input);
+        }
+        finally {
+            inlineExecutionService.clearPlan();
+        }
+    }
+
+    private WorkflowExecutionResult runBound(String runId, WorkflowExecutionPlan executionPlan,
+            Map<String, Object> input) {
         WorkflowExecutionState state = new WorkflowExecutionState(input);
         List<WorkflowStepSummary> summaries = new ArrayList<>();
         Set<String> visited = new HashSet<>();
         WorkflowNode node = executionPlan.startNode();
         while (node != null) {
-            if (!visited.add(node.id())) {
+            if (executionPlan.isCompositeScopedNode(node.id())) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Composite-scoped node must not be executed in main workflow path: " + node.id());
+            }
+            if (!visited.add(node.id()) && !"loop_back".equals(nodeExecutor.normalizeType(node))) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
             }
             executeWithTrace(runId, node, state, summaries);
             if (node.id().equals(executionPlan.endNode().id())) {
                 break;
+            }
+            if ("loop".equals(nodeExecutor.normalizeType(node))) {
+                node = executionPlan.node(executionPlan.loopBlock(node.id()).exitNodeId());
+                continue;
             }
             if ("parallel".equals(nodeExecutor.normalizeType(node))) {
                 node = executeParallelBranches(runId, executionPlan, node, state, summaries);

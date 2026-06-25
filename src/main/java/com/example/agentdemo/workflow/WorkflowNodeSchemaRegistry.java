@@ -29,6 +29,10 @@ public class WorkflowNodeSchemaRegistry {
             conditionSchema(),
             parallelSchema(),
             joinSchema(),
+            loopSchema(),
+            loopBackSchema(),
+            subgraphSchema(),
+            dynamicSchema(),
             endSchema());
 
     public List<WorkflowNodeSchema> listSchemas() {
@@ -179,6 +183,62 @@ public class WorkflowNodeSchemaRegistry {
                 withExecutionControls(List.of()),
                 List.of(),
                 "A map containing branchOutputs keyed by branch start node id.");
+    }
+
+    private WorkflowNodeSchema loopSchema() {
+        return new WorkflowNodeSchema(
+                "loop",
+                "Loop",
+                "Controlled while-loop with maxIterations and condition fields.",
+                withExecutionControls(List.of(
+                        new WorkflowNodeConfigField("maxIterations", "integer", false, 10,
+                                "Maximum loop iterations (1-50).", orderedMap("min", 1, "max", 50)),
+                        new WorkflowNodeConfigField("left", "string", false, "{{input}}",
+                                "Condition left operand.", Map.of()),
+                        new WorkflowNodeConfigField("operator", "string", false, "greaterthan",
+                                "Condition operator.", Map.of()),
+                        new WorkflowNodeConfigField("right", "string", false, "0",
+                                "Condition right operand.", Map.of()))),
+                TEMPLATE_VARIABLES,
+                "Loop summary with iterations and iterationOutputs.");
+    }
+
+    private WorkflowNodeSchema loopBackSchema() {
+        return new WorkflowNodeSchema(
+                "loop_back",
+                "Loop Back",
+                "Compile-time marker ending a loop body.",
+                withExecutionControls(List.of()),
+                List.of(),
+                "Loop back marker output.");
+    }
+
+    private WorkflowNodeSchema subgraphSchema() {
+        return new WorkflowNodeSchema(
+                "subgraph",
+                "Subgraph",
+                "Runs a saved workflow definition inline.",
+                withExecutionControls(List.of(
+                        new WorkflowNodeConfigField("definitionId", "string", true, null,
+                                "Saved workflow definition id.", Map.of()),
+                        new WorkflowNodeConfigField("version", "integer", false, null,
+                                "Optional published revision version.", Map.of()))),
+                TEMPLATE_VARIABLES,
+                "Nested workflow output summary.");
+    }
+
+    private WorkflowNodeSchema dynamicSchema() {
+        return new WorkflowNodeSchema(
+                "dynamic",
+                "Dynamic",
+                "Expands a template-resolved list and executes tools sequentially.",
+                withExecutionControls(List.of(
+                        new WorkflowNodeConfigField("itemsFrom", "string", true, null,
+                                "Template resolving to a list of tool names or maps.", Map.of()),
+                        new WorkflowNodeConfigField("action", "string", false, "tool",
+                                "Dynamic action type.", Map.of()))),
+                TEMPLATE_VARIABLES,
+                "Dynamic execution outputs list.");
     }
 
     private WorkflowNodeSchema endSchema() {
