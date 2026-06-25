@@ -140,10 +140,7 @@ public class VectorOutboxWorker {
     private void finalizeSuccess(Long id) {
         runFinalize(id, event -> {
             if (event.getType() == VectorOutboxEventType.UPSERT) {
-                documentRepository.findById(event.getDocumentId()).ifPresent(document -> {
-                    document.markReady();
-                    documentRepository.save(document);
-                });
+                finalizeUpsertSuccess(event);
             }
             else {
                 documentChunkRepository.deleteByDocumentId(event.getDocumentId());
@@ -151,6 +148,34 @@ public class VectorOutboxWorker {
             }
             event.markSucceeded();
         });
+    }
+
+    private void finalizeUpsertSuccess(VectorOutboxEventEntity event) {
+        DocumentEntity document = documentRepository.findById(event.getDocumentId()).orElse(null);
+        if (document != null && document.getIndexStatus() != DocumentIndexStatus.DELETING
+                && document.getIndexStatus() != DocumentIndexStatus.DELETED) {
+            document.markReady();
+            documentRepository.save(document);
+            return;
+        }
+        // The document was deleted (or is being deleted) while this upsert was in flight. Under multiple
+        // workers a concurrent DELETE event can run its external delete before this upsert's external
+        // write lands, which would leave the freshly-written vectors orphaned in the store. A queued
+        // UPSERT is canceled on delete, but a PROCESSING one cannot be (its worker owns it) — this is
+        // exactly that case — so enqueue a compensating delete to remove the orphaned vectors.
+        enqueueCompensatingDelete(event);
+    }
+
+    private void enqueueCompensatingDelete(VectorOutboxEventEntity upsertEvent) {
+        List<String> vectorIds = readPayload(upsertEvent.getPayloadJson(), VECTOR_DOCUMENTS_TYPE).stream()
+                .map(VectorDocument::id)
+                .toList();
+        if (vectorIds.isEmpty()) {
+            return;
+        }
+        outboxEventRepository.save(VectorOutboxEventEntity.delete(upsertEvent.getDocumentId(), writePayload(vectorIds)));
+        log.warn("Vector outbox upsert for document {} completed after the document was deleted; enqueued a "
+                + "compensating delete for {} orphaned vector(s)", upsertEvent.getDocumentId(), vectorIds.size());
     }
 
     private void finalizeFailure(Long id, RuntimeException failure) {
@@ -188,6 +213,15 @@ public class VectorOutboxWorker {
         }
         catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Invalid vector outbox payload", ex);
+        }
+    }
+
+    private String writePayload(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        }
+        catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("Failed to serialize compensating vector delete payload", ex);
         }
     }
 

@@ -71,6 +71,31 @@ class VectorOutboxWorkerDataTest {
     }
 
     @Test
+    void upsertCompletingAfterDocumentDeletionEnqueuesCompensatingDelete() {
+        // The document is mid-deletion while its upsert was in flight (a PROCESSING upsert that
+        // cancelEventsForDocument cannot cancel). The external upsert still writes the vectors, so they
+        // must be cleaned up with a compensating delete instead of leaking after the document is gone.
+        long documentId = saveDocument(DocumentEntity::markDeleting);
+        long eventId = saveUpsert(documentId);
+        when(gateway.isConfigured()).thenReturn(true);
+
+        worker.processPending();
+
+        assertThat(outboxEventRepository.findById(eventId)).get()
+                .extracting(VectorOutboxEventEntity::getStatus).isEqualTo(VectorOutboxEventStatus.SUCCEEDED);
+        verify(gateway).upsert(anyList());
+
+        List<VectorOutboxEventEntity> compensating = outboxEventRepository.findAll().stream()
+                .filter(e -> e.getType() == VectorOutboxEventType.DELETE && e.getDocumentId().equals(documentId))
+                .toList();
+        assertThat(compensating).hasSize(1);
+        assertThat(compensating.getFirst().getStatus()).isEqualTo(VectorOutboxEventStatus.PENDING);
+        // The document must not be flipped back to READY by the late upsert.
+        assertThat(documentRepository.findById(documentId)).get()
+                .extracting(DocumentEntity::getIndexStatus).isEqualTo(DocumentIndexStatus.DELETING);
+    }
+
+    @Test
     void upsertFailureMarksDocumentFailedAndSchedulesRetry() {
         long documentId = saveDocument(DocumentEntity::markPending);
         long eventId = saveUpsert(documentId);
