@@ -1,7 +1,9 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.trace.TraceService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Supplier;
 
 @Component
 public class WorkflowInlineExecutionService {
@@ -30,14 +33,17 @@ public class WorkflowInlineExecutionService {
     private final WorkflowVariableResolver variableResolver;
     private final TraceService traceService;
     private final ExecutorService workflowNodeExecutorService;
+    private final WorkflowRuntimeProperties workflowRuntimeProperties;
     private final ThreadLocal<Deque<WorkflowExecutionPlan>> activePlans = ThreadLocal.withInitial(ArrayDeque::new);
     private final ThreadLocal<Integer> subgraphNestingDepth = ThreadLocal.withInitial(() -> 0);
     private final ThreadLocal<List<WorkflowStepSummary>> inlineStepSummaries = ThreadLocal.withInitial(ArrayList::new);
 
+    @Autowired
     public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
             WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
             ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
-            TraceService traceService, ExecutorService workflowNodeExecutorService) {
+            TraceService traceService, ExecutorService workflowNodeExecutorService,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntimeProvider = workflowRuntimeProvider;
@@ -45,6 +51,15 @@ public class WorkflowInlineExecutionService {
         this.variableResolver = variableResolver;
         this.traceService = traceService;
         this.workflowNodeExecutorService = workflowNodeExecutorService;
+        this.workflowRuntimeProperties = workflowRuntimeProperties;
+    }
+
+    public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
+            WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
+            ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
+            TraceService traceService, ExecutorService workflowNodeExecutorService) {
+        this(workflowDefinitionService, workflowCompiler, workflowRuntimeProvider, nodeExecutorProvider,
+                variableResolver, traceService, workflowNodeExecutorService, new WorkflowRuntimeProperties());
     }
 
     void bindPlan(WorkflowExecutionPlan plan) {
@@ -67,6 +82,28 @@ public class WorkflowInlineExecutionService {
         List<WorkflowStepSummary> drained = List.copyOf(inlineStepSummaries.get());
         inlineStepSummaries.get().clear();
         return drained;
+    }
+
+    InlineExecutionContext captureContext() {
+        return new InlineExecutionContext(new ArrayDeque<>(activePlans.get()), subgraphNestingDepth.get(),
+                inlineStepSummaries.get());
+    }
+
+    <T> T callWithContext(InlineExecutionContext context, Supplier<T> supplier) {
+        Deque<WorkflowExecutionPlan> previousPlans = activePlans.get();
+        Integer previousDepth = subgraphNestingDepth.get();
+        List<WorkflowStepSummary> previousSummaries = inlineStepSummaries.get();
+        activePlans.set(new ArrayDeque<>(context.activePlans()));
+        subgraphNestingDepth.set(context.subgraphNestingDepth());
+        inlineStepSummaries.set(context.inlineStepSummaries());
+        try {
+            return supplier.get();
+        }
+        finally {
+            activePlans.set(previousPlans);
+            subgraphNestingDepth.set(previousDepth);
+            inlineStepSummaries.set(previousSummaries);
+        }
     }
 
     Object executeLoop(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -143,6 +180,11 @@ public class WorkflowInlineExecutionService {
         }
         Object resolved = variableResolver.renderValue(itemsFrom, state);
         List<?> items = toItemList(resolved, node.id());
+        if (items.size() > workflowRuntimeProperties.getMaxDynamicItems()) {
+            throw new BusinessException("WORKFLOW_BUDGET_EXCEEDED",
+                    "Dynamic item count exceeds limit of "
+                            + workflowRuntimeProperties.getMaxDynamicItems() + ": " + node.id());
+        }
         String action = configString(node, "action");
         if (!StringUtils.hasText(action)) {
             action = "tool";
@@ -264,6 +306,12 @@ public class WorkflowInlineExecutionService {
                                 + " characters: " + subgraphNodeId);
             }
         }
+    }
+
+    record InlineExecutionContext(
+            Deque<WorkflowExecutionPlan> activePlans,
+            int subgraphNestingDepth,
+            List<WorkflowStepSummary> inlineStepSummaries) {
     }
 
 }

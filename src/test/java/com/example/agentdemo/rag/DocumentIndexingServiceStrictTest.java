@@ -35,7 +35,7 @@ class DocumentIndexingServiceStrictTest {
     }
 
     @Test
-    void rollsBackVectorsWhenChunkPersistenceFailsInStrictMode() {
+    void doesNotTouchVectorStoreWhenChunkPersistenceFailsInStrictMode() {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         TrackingVectorStoreGateway vectorStoreGateway = new TrackingVectorStoreGateway(true);
         RagProperties ragProperties = new RagProperties();
@@ -57,8 +57,8 @@ class DocumentIndexingServiceStrictTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("database unavailable");
 
-        assertThat(vectorStoreGateway.upsertedDocuments).hasSize(2);
-        assertThat(vectorStoreGateway.deletedVectorIds).containsExactly("doc-7-chunk-0", "doc-7-chunk-1");
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
+        assertThat(vectorStoreGateway.deletedVectorIds).isEmpty();
     }
 
     private static final class FakeEmbeddingModel implements org.springframework.ai.embedding.EmbeddingModel {

@@ -26,6 +26,7 @@ final class WorkflowNodeRunner {
 
     WorkflowNodeExecutionResult execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
         WorkflowNodeRunOptions options = WorkflowNodeRunOptions.from(node);
+        validateRetryPolicy(node, options);
         List<Map<String, Object>> attempts = new ArrayList<>();
         int maxAttempts = options.retryCount() + 1;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -46,12 +47,28 @@ final class WorkflowNodeRunner {
         throw new IllegalStateException("Workflow node retry loop exited unexpectedly");
     }
 
+    private void validateRetryPolicy(WorkflowNode node, WorkflowNodeRunOptions options) {
+        if (options.retryCount() <= 0 || !"tool".equalsIgnoreCase(node.type())) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(node.config().get("idempotent"))) {
+            throw new BusinessException("WORKFLOW_RETRY_NOT_ALLOWED",
+                    "Tool node retry requires config.idempotent=true: " + node.id());
+        }
+    }
+
     private Object executeOnce(String runId, WorkflowNode node, WorkflowExecutionState state,
             WorkflowNodeRunOptions options) {
         if (options.timeoutMs() <= 0) {
             return nodeExecutor.execute(runId, node, state);
         }
-        Future<Object> future = executorService.submit(() -> nodeExecutor.execute(runId, node, state));
+        WorkflowInlineExecutionService.InlineExecutionContext inlineContext =
+                nodeExecutor.inlineExecutionService().captureContext();
+        Future<Object> future = executorService.submit(() ->
+                inlineContext == null
+                        ? nodeExecutor.execute(runId, node, state)
+                        : nodeExecutor.inlineExecutionService().callWithContext(inlineContext,
+                                () -> nodeExecutor.execute(runId, node, state)));
         try {
             return future.get(options.timeoutMs(), TimeUnit.MILLISECONDS);
         }

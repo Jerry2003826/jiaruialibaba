@@ -2,8 +2,11 @@ package com.example.agentdemo.agent;
 
 import com.example.agentdemo.tool.LocalToolProvider;
 import com.example.agentdemo.tool.McpToolProvider;
+import com.example.agentdemo.tool.ToolDescriptor;
+import com.example.agentdemo.tool.ToolExecutionPolicy;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
+import com.example.agentdemo.tool.ToolProvider;
 import com.example.agentdemo.tool.ToolService;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
@@ -57,10 +60,11 @@ class DemoToolCallbackFactoryTest {
     }
 
     @Test
-    void mergesMcpToolCallbacksWhenProviderAvailable() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
-        McpToolProvider mcpProvider = mock(McpToolProvider.class);
-        when(mcpProvider.exposedToolCallbacks()).thenReturn(List.of(new EchoToolCallback()));
+    void exposesOnlyMcpToolCallbacksAllowedByGatewayPolicy() {
+        McpToolProvider mcpProvider = rawMcpProvider();
+        ToolGatewayService gateway = new ToolGatewayService(
+                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_echo"));
         DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
         TraceService traceService = mock(TraceService.class);
         List<ToolExecutionLog> toolCalls = new ArrayList<>();
@@ -68,6 +72,46 @@ class DemoToolCallbackFactoryTest {
         List<ToolCallback> callbacks = factory.tracedToolCallbacks("run-1", traceService, toolCalls);
 
         assertThat(callbackNames(callbacks)).contains("remote_echo");
+    }
+
+    @Test
+    void hidesMcpToolCallbacksDeniedByGatewayPolicy() {
+        McpToolProvider mcpProvider = rawMcpProvider();
+        ToolGatewayService gateway = new ToolGatewayService(
+                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                new ToolExecutionPolicy());
+        DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
+        TraceService traceService = mock(TraceService.class);
+        List<ToolExecutionLog> toolCalls = new ArrayList<>();
+
+        List<ToolCallback> callbacks = factory.tracedToolCallbacks("run-1", traceService, toolCalls);
+
+        assertThat(callbackNames(callbacks)).doesNotContain("remote_echo");
+        assertThat(gateway.execute("remote_echo", Map.of("text", "blocked")).succeeded()).isFalse();
+    }
+
+    @Test
+    void mcpToolCallbackExecutionReentersGatewayValidation() {
+        McpToolProvider mcpProvider = rawMcpProvider();
+        ToolGatewayService gateway = new ToolGatewayService(
+                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_echo"));
+        DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), eq("tool_remote_echo"), any()))
+                .thenReturn(new TraceStep("step-remote", "run-1", "tool_remote_echo"));
+        List<ToolExecutionLog> toolCalls = new ArrayList<>();
+
+        ToolCallback callback = factory.tracedToolCallbacks("run-1", traceService, toolCalls).stream()
+                .filter(candidate -> "remote_echo".equals(candidate.getToolDefinition().name()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThatThrownBy(() -> callback.call("{}"))
+                .hasMessageContaining("Missing required MCP tool argument: text");
+        assertThat(toolCalls).hasSize(1);
+        assertThat(toolCalls.getFirst().succeeded()).isFalse();
+        assertThat(toolCalls.getFirst().errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
     }
 
     @Test
@@ -109,6 +153,12 @@ class DemoToolCallbackFactoryTest {
         return objectProvider;
     }
 
+    private static McpToolProvider rawMcpProvider() {
+        McpToolProvider mcpProvider = mock(McpToolProvider.class);
+        when(mcpProvider.exposedToolCallbacks()).thenReturn(List.of(new EchoToolCallback()));
+        return mcpProvider;
+    }
+
     private static List<String> callbackNames(List<ToolCallback> callbacks) {
         return callbacks.stream().map(callback -> callback.getToolDefinition().name()).toList();
     }
@@ -135,6 +185,47 @@ class DemoToolCallbackFactoryTest {
         @Override
         public String call(String toolInput) {
             return "mcp:" + toolInput;
+        }
+
+    }
+
+    private static final class RemoteEchoProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "mcp";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "remote_echo".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            java.time.Instant now = java.time.Instant.now();
+            ToolDescriptor descriptor = tools().getFirst();
+            if (!arguments.containsKey("text")) {
+                return ToolExecutionLog.failure(toolName, arguments,
+                        "Missing required MCP tool argument: text", now, now, descriptor,
+                        ToolExecutionLog.ERROR_VALIDATION);
+            }
+            return ToolExecutionLog.success(toolName, arguments,
+                    "mcp:" + arguments.get("text"), now, now, descriptor);
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("remote_echo", "Echo text from MCP",
+                    "mcp", true, "github", """
+                            {
+                              "type": "object",
+                              "properties": {
+                                "text": {"type": "string"}
+                              },
+                              "required": ["text"]
+                            }
+                            """));
         }
 
     }

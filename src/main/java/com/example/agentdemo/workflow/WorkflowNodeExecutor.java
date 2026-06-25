@@ -60,6 +60,10 @@ public class WorkflowNodeExecutor {
         };
     }
 
+    WorkflowInlineExecutionService inlineExecutionService() {
+        return inlineExecutionService;
+    }
+
     Map<String, Object> nodeInput(WorkflowNode node, WorkflowExecutionState state) {
         Map<String, Object> input = orderedMap();
         input.put("nodeId", node.id());

@@ -121,7 +121,14 @@ public class WorkflowNodeSchemaRegistry {
                                 false,
                                 null,
                                 "Compatibility shortcut for calculate when arguments.expression is absent.",
-                                Map.of("onlyForTool", "calculate")))),
+                                Map.of("onlyForTool", "calculate")),
+                        new WorkflowNodeConfigField(
+                                "idempotent",
+                                "boolean",
+                                false,
+                                false,
+                                "Whether retryCount may be used for this tool node.",
+                                Map.of()))),
                 TEMPLATE_VARIABLES,
                 "A ToolExecutionLog for the tool call.");
     }

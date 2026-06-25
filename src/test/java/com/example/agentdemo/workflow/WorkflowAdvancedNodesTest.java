@@ -94,6 +94,20 @@ class WorkflowAdvancedNodesTest {
     }
 
     @Test
+    void runsLoopWithTimeoutAndInlineBodyTrace() {
+        WorkflowRuntimeTestSupport.RuntimeStack stack = simpleStack();
+        WorkflowExecutionPlan plan = compiler.compile(fixedLoopDefinition(2, Map.of("timeoutMs", 5_000)));
+
+        WorkflowRuntime.WorkflowExecutionResult result = stack.runtime().run("run-loop-timeout", plan,
+                Map.of("message", "hi"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .contains("loop_1", "decrement", "after_loop", "end");
+        assertLoopIterations(result, 2);
+    }
+
+    @Test
     void loopSkipsBodyWhenConditionIsFalseInitially() {
         WorkflowRuntimeTestSupport.RuntimeStack stack = simpleStack();
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -287,14 +301,20 @@ class WorkflowAdvancedNodesTest {
     }
 
     private WorkflowDefinition fixedLoopDefinition(int maxIterations) {
+        return fixedLoopDefinition(maxIterations, Map.of());
+    }
+
+    private WorkflowDefinition fixedLoopDefinition(int maxIterations, Map<String, Object> extraLoopConfig) {
+        java.util.Map<String, Object> loopConfig = new java.util.LinkedHashMap<>();
+        loopConfig.put("maxIterations", maxIterations);
+        loopConfig.put("left", "1");
+        loopConfig.put("operator", "equals");
+        loopConfig.put("right", "1");
+        loopConfig.putAll(extraLoopConfig);
         return new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("loop_1", "loop", Map.of(
-                                "maxIterations", maxIterations,
-                                "left", "1",
-                                "operator", "equals",
-                                "right", "1")),
+                        new WorkflowNode("loop_1", "loop", loopConfig),
                         new WorkflowNode("decrement", "tool", Map.of("toolName", "getCurrentTime")),
                         new WorkflowNode("loop_back", "loop_back", Map.of()),
                         new WorkflowNode("after_loop", "tool", Map.of("toolName", "getCurrentTime")),

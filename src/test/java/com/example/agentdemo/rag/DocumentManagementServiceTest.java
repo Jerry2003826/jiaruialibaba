@@ -10,7 +10,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,7 +24,7 @@ class DocumentManagementServiceTest {
             documentChunkRepository, vectorStoreGateway, TestAlibabaPolicies.legacyFallbackAllowed());
 
     @Test
-    void deleteDocumentRemovesVectorsBeforeDbWhenConfigured() {
+    void deleteDocumentDoesNotRemoveVectorsBeforeDbWhenConfigured() {
         DocumentEntity document = new DocumentEntity("Doc", "content");
         DocumentChunkEntity chunk = new DocumentChunkEntity(1L, 0, "vec-1", "chunk");
         when(documentRepository.findById(1L)).thenReturn(Optional.of(document));
@@ -34,10 +33,9 @@ class DocumentManagementServiceTest {
 
         service.deleteDocument(1L);
 
-        var order = inOrder(vectorStoreGateway, documentChunkRepository, documentRepository);
-        order.verify(vectorStoreGateway).delete(List.of("vec-1"));
-        order.verify(documentChunkRepository).deleteByDocumentId(1L);
-        order.verify(documentRepository).delete(document);
+        verify(vectorStoreGateway, never()).delete(anyList());
+        verify(documentChunkRepository, never()).deleteByDocumentId(1L);
+        verify(documentRepository, never()).delete(document);
     }
 
     @Test

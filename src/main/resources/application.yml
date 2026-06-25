@@ -16,7 +16,6 @@ spring:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
   profiles:
-    active: dev
     group:
       dev: dev,alibaba-strict,postgres,workflow-graph
   ai:
@@ -41,11 +40,11 @@ spring:
     password:
   h2:
     console:
-      enabled: true
+      enabled: false
       path: /h2-console
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
@@ -54,10 +53,12 @@ spring:
 logging:
   level:
     root: INFO
-    com.example.agentdemo: DEBUG
+    com.example.agentdemo: INFO
     org.springframework.ai: INFO
 
 demo:
+  security:
+    jwt-secret: ${DEMO_SECURITY_JWT_SECRET:}
   alibaba:
     strict-mode: ${DEMO_ALIBABA_STRICT_MODE:false}
   ai:
@@ -84,6 +85,10 @@ demo:
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
     require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}
+    max-nodes: ${DEMO_WORKFLOW_MAX_NODES:100}
+    max-edges: ${DEMO_WORKFLOW_MAX_EDGES:200}
+    max-parallel-branches: ${DEMO_WORKFLOW_MAX_PARALLEL_BRANCHES:16}
+    max-dynamic-items: ${DEMO_WORKFLOW_MAX_DYNAMIC_ITEMS:50}
   tools:
     allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}

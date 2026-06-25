@@ -2,6 +2,8 @@ package com.example.agentdemo.rag;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -29,6 +31,10 @@ public class DocumentEntity {
     @Column(nullable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private DocumentIndexStatus indexStatus = DocumentIndexStatus.PENDING;
+
     protected DocumentEntity() {
     }
 
@@ -41,6 +47,9 @@ public class DocumentEntity {
     void prePersist() {
         if (createdAt == null) {
             createdAt = Instant.now();
+        }
+        if (indexStatus == null) {
+            indexStatus = DocumentIndexStatus.PENDING;
         }
     }
 
@@ -58,6 +67,34 @@ public class DocumentEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public DocumentIndexStatus getIndexStatus() {
+        return indexStatus;
+    }
+
+    public boolean isReady() {
+        return indexStatus == DocumentIndexStatus.READY;
+    }
+
+    public void markPending() {
+        this.indexStatus = DocumentIndexStatus.PENDING;
+    }
+
+    public void markReady() {
+        this.indexStatus = DocumentIndexStatus.READY;
+    }
+
+    public void markFailed() {
+        this.indexStatus = DocumentIndexStatus.FAILED;
+    }
+
+    public void markDeleting() {
+        this.indexStatus = DocumentIndexStatus.DELETING;
+    }
+
+    public void markDeleted() {
+        this.indexStatus = DocumentIndexStatus.DELETED;
     }
 
 }

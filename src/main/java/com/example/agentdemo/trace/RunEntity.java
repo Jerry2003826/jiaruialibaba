@@ -5,13 +5,17 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
 
 @Entity
-@Table(name = "runs")
+@Table(name = "runs", indexes = {
+        @Index(name = "idx_runs_status_started_at", columnList = "status, startedAt"),
+        @Index(name = "idx_runs_type_started_at", columnList = "type, startedAt")
+})
 public class RunEntity {
 
     @Id

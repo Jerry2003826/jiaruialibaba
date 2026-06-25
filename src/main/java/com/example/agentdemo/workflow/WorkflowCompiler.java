@@ -1,6 +1,8 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -25,12 +27,21 @@ public class WorkflowCompiler {
     private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false", "body", "exit");
 
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
+    private final WorkflowRuntimeProperties workflowRuntimeProperties;
 
     public WorkflowCompiler(WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry) {
+        this(workflowNodeSchemaRegistry, new WorkflowRuntimeProperties());
+    }
+
+    @Autowired
+    public WorkflowCompiler(WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
         this.workflowNodeSchemaRegistry = workflowNodeSchemaRegistry;
+        this.workflowRuntimeProperties = workflowRuntimeProperties;
     }
 
     public WorkflowExecutionPlan compile(WorkflowDefinition definition) {
+        validateDefinitionBudget(definition);
         Map<String, WorkflowNode> nodesById = indexNodes(definition.nodes());
         WorkflowNode start = singleNodeByType(nodesById, "start");
         WorkflowNode end = singleNodeByType(nodesById, "end");
@@ -43,6 +54,17 @@ public class WorkflowCompiler {
                 : List.of();
         return new WorkflowExecutionPlan(start, end, nodesById, edgeIndex.outgoing(), edgeIndex.incoming(),
                 linearNodes, parallelBlocks, loopBlocks, compositeScopedNodeIds);
+    }
+
+    private void validateDefinitionBudget(WorkflowDefinition definition) {
+        if (definition.nodes().size() > workflowRuntimeProperties.getMaxNodes()) {
+            throw new BusinessException("WORKFLOW_BUDGET_EXCEEDED",
+                    "Workflow node count exceeds limit of " + workflowRuntimeProperties.getMaxNodes());
+        }
+        if (definition.edges().size() > workflowRuntimeProperties.getMaxEdges()) {
+            throw new BusinessException("WORKFLOW_BUDGET_EXCEEDED",
+                    "Workflow edge count exceeds limit of " + workflowRuntimeProperties.getMaxEdges());
+        }
     }
 
     private Map<String, WorkflowNode> indexNodes(List<WorkflowNode> nodes) {
@@ -257,6 +279,11 @@ public class WorkflowCompiler {
         if (outgoing.size() < 2) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED",
                     "Parallel node must have at least two outgoing edges: " + node.id());
+        }
+        if (outgoing.size() > workflowRuntimeProperties.getMaxParallelBranches()) {
+            throw new BusinessException("WORKFLOW_BUDGET_EXCEEDED",
+                    "Parallel branch count exceeds limit of "
+                            + workflowRuntimeProperties.getMaxParallelBranches() + ": " + node.id());
         }
         if (outgoing.stream().anyMatch(WorkflowExecutionEdge::conditional)) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED",

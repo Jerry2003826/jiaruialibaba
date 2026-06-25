@@ -47,6 +47,12 @@ public class ToolGatewayService {
                 .toList();
     }
 
+    public List<ToolDescriptor> listExecutableTools() {
+        return listTools().stream()
+                .filter(toolExecutionPolicy::canExecute)
+                .toList();
+    }
+
     static ToolExecutionLog toolNotFound(String toolName, Map<String, Object> arguments) {
         Instant now = Instant.now();
         return ToolExecutionLog.failure(toolName, safeArguments(arguments), "Tool not found: " + toolName,

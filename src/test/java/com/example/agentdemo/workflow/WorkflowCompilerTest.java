@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -280,6 +281,60 @@ class WorkflowCompilerTest {
         assertThatThrownBy(() -> compiler.compile(tooLongTimeout))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Config tool.timeoutMs must be <= 300000");
+    }
+
+    @Test
+    void rejectsWorkflowExceedingNodeBudget() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+        properties.setMaxNodes(2);
+        WorkflowCompiler limitedCompiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry(), properties);
+
+        assertThatThrownBy(() -> limitedCompiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of("toolName", "getCurrentTime")),
+                new WorkflowNode("end", "end", Map.of()))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Workflow node count exceeds limit");
+    }
+
+    @Test
+    void rejectsWorkflowExceedingEdgeBudget() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+        properties.setMaxEdges(1);
+        WorkflowCompiler limitedCompiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry(), properties);
+
+        assertThatThrownBy(() -> limitedCompiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("tool", "tool", Map.of("toolName", "getCurrentTime")),
+                new WorkflowNode("end", "end", Map.of()))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Workflow edge count exceeds limit");
+    }
+
+    @Test
+    void rejectsParallelNodeExceedingBranchBudget() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+        properties.setMaxParallelBranches(1);
+        WorkflowCompiler limitedCompiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry(), properties);
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "a"),
+                        new WorkflowEdge("parallel_1", "b"),
+                        new WorkflowEdge("a", "join_1"),
+                        new WorkflowEdge("b", "join_1"),
+                        new WorkflowEdge("join_1", "end")));
+
+        assertThatThrownBy(() -> limitedCompiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Parallel branch count exceeds limit");
     }
 
     @Test

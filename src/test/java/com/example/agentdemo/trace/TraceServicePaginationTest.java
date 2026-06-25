@@ -9,7 +9,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,6 +49,34 @@ class TraceServicePaginationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getCode())
                 .isEqualTo("RUN_QUERY_INVALID");
+    }
+
+    @Test
+    void toJsonRedactsSensitiveKeys() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        String json = traceService.toJson(Map.of("apiKey", "secret-value", "message", "hello"));
+
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        assertThat(node.path("apiKey").asText()).isEqualTo("[REDACTED]");
+        assertThat(node.path("message").asText()).isEqualTo("hello");
+    }
+
+    @Test
+    void toJsonSummarizesOversizedPayload() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        for (int i = 0; i < 80; i++) {
+            payload.put("field" + i, "x".repeat(1000));
+        }
+        String json = traceService.toJson(payload);
+
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        assertThat(node.path("payloadStored").asBoolean()).isFalse();
+        assertThat(node.path("sha256").asText()).hasSize(64);
     }
 
 }

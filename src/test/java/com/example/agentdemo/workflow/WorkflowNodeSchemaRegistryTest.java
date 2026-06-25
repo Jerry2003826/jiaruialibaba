@@ -44,6 +44,7 @@ class WorkflowNodeSchemaRegistryTest {
         assertThat(field(tool, "toolName").defaultValue()).isEqualTo("getCurrentTime");
         assertThat(field(tool, "arguments").type()).isEqualTo("object");
         assertThat(field(tool, "expression").constraints()).containsEntry("onlyForTool", "calculate");
+        assertThat(field(tool, "idempotent").defaultValue()).isEqualTo(false);
     }
 
     @Test

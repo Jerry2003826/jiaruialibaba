@@ -1,6 +1,7 @@
 package com.example.agentdemo.agent;
 
 import com.example.agentdemo.tool.McpToolProvider;
+import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.trace.TraceService;
@@ -33,8 +34,10 @@ public class DemoToolCallbackFactory {
         List<ToolCallback> callbacks = new ArrayList<>();
         callbacks.add(wrap(buildGetCurrentTimeCallback(), runId, traceService, toolCalls));
         callbacks.add(wrap(buildCalculateCallback(), runId, traceService, toolCalls));
-        mcpToolProvider.ifAvailable(provider -> provider.exposedToolCallbacks()
-                .forEach(callback -> callbacks.add(wrap(callback, runId, traceService, toolCalls))));
+        toolGatewayService.listExecutableTools().stream()
+                .filter(ToolDescriptor::remote)
+                .map(descriptor -> new GatewayBackedToolCallback(descriptor, toolGatewayService, objectMapper))
+                .forEach(callback -> callbacks.add(wrap(callback, runId, traceService, toolCalls)));
         return callbacks;
     }
 

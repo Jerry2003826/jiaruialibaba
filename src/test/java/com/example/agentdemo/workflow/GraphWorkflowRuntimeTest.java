@@ -385,6 +385,7 @@ class GraphWorkflowRuntimeTest {
                         new WorkflowNode("start", "start", Map.of()),
                         new WorkflowNode("tool_1", "tool", Map.of(
                                 "toolName", "flaky_echo",
+                                "idempotent", true,
                                 "retryCount", 1)),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(

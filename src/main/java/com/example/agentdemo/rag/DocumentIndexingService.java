@@ -5,12 +5,12 @@ import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.vector.VectorDocument;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,15 +25,19 @@ public class DocumentIndexingService {
     private final VectorStoreGateway vectorStoreGateway;
     private final RagProperties ragProperties;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
+    private final VectorOutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Autowired
     public DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             ObjectProvider<EmbeddingModel> embeddingModelProvider,
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties,
-            AlibabaRuntimePolicy alibabaRuntimePolicy) {
+            AlibabaRuntimePolicy alibabaRuntimePolicy,
+            VectorOutboxEventRepository outboxEventRepository,
+            ObjectMapper objectMapper) {
         this(chunkPersistenceService, embeddingModelProvider::getIfAvailable, vectorStoreGateway, ragProperties,
-                alibabaRuntimePolicy);
+                alibabaRuntimePolicy, outboxEventRepository, objectMapper);
     }
 
     DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
@@ -41,19 +45,24 @@ public class DocumentIndexingService {
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties,
             AlibabaRuntimePolicy alibabaRuntimePolicy) {
-        this(chunkPersistenceService, () -> embeddingModel, vectorStoreGateway, ragProperties, alibabaRuntimePolicy);
+        this(chunkPersistenceService, () -> embeddingModel, vectorStoreGateway, ragProperties, alibabaRuntimePolicy,
+                null, new ObjectMapper());
     }
 
-    private DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
+    DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
             Supplier<EmbeddingModel> embeddingModelSupplier,
             VectorStoreGateway vectorStoreGateway,
             RagProperties ragProperties,
-            AlibabaRuntimePolicy alibabaRuntimePolicy) {
+            AlibabaRuntimePolicy alibabaRuntimePolicy,
+            VectorOutboxEventRepository outboxEventRepository,
+            ObjectMapper objectMapper) {
         this.chunkPersistenceService = chunkPersistenceService;
         this.embeddingModelSupplier = embeddingModelSupplier;
         this.vectorStoreGateway = vectorStoreGateway;
         this.ragProperties = ragProperties;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
     }
 
     public List<DocumentChunkEntity> index(DocumentEntity document) {
@@ -101,60 +110,23 @@ public class DocumentIndexingService {
                     "title", document.getTitle() == null ? "" : document.getTitle())));
         }
 
-        if (alibabaRuntimePolicy.isAlibabaStackRequired()) {
-            return indexWithSynchronousVectors(vectorDocuments, chunkEntities);
-        }
-
         List<DocumentChunkEntity> savedChunks = chunkPersistenceService.saveChunks(chunkEntities);
-        scheduleVectorUpsertAfterCommit(vectorDocuments);
+        document.markPending();
+        enqueueVectorUpsert(document.getId(), vectorDocuments);
         return savedChunks;
     }
 
-    private List<DocumentChunkEntity> indexWithSynchronousVectors(List<VectorDocument> vectorDocuments,
-            List<DocumentChunkEntity> chunkEntities) {
-        List<String> vectorIds = vectorDocuments.stream().map(VectorDocument::id).toList();
-        vectorStoreGateway.ensureCollection();
-        try {
-            vectorStoreGateway.upsert(vectorDocuments);
-            return chunkPersistenceService.saveChunks(chunkEntities);
-        }
-        catch (RuntimeException ex) {
-            rollbackVectors(vectorIds);
-            throw ex;
-        }
-    }
-
-    private void rollbackVectors(List<String> vectorIds) {
-        if (vectorIds.isEmpty()) {
+    private void enqueueVectorUpsert(Long documentId, List<VectorDocument> vectorDocuments) {
+        if (outboxEventRepository == null || vectorDocuments.isEmpty()) {
             return;
         }
         try {
-            vectorStoreGateway.delete(vectorIds);
+            outboxEventRepository.save(VectorOutboxEventEntity.upsert(documentId,
+                    objectMapper.writeValueAsString(vectorDocuments)));
         }
-        catch (RuntimeException cleanupFailure) {
-            throw new BusinessException("VECTOR_INDEX_ROLLBACK_FAILED",
-                    "Failed to roll back vectors after indexing failure", cleanupFailure);
-        }
-    }
-
-    private void scheduleVectorUpsertAfterCommit(List<VectorDocument> vectorDocuments) {
-        if (vectorDocuments.isEmpty()) {
-            return;
-        }
-        Runnable upsert = () -> {
-            vectorStoreGateway.ensureCollection();
-            vectorStoreGateway.upsert(vectorDocuments);
-        };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    upsert.run();
-                }
-            });
-        }
-        else {
-            upsert.run();
+        catch (JsonProcessingException ex) {
+            throw new BusinessException("VECTOR_OUTBOX_SERIALIZATION_FAILED",
+                    "Failed to serialize vector outbox payload", ex);
         }
     }
 

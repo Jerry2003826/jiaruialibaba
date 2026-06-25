@@ -42,10 +42,19 @@ public final class TracingToolCallback implements ToolCallback {
         try {
             String output = delegate.call(toolInput);
             Instant endedAt = Instant.now();
-            ToolExecutionLog log = ToolExecutionLog.success(toolName, toolInput, output, startedAt, endedAt, null);
+            ToolExecutionLog log = delegate instanceof GatewayBackedToolCallback gatewayBacked
+                    && gatewayBacked.lastExecutionLog() != null
+                            ? gatewayBacked.lastExecutionLog()
+                            : ToolExecutionLog.success(toolName, toolInput, output, startedAt, endedAt, null);
             toolCalls.add(log);
             traceService.completeStep(step.stepId(), log);
             return output;
+        }
+        catch (GatewayBackedToolCallback.GatewayToolExecutionException ex) {
+            ToolExecutionLog log = ex.log();
+            toolCalls.add(log);
+            traceService.failStep(step.stepId(), ex, log);
+            throw ex;
         }
         catch (RuntimeException ex) {
             Instant endedAt = Instant.now();

@@ -5,6 +5,7 @@ import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.vector.VectorDocument;
 import com.example.agentdemo.rag.vector.VectorSearchResult;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -21,8 +22,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,12 +38,14 @@ class DocumentIndexingServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void indexesDocumentChunksIntoVectorStore() {
+    void indexesDocumentChunksIntoVectorOutbox() {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
+        VectorOutboxEventRepository outboxEventRepository = mock(VectorOutboxEventRepository.class);
         RagProperties ragProperties = ragProperties(10, 0);
-        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
+        DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), () -> embeddingModel,
+                vectorStoreGateway, ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                outboxEventRepository, new ObjectMapper());
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -49,15 +54,9 @@ class DocumentIndexingServiceTest {
 
         List<DocumentChunkEntity> savedChunks = service.index(document);
 
-        assertThat(vectorStoreGateway.ensureCollectionCalls).isEqualTo(1);
+        assertThat(vectorStoreGateway.ensureCollectionCalls).isZero();
         assertThat(embeddingModel.requestedTexts).containsExactly("abcdefghij", "klmnop");
-        assertThat(vectorStoreGateway.upsertedDocuments).hasSize(2);
-        VectorDocument firstVector = vectorStoreGateway.upsertedDocuments.getFirst();
-        assertThat(firstVector.id()).isEqualTo("doc-7-chunk-0");
-        assertThat(firstVector.metadata())
-                .containsEntry("documentId", 7L)
-                .containsEntry("chunkIndex", 0)
-                .containsEntry("title", "Letters");
+        assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
         assertThat(savedChunks).hasSize(2);
 
         ArgumentCaptor<List<DocumentChunkEntity>> chunksCaptor = ArgumentCaptor.forClass(List.class);
@@ -66,6 +65,11 @@ class DocumentIndexingServiceTest {
                 .isNotEmpty()
                 .extracting(DocumentChunkEntity::getVectorId)
                 .containsExactly("doc-7-chunk-0", "doc-7-chunk-1");
+        ArgumentCaptor<VectorOutboxEventEntity> eventCaptor = ArgumentCaptor.forClass(VectorOutboxEventEntity.class);
+        verify(outboxEventRepository).save(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getType()).isEqualTo(VectorOutboxEventType.UPSERT);
+        assertThat(eventCaptor.getValue().getDocumentId()).isEqualTo(7L);
+        assertThat(eventCaptor.getValue().getPayloadJson()).contains("doc-7-chunk-0", "doc-7-chunk-1");
     }
 
     @Test
@@ -170,7 +174,7 @@ class DocumentIndexingServiceTest {
     }
 
     @Test
-    void propagatesVectorUpsertFailureAfterChunksAreFlushed() {
+    void doesNotPropagateVectorUpsertFailureFromRequestThread() {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         vectorStoreGateway.failOnUpsert = true;
@@ -182,12 +186,11 @@ class DocumentIndexingServiceTest {
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
 
-        assertThatThrownBy(() -> service.index(document))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("vector upsert unavailable");
+        assertThatCode(() -> service.index(document))
+                .doesNotThrowAnyException();
 
         verify(chunkRepository).saveAllAndFlush(anyList());
-        assertThat(vectorStoreGateway.ensureCollectionCalls).isEqualTo(1);
+        assertThat(vectorStoreGateway.ensureCollectionCalls).isZero();
         assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
     }
 

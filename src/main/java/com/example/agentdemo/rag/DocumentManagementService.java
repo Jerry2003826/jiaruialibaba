@@ -6,6 +6,9 @@ import com.example.agentdemo.rag.dto.DocumentDetailResponse;
 import com.example.agentdemo.rag.dto.DocumentPageResponse;
 import com.example.agentdemo.rag.dto.DocumentSummaryResponse;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -21,6 +24,21 @@ public class DocumentManagementService {
     private final DocumentChunkRepository documentChunkRepository;
     private final VectorStoreGateway vectorStoreGateway;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
+    private final VectorOutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
+
+    @Autowired
+    public DocumentManagementService(DocumentRepository documentRepository,
+            DocumentChunkRepository documentChunkRepository, VectorStoreGateway vectorStoreGateway,
+            AlibabaRuntimePolicy alibabaRuntimePolicy, VectorOutboxEventRepository outboxEventRepository,
+            ObjectMapper objectMapper) {
+        this.documentRepository = documentRepository;
+        this.documentChunkRepository = documentChunkRepository;
+        this.vectorStoreGateway = vectorStoreGateway;
+        this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
+    }
 
     public DocumentManagementService(DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository, VectorStoreGateway vectorStoreGateway,
@@ -29,13 +47,16 @@ public class DocumentManagementService {
         this.documentChunkRepository = documentChunkRepository;
         this.vectorStoreGateway = vectorStoreGateway;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.outboxEventRepository = null;
+        this.objectMapper = new ObjectMapper();
     }
 
     @Transactional(readOnly = true)
     public DocumentPageResponse listDocuments(int page, int size) {
         validatePageRequest(page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<DocumentEntity> documentPage = documentRepository.findAllByOrderByCreatedAtDesc(pageable);
+        Page<DocumentEntity> documentPage = documentRepository
+                .findByIndexStatusNotOrderByCreatedAtDesc(DocumentIndexStatus.DELETED, pageable);
         List<DocumentSummaryResponse> content = documentPage.getContent().stream()
                 .map(this::toSummary)
                 .toList();
@@ -53,25 +74,48 @@ public class DocumentManagementService {
         DocumentEntity document = findDocument(documentId);
         List<DocumentChunkEntity> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
         List<String> vectorIds = chunks.stream().map(DocumentChunkEntity::getVectorId).toList();
-        deleteVectorsBeforeDb(vectorIds);
-        if (!chunks.isEmpty()) {
-            documentChunkRepository.deleteByDocumentId(documentId);
+        if (deleteLocallyWhenVectorStoreIsAbsent(document, documentId, vectorIds)) {
+            return;
         }
-        documentRepository.delete(document);
+        document.markDeleting();
+        documentRepository.save(document);
+        enqueueVectorDelete(documentId, vectorIds);
     }
 
-    private void deleteVectorsBeforeDb(List<String> vectorIds) {
+    private boolean deleteLocallyWhenVectorStoreIsAbsent(DocumentEntity document, Long documentId, List<String> vectorIds) {
         if (vectorIds.isEmpty()) {
-            return;
+            deleteLocalRows(document, documentId);
+            return true;
         }
         if (!vectorStoreGateway.isConfigured()) {
             if (alibabaRuntimePolicy.isAlibabaStackRequired()) {
                 throw new BusinessException("ALIBABA_VECTOR_STORE_NOT_CONFIGURED",
                         "DashVector is required but is not configured");
             }
+            deleteLocalRows(document, documentId);
+            return true;
+        }
+        return false;
+    }
+
+    private void deleteLocalRows(DocumentEntity document, Long documentId) {
+        documentChunkRepository.deleteByDocumentId(documentId);
+        document.markDeleted();
+        documentRepository.delete(document);
+    }
+
+    private void enqueueVectorDelete(Long documentId, List<String> vectorIds) {
+        if (outboxEventRepository == null) {
             return;
         }
-        vectorStoreGateway.delete(vectorIds);
+        try {
+            outboxEventRepository.save(VectorOutboxEventEntity.delete(documentId,
+                    objectMapper.writeValueAsString(vectorIds)));
+        }
+        catch (JsonProcessingException ex) {
+            throw new BusinessException("VECTOR_OUTBOX_SERIALIZATION_FAILED",
+                    "Failed to serialize vector delete outbox payload", ex);
+        }
     }
 
     private DocumentEntity findDocument(Long documentId) {

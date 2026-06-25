@@ -11,6 +11,7 @@ import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -47,6 +48,10 @@ public class WorkflowDefinitionEntity {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @Version
+    @Column(nullable = false)
+    private long rowVersion;
 
     protected WorkflowDefinitionEntity() {
     }
@@ -132,6 +137,10 @@ public class WorkflowDefinitionEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public long getRowVersion() {
+        return rowVersion;
     }
 
 }

@@ -5,7 +5,10 @@ import com.example.agentdemo.trace.dto.RunPageResponse;
 import com.example.agentdemo.trace.dto.RunResponse;
 import com.example.agentdemo.trace.dto.RunStepResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -13,7 +16,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +29,12 @@ import java.util.stream.Collectors;
 
 @Service
 public class TraceService {
+
+    private static final int MAX_TRACE_JSON_CHARS = 32768;
+    private static final int MAX_TRACE_TEXT_CHARS = 2048;
+    private static final int MAX_TRACE_ARRAY_ITEMS = 50;
+    private static final List<String> SENSITIVE_KEY_FRAGMENTS = List.of(
+            "api_key", "apikey", "authorization", "cookie", "password", "secret", "token");
 
     private final RunRepository runRepository;
     private final RunStepRepository runStepRepository;
@@ -151,10 +164,83 @@ public class TraceService {
 
     public String toJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(value);
+            JsonNode sanitized = sanitize(objectMapper.valueToTree(value));
+            String json = objectMapper.writeValueAsString(sanitized);
+            if (json.length() <= MAX_TRACE_JSON_CHARS) {
+                return json;
+            }
+            return objectMapper.writeValueAsString(Map.of(
+                    "payloadStored", false,
+                    "truncated", true,
+                    "inputBytes", json.getBytes(StandardCharsets.UTF_8).length,
+                    "sha256", sha256(json)));
         }
         catch (JsonProcessingException ex) {
-            return "{\"serializationError\":\"" + ex.getMessage() + "\"}";
+            return escapedSerializationError(ex.getOriginalMessage());
+        }
+    }
+
+    private JsonNode sanitize(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return objectMapper.nullNode();
+        }
+        if (node.isObject()) {
+            ObjectNode sanitized = objectMapper.createObjectNode();
+            node.fields().forEachRemaining(entry -> {
+                if (isSensitiveKey(entry.getKey())) {
+                    sanitized.put(entry.getKey(), "[REDACTED]");
+                }
+                else {
+                    sanitized.set(entry.getKey(), sanitize(entry.getValue()));
+                }
+            });
+            return sanitized;
+        }
+        if (node.isArray()) {
+            ArrayNode sanitized = objectMapper.createArrayNode();
+            int count = 0;
+            for (JsonNode item : node) {
+                if (count >= MAX_TRACE_ARRAY_ITEMS) {
+                    sanitized.add(objectMapper.createObjectNode()
+                            .put("truncatedItems", node.size() - MAX_TRACE_ARRAY_ITEMS));
+                    break;
+                }
+                sanitized.add(sanitize(item));
+                count++;
+            }
+            return sanitized;
+        }
+        if (node.isTextual() && node.asText().length() > MAX_TRACE_TEXT_CHARS) {
+            return objectMapper.createObjectNode()
+                    .put("truncated", true)
+                    .put("length", node.asText().length())
+                    .put("preview", node.asText().substring(0, MAX_TRACE_TEXT_CHARS));
+        }
+        return node;
+    }
+
+    private boolean isSensitiveKey(String key) {
+        String normalized = key == null ? "" : key.toLowerCase().replace("-", "_");
+        return SENSITIVE_KEY_FRAGMENTS.stream().anyMatch(normalized::contains);
+    }
+
+    private String escapedSerializationError(String message) {
+        try {
+            return objectMapper.writeValueAsString(Map.of("serializationError",
+                    message == null ? "unknown" : message));
+        }
+        catch (JsonProcessingException ignored) {
+            return "{\"serializationError\":\"unknown\"}";
+        }
+    }
+
+    private String sha256(String text) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
         }
     }
 

@@ -30,7 +30,7 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
     @Override
     public List<RetrievedContext> retrieve(String query, int limit) {
         Set<String> terms = tokenize(query);
-        return documentRepository.findAll()
+        return documentRepository.findByIndexStatus(DocumentIndexStatus.READY)
                 .stream()
                 .map(document -> score(document, terms))
                 .filter(context -> context.score() > 0)

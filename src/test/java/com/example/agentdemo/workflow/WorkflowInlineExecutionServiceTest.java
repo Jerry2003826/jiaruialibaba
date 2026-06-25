@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.support.WorkflowRuntimeTestSupport;
 import com.example.agentdemo.tool.LocalToolProvider;
@@ -80,6 +81,33 @@ class WorkflowInlineExecutionServiceTest {
             assertThatThrownBy(() -> stack.inlineService().executeDynamic("run-1", plan.node("dyn_1"), state))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("only supports action=tool");
+        }
+        finally {
+            stack.inlineService().clearPlan();
+        }
+    }
+
+    @Test
+    void executeDynamicRejectsItemsOverBudget() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+        properties.setMaxDynamicItems(1);
+        InlineServiceStack stack = inlineServiceStack(properties);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "dyn_1"),
+                        new WorkflowEdge("dyn_1", "end"))));
+        stack.inlineService().bindPlan(plan);
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("tools",
+                List.of("getCurrentTime", "getCurrentTime")));
+
+        try {
+            assertThatThrownBy(() -> stack.inlineService().executeDynamic("run-1", plan.node("dyn_1"), state))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Dynamic item count exceeds limit");
         }
         finally {
             stack.inlineService().clearPlan();
@@ -196,6 +224,11 @@ class WorkflowInlineExecutionServiceTest {
 
     @SuppressWarnings("unchecked")
     private InlineServiceStack inlineServiceStack() {
+        return inlineServiceStack(new WorkflowRuntimeProperties());
+    }
+
+    @SuppressWarnings("unchecked")
+    private InlineServiceStack inlineServiceStack(WorkflowRuntimeProperties workflowRuntimeProperties) {
         TraceService traceService = WorkflowRuntimeTestSupport.mockPermissiveTraceService();
         ToolGatewayService toolGatewayService = WorkflowRuntimeTestSupport.localToolGateway();
         AtomicReference<WorkflowNodeExecutor> nodeExecutorRef = new AtomicReference<>();
@@ -209,7 +242,8 @@ class WorkflowInlineExecutionServiceTest {
                 nodeExecutorProvider,
                 new WorkflowVariableResolver(),
                 traceService,
-                executorService);
+                executorService,
+                workflowRuntimeProperties);
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
                 mock(RagService.class),
                 mock(AiModelService.class),

@@ -186,6 +186,7 @@ class SimpleWorkflowRuntimeTest {
                         new WorkflowNode("start", "start", Map.of()),
                         new WorkflowNode("tool_1", "tool", Map.of(
                                 "toolName", "flaky_echo",
+                                "idempotent", true,
                                 "retryCount", 1)),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
@@ -198,6 +199,34 @@ class SimpleWorkflowRuntimeTest {
         assertThat(result.output()).isEqualTo(Map.of("text", "ok"));
         verify(traceService).completeStep(eq("step-workflow_node_tool_1"), argThat(output ->
                 hasAttemptCount(output, 2)));
+    }
+
+    @Test
+    void rejectsRetryForNonIdempotentToolNode() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new FlakyProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("flaky_echo"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
+        SimpleWorkflowRuntime runtime = simpleRuntime(nodeExecutor, traceService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of(
+                                "toolName", "flaky_echo",
+                                "retryCount", 1)),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end"))));
+
+        assertThatThrownBy(() -> runtime.run("run-1", plan, Map.of("message", "hello")))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_RETRY_NOT_ALLOWED"));
     }
 
     @Test

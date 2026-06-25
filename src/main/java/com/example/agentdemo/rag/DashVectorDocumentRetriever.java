@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 public class DashVectorDocumentRetriever implements DocumentRetriever {
 
@@ -77,8 +76,9 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                 .stream()
                 .map(DocumentChunkEntity::getDocumentId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<Long, DocumentEntity> documentsById = StreamSupport
-                .stream(documentRepository.findAllById(documentIds).spliterator(), false)
+        Map<Long, DocumentEntity> documentsById = documentRepository
+                .findByIdInAndIndexStatus(documentIds, DocumentIndexStatus.READY)
+                .stream()
                 .collect(Collectors.toMap(DocumentEntity::getId, Function.identity()));
 
         return resultsByVectorId.values()
@@ -97,7 +97,10 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
             return null;
         }
         DocumentEntity document = documentsById.get(chunk.getDocumentId());
-        String title = document == null || document.getTitle() == null ? "" : document.getTitle();
+        if (document == null) {
+            return null;
+        }
+        String title = document.getTitle() == null ? "" : document.getTitle();
         return new RetrievedContext(chunk.getDocumentId(), title, chunk.getContent(), result.score());
     }
 
