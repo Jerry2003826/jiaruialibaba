@@ -220,6 +220,186 @@ class WorkflowRunGraphServiceTest {
         verify(traceService, never()).listSteps("missing-run");
     }
 
+    @Test
+    void getsDynamicWorkflowRunGraphWithSyntheticChildSteps() {
+        WorkflowDefinition definition = dynamicDefinition();
+        WorkflowRunGraphService service = serviceWithDefinition(definition, "run-dynamic", List.of(
+                runStep("run-dynamic", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
+                runStep("run-dynamic", "step-dyn", "workflow_node_dyn_1", StepStatus.SUCCEEDED, null),
+                runStep("run-dynamic", "step-dyn-0", "workflow_node_dyn_1:dynamic:0:getCurrentTime",
+                        StepStatus.SUCCEEDED, null),
+                runStep("run-dynamic", "step-dyn-1", "workflow_node_dyn_1:dynamic:1:getCurrentTime",
+                        StepStatus.SUCCEEDED, null),
+                runStep("run-dynamic", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
+
+        WorkflowRunGraphResponse response = service.getRunGraph("run-dynamic");
+
+        WorkflowRunGraphNodeView dynamicNode = response.nodes().stream()
+                .filter(node -> "dyn_1".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(dynamicNode.compositeRole()).isEqualTo("DYNAMIC");
+        assertThat(dynamicNode.children())
+                .extracting(WorkflowRunGraphStepView::id)
+                .containsExactly("dyn_1:dynamic:0:getCurrentTime", "dyn_1:dynamic:1:getCurrentTime");
+        assertThat(response.mermaid()).contains("dyn_1:dynamic:0:getCurrentTime");
+    }
+
+    @Test
+    void getsLoopWorkflowRunGraphWithIterationsAndDerivedLoopBack() {
+        WorkflowDefinition definition = loopDefinition();
+        WorkflowRunGraphService service = serviceWithDefinition(definition, "run-loop", List.of(
+                runStep("run-loop", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
+                runStep("run-loop", "step-loop", "workflow_node_loop_1", StepStatus.SUCCEEDED, null),
+                runStep("run-loop", "step-body-1", "workflow_node_body_tool", StepStatus.SUCCEEDED, null),
+                runStep("run-loop", "step-body-2", "workflow_node_body_tool", StepStatus.SUCCEEDED, null),
+                runStep("run-loop", "step-after", "workflow_node_after_loop", StepStatus.SUCCEEDED, null),
+                runStep("run-loop", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
+
+        WorkflowRunGraphResponse response = service.getRunGraph("run-loop");
+
+        WorkflowRunGraphNodeView loopNode = response.nodes().stream()
+                .filter(node -> "loop_1".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(loopNode.compositeRole()).isEqualTo("LOOP");
+        assertThat(loopNode.iterations()).isEqualTo(2);
+        assertThat(loopNode.children()).hasSize(2);
+        WorkflowRunGraphNodeView loopBackNode = response.nodes().stream()
+                .filter(node -> "loop_back".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(loopBackNode.compositeRole()).isEqualTo("LOOP_BACK");
+        assertThat(loopBackNode.executed()).isTrue();
+        assertThat(loopBackNode.status()).isEqualTo(StepStatus.SUCCEEDED);
+        assertThat(response.mermaid()).contains("subgraph loop_loop_1");
+    }
+
+    @Test
+    void getsSubgraphWorkflowRunGraphWithNamespacedChildSteps() {
+        WorkflowDefinition definition = subgraphDefinition();
+        WorkflowRunGraphService service = serviceWithDefinition(definition, "run-subgraph", List.of(
+                runStep("run-subgraph", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
+                runStep("run-subgraph", "step-sub", "workflow_node_sub_1", StepStatus.SUCCEEDED, null),
+                runStep("run-subgraph", "step-sub-start", "workflow_node_sub_1::start", StepStatus.SUCCEEDED, null),
+                runStep("run-subgraph", "step-sub-tool", "workflow_node_sub_1::tool_1", StepStatus.SUCCEEDED, null),
+                runStep("run-subgraph", "step-sub-end", "workflow_node_sub_1::end", StepStatus.SUCCEEDED, null),
+                runStep("run-subgraph", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
+
+        WorkflowRunGraphResponse response = service.getRunGraph("run-subgraph");
+
+        WorkflowRunGraphNodeView subgraphNode = response.nodes().stream()
+                .filter(node -> "sub_1".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(subgraphNode.compositeRole()).isEqualTo("SUBGRAPH");
+        assertThat(subgraphNode.children())
+                .extracting(WorkflowRunGraphStepView::id)
+                .contains("sub_1::start", "sub_1::tool_1", "sub_1::end");
+    }
+
+    @Test
+    void getsParallelWorkflowRunGraphWithSyntheticBranchChildren() {
+        WorkflowDefinition definition = parallelDefinition();
+        WorkflowRunGraphService service = serviceWithDefinition(definition, "run-parallel", List.of(
+                runStep("run-parallel", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
+                runStep("run-parallel", "step-parallel", "workflow_node_parallel_1", StepStatus.SUCCEEDED, null),
+                runStep("run-parallel", "step-a", "workflow_node_tool_a", StepStatus.SUCCEEDED, null),
+                runStep("run-parallel", "step-b", "workflow_node_tool_b", StepStatus.SUCCEEDED, null),
+                runStep("run-parallel", "step-join", "workflow_node_join_1", StepStatus.SUCCEEDED, null),
+                runStep("run-parallel", "step-end", "workflow_node_end", StepStatus.SUCCEEDED, null)));
+
+        WorkflowRunGraphResponse response = service.getRunGraph("run-parallel");
+
+        WorkflowRunGraphNodeView parallelNode = response.nodes().stream()
+                .filter(node -> "parallel_1".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(parallelNode.compositeRole()).isEqualTo("PARALLEL");
+        assertThat(parallelNode.children())
+                .extracting(WorkflowRunGraphStepView::id)
+                .contains("workflow_branch_parallel_1_tool_a", "workflow_branch_parallel_1_tool_b",
+                        "tool_a", "tool_b");
+        assertThat(response.nodes().stream().filter(node -> "tool_a".equals(node.id())).findFirst().orElseThrow()
+                .parallelGroup()).isEqualTo("parallel_1");
+        assertThat(response.mermaid()).contains("subgraph parallel_parallel_1");
+    }
+
+    private WorkflowRunGraphService serviceWithDefinition(WorkflowDefinition definition, String runId,
+            List<RunStepResponse> steps) {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        when(definitionService.resolveDefinition("wf-advanced", 1))
+                .thenReturn(new WorkflowDefinitionResolution("wf-advanced", 1, definition));
+        WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
+        WorkflowRunRecordEntity record = new WorkflowRunRecordEntity(runId, "wf-advanced", 1,
+                Instant.parse("2026-06-24T06:00:00Z"));
+        when(runRecordRepository.findById(runId)).thenReturn(Optional.of(record));
+        TraceService traceService = mock(TraceService.class);
+        RunResponse run = new RunResponse(runId, RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}",
+                "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T06:00:04Z"));
+        when(traceService.getRun(runId)).thenReturn(run);
+        when(traceService.listSteps(runId)).thenReturn(steps);
+        return service(definitionService, runRecordRepository, traceService);
+    }
+
+    private WorkflowDefinition dynamicDefinition() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "dyn_1"),
+                        new WorkflowEdge("dyn_1", "end")));
+    }
+
+    private WorkflowDefinition loopDefinition() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 2)),
+                        new WorkflowNode("body_tool", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after_loop", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body_tool", "body"),
+                        new WorkflowEdge("loop_1", "after_loop", "exit"),
+                        new WorkflowEdge("body_tool", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after_loop", "end")));
+    }
+
+    private WorkflowDefinition subgraphDefinition() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("sub_1", "subgraph", Map.of("definitionId", "child-wf")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "sub_1"),
+                        new WorkflowEdge("sub_1", "end")));
+    }
+
+    private WorkflowDefinition parallelDefinition() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("tool_a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("tool_b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "tool_a"),
+                        new WorkflowEdge("parallel_1", "tool_b"),
+                        new WorkflowEdge("tool_a", "join_1"),
+                        new WorkflowEdge("tool_b", "join_1"),
+                        new WorkflowEdge("join_1", "end")));
+    }
+
     private WorkflowDefinition validDefinitionWithToolNode() {
         return new WorkflowDefinition(
                 List.of(

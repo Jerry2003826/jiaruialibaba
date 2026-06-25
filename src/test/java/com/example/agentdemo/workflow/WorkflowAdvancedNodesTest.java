@@ -210,7 +210,8 @@ class WorkflowAdvancedNodesTest {
 
         assertThat(result.steps())
                 .extracting(WorkflowStepSummary::nodeId)
-                .contains("sub_1", "start", "tool_1", "loop_1", "body_tool", "after_loop", "end");
+                .contains("sub_1", "start", "sub_1::tool_1", "sub_1::start", "sub_1::end",
+                        "loop_1", "body_tool", "after_loop", "end");
         WorkflowStepSummary subgraphStep = result.steps().stream()
                 .filter(step -> "sub_1".equals(step.nodeId()))
                 .findFirst()

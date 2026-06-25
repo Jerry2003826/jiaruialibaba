@@ -106,7 +106,8 @@ public class WorkflowInlineExecutionService {
         }
         Integer version = configInteger(node, "version");
         WorkflowDefinitionResolution resolution = workflowDefinitionService.resolveDefinition(definitionId, version);
-        WorkflowExecutionPlan nestedPlan = workflowCompiler.compile(resolution.workflowDefinition());
+        WorkflowDefinition namespacedDefinition = namespaceDefinition(resolution.workflowDefinition(), node.id());
+        WorkflowExecutionPlan nestedPlan = workflowCompiler.compile(namespacedDefinition);
         Map<String, Object> nestedInput = new LinkedHashMap<>(state.input());
         nestedInput.put("parentNodeId", node.id());
         nestedInput.put("parentLastOutput", state.lastOutput());
@@ -115,8 +116,7 @@ public class WorkflowInlineExecutionService {
         subgraphNestingDepth.set(nestingDepth);
         try {
             WorkflowRuntime nestedRuntime = workflowRuntimeProvider.getObject();
-            WorkflowRuntime.WorkflowExecutionResult nestedResult = nestedRuntime.run(
-                    runId + ":subgraph:" + node.id(), nestedPlan, nestedInput);
+            WorkflowRuntime.WorkflowExecutionResult nestedResult = nestedRuntime.run(runId, nestedPlan, nestedInput);
             nestedResult.steps().forEach(this::recordInlineSummary);
             Map<String, Object> output = orderedMap();
             output.put("definitionId", resolution.definitionId());
@@ -239,6 +239,17 @@ public class WorkflowInlineExecutionService {
 
     private Map<String, Object> orderedMap() {
         return new LinkedHashMap<>();
+    }
+
+    private WorkflowDefinition namespaceDefinition(WorkflowDefinition definition, String namespacePrefix) {
+        String prefix = namespacePrefix + "::";
+        List<WorkflowNode> nodes = definition.nodes().stream()
+                .map(node -> new WorkflowNode(prefix + node.id(), node.type(), node.config()))
+                .toList();
+        List<WorkflowEdge> edges = definition.edges().stream()
+                .map(edge -> new WorkflowEdge(prefix + edge.from(), prefix + edge.to(), edge.condition()))
+                .toList();
+        return new WorkflowDefinition(nodes, edges);
     }
 
 }

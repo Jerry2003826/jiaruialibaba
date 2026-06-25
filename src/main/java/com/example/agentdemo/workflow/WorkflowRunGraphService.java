@@ -17,8 +17,6 @@ import java.util.Map;
 @Service
 public class WorkflowRunGraphService {
 
-    private static final String WORKFLOW_NODE_STEP_PREFIX = "workflow_node_";
-
     private final WorkflowCompiler workflowCompiler;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
@@ -42,12 +40,12 @@ public class WorkflowRunGraphService {
         WorkflowDefinitionResolution resolution = resolveDefinition(runId, run);
         WorkflowDefinition definition = resolution.workflowDefinition();
         WorkflowExecutionPlan executionPlan = workflowCompiler.compile(definition);
-        Map<String, RunStepResponse> stepsByNodeName = latestStepsByNodeName(traceService.listSteps(runId));
-        List<WorkflowRunGraphNodeView> nodes = workflowGraphRenderer.runNodes(definition, stepsByNodeName);
-        List<WorkflowRunGraphEdgeView> edges = workflowGraphRenderer.runEdges(definition, stepsByNodeName);
+        List<RunStepResponse> steps = traceService.listSteps(runId);
+        List<WorkflowRunGraphNodeView> nodes = workflowGraphRenderer.runNodes(definition, executionPlan, steps);
+        List<WorkflowRunGraphEdgeView> edges = workflowGraphRenderer.runEdges(definition, executionPlan, steps, nodes);
         return new WorkflowRunGraphResponse(runId, resolution.definitionId(), resolution.version(), run.status(),
                 WorkflowValidationSummaryFactory.from(definition, executionPlan), nodes, edges,
-                workflowGraphRenderer.runMermaid(nodes, edges));
+                workflowGraphRenderer.runMermaid(definition, executionPlan, nodes, edges));
     }
 
     private RunResponse getWorkflowRun(String runId) {
@@ -96,21 +94,6 @@ public class WorkflowRunGraphService {
 
     private BusinessException graphUnavailable(String runId) {
         return new BusinessException("WORKFLOW_GRAPH_UNAVAILABLE", "Workflow graph is unavailable for run: " + runId);
-    }
-
-    private Map<String, RunStepResponse> latestStepsByNodeName(List<RunStepResponse> steps) {
-        Map<String, RunStepResponse> stepsByNodeName = new LinkedHashMap<>();
-        for (RunStepResponse step : steps) {
-            stepsByNodeName.put(normalizeStepNodeName(step.nodeName()), step);
-        }
-        return stepsByNodeName;
-    }
-
-    private String normalizeStepNodeName(String nodeName) {
-        if (nodeName != null && nodeName.startsWith(WORKFLOW_NODE_STEP_PREFIX)) {
-            return nodeName.substring(WORKFLOW_NODE_STEP_PREFIX.length());
-        }
-        return nodeName;
     }
 
 }

@@ -27,3 +27,9 @@ Spec: `docs/superpowers/specs/2026-06-25-graph-workflow-advanced-design.md`
 
 ### Task 6: Tests + README
 - [x] Compiler, runtime, integration tests; docs
+
+### Task 7: Run graph visualization + subgraph trace fix
+- [x] Subgraph runs on parent runId with `{subgraphNodeId}::{nestedId}` namespaced trace steps
+- [x] `WorkflowRunGraphNodeView` composite fields + `WorkflowRunGraphStepView`
+- [x] Run graph service/renderer: dynamic/loop/subgraph/parallel children + mermaid clusters
+- [x] Frontend trace step grouping; `WorkflowSubgraphRunGraphE2ETest` with real H2 trace

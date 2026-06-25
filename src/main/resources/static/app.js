@@ -791,7 +791,7 @@
         requestJson(API.workflowRunGraph(runId))
       ]);
       if (steps.status === "fulfilled") {
-        renderTraceSteps(steps.value);
+        renderTraceSteps(steps.value, graph.status === "fulfilled" ? graph.value : null);
       }
       if (graph.status === "fulfilled") {
         applyGraphStatuses(graph.value);
@@ -802,10 +802,23 @@
   }
 
   function applyGraphStatuses(graph) {
-    const statusByNode = new Map((graph.nodes || []).map((node) => [node.id, node.status || "NOT_EXECUTED"]));
+    const statusByNode = new Map();
+    (graph.nodes || []).forEach((node) => {
+      statusByNode.set(node.id, node.status || "NOT_EXECUTED");
+      if (node.iterations != null && node.compositeRole === "LOOP") {
+        statusByNode.set(node.id, `${node.status || "NOT_EXECUTED"} · x${node.iterations}`);
+      }
+      (node.children || []).forEach((child) => {
+        if (child.id) {
+          statusByNode.set(child.id, child.status || "NOT_EXECUTED");
+        }
+      });
+    });
     document.querySelectorAll(".canvas-node").forEach((element) => {
       const status = statusByNode.get(element.dataset.nodeId);
-      element.title = status ? `Status: ${status}` : "";
+      if (status) {
+        element.title = `Status: ${status}`;
+      }
     });
   }
 
@@ -939,7 +952,7 @@
     return remainder;
   }
 
-  function renderTraceSteps(steps) {
+  function renderTraceSteps(steps, graph) {
     els.traceSteps.innerHTML = "";
     if (!steps || steps.length === 0) {
       const empty = document.createElement("div");
@@ -948,17 +961,69 @@
       els.traceSteps.appendChild(empty);
       return;
     }
+    const childStepIds = new Set();
+    const containers = buildCompositeContainers(graph);
+    containers.forEach((container) => {
+      appendTraceContainer(els.traceSteps, container);
+      container.childStepIds.forEach((stepId) => childStepIds.add(stepId));
+    });
     steps.forEach((step) => {
+      if (childStepIds.has(step.nodeName)) {
+        return;
+      }
+      appendTraceStepItem(els.traceSteps, step, 0);
+    });
+  }
+
+  function buildCompositeContainers(graph) {
+    if (!graph || !graph.nodes) {
+      return [];
+    }
+    return graph.nodes
+      .filter((node) => (node.children || []).length > 0)
+      .map((node) => {
+        const childStepIds = (node.children || []).map((child) => `workflow_node_${child.id}`);
+        const iterationLabel = node.compositeRole === "LOOP" && node.iterations != null
+          ? ` · x${node.iterations} iterations`
+          : "";
+        return {
+          title: `${node.id} (${node.type})${iterationLabel}`,
+          children: node.children || [],
+          childStepIds
+        };
+      });
+  }
+
+  function appendTraceContainer(container, composite) {
+    const group = document.createElement("div");
+    group.className = "step-item step-group";
+    const title = document.createElement("strong");
+    title.textContent = composite.title;
+    group.appendChild(title);
+    composite.children.forEach((child) => {
       const item = document.createElement("div");
-      item.className = "step-item";
-      const title = document.createElement("strong");
-      title.textContent = `${step.nodeName} · ${step.status}`;
+      item.className = "step-item step-child";
+      const childTitle = document.createElement("strong");
+      childTitle.textContent = `${child.id} · ${child.status || "NOT_EXECUTED"}`;
       const meta = document.createElement("div");
       meta.className = "item-meta";
-      meta.textContent = step.stepId;
-      item.append(title, meta);
-      els.traceSteps.appendChild(item);
+      meta.textContent = child.stepId || child.type || "";
+      item.append(childTitle, meta);
+      group.appendChild(item);
     });
+    container.appendChild(group);
+  }
+
+  function appendTraceStepItem(container, step, indentLevel) {
+    const item = document.createElement("div");
+    item.className = indentLevel > 0 ? "step-item step-child" : "step-item";
+    const title = document.createElement("strong");
+    title.textContent = `${step.nodeName} · ${step.status}`;
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    meta.textContent = step.stepId;
+    item.append(title, meta);
+    container.appendChild(item);
   }
 
   function renderDataList(container, items, mapper) {
