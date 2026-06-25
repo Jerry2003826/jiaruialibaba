@@ -10,7 +10,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class WorkflowRunGraphService {
@@ -39,7 +41,9 @@ public class WorkflowRunGraphService {
         WorkflowDefinition definition = resolution.workflowDefinition();
         WorkflowExecutionPlan executionPlan = workflowCompiler.compile(definition);
         List<RunStepResponse> steps = traceService.listSteps(runId);
-        List<WorkflowRunGraphNodeView> nodes = workflowGraphRenderer.runNodes(definition, executionPlan, steps);
+        Map<String, String> stepTypesByNodeId = buildStepTypesByNodeId(definition);
+        List<WorkflowRunGraphNodeView> nodes = workflowGraphRenderer.runNodes(definition, executionPlan, steps,
+                stepTypesByNodeId);
         List<WorkflowRunGraphEdgeView> edges = workflowGraphRenderer.runEdges(definition, executionPlan, steps, nodes);
         return new WorkflowRunGraphResponse(runId, resolution.definitionId(), resolution.version(), run.status(),
                 WorkflowValidationSummaryFactory.from(definition, executionPlan), nodes, edges,
@@ -92,6 +96,49 @@ public class WorkflowRunGraphService {
 
     private BusinessException graphUnavailable(String runId) {
         return new BusinessException("WORKFLOW_GRAPH_UNAVAILABLE", "Workflow graph is unavailable for run: " + runId);
+    }
+
+    private Map<String, String> buildStepTypesByNodeId(WorkflowDefinition definition) {
+        Map<String, String> typesByNodeId = new LinkedHashMap<>();
+        for (WorkflowNode node : definition.nodes()) {
+            typesByNodeId.put(node.id(), normalizeNodeType(node.type()));
+        }
+        for (WorkflowNode node : definition.nodes()) {
+            if (!"subgraph".equalsIgnoreCase(node.type())) {
+                continue;
+            }
+            Object definitionIdValue = node.config().get("definitionId");
+            if (definitionIdValue == null || !StringUtils.hasText(String.valueOf(definitionIdValue))) {
+                continue;
+            }
+            Integer version = configInteger(node, "version");
+            try {
+                WorkflowDefinitionResolution resolution = workflowDefinitionService.resolveDefinition(
+                        String.valueOf(definitionIdValue), version);
+                for (WorkflowNode nestedNode : resolution.workflowDefinition().nodes()) {
+                    typesByNodeId.put(node.id() + "::" + nestedNode.id(), normalizeNodeType(nestedNode.type()));
+                }
+            }
+            catch (BusinessException ignored) {
+                // Keep graph available even when a referenced subgraph cannot be resolved for typing.
+            }
+        }
+        return typesByNodeId;
+    }
+
+    private Integer configInteger(WorkflowNode node, String key) {
+        Object value = node.config().get(key);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private String normalizeNodeType(String nodeType) {
+        return nodeType == null ? "" : nodeType.toLowerCase();
     }
 
 }

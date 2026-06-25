@@ -48,10 +48,16 @@ public class WorkflowGraphRenderer {
 
     public List<WorkflowRunGraphNodeView> runNodes(WorkflowDefinition definition,
             WorkflowExecutionPlan executionPlan, List<RunStepResponse> steps) {
+        return runNodes(definition, executionPlan, steps, Map.of());
+    }
+
+    public List<WorkflowRunGraphNodeView> runNodes(WorkflowDefinition definition,
+            WorkflowExecutionPlan executionPlan, List<RunStepResponse> steps,
+            Map<String, String> stepTypesByNodeId) {
         if (!hasAdvancedStructure(definition, executionPlan)) {
             return runNodes(definition, latestStepsByNodeName(steps));
         }
-        RunGraphContext context = new RunGraphContext(definition, executionPlan, steps);
+        RunGraphContext context = new RunGraphContext(definition, executionPlan, steps, stepTypesByNodeId);
         return definition.nodes().stream().map(node -> buildRunNode(node, context)).toList();
     }
 
@@ -169,7 +175,7 @@ public class WorkflowGraphRenderer {
         return context.stepsByNodeId().entrySet().stream()
                 .filter(entry -> entry.getKey().startsWith(prefix))
                 .flatMap(entry -> entry.getValue().stream())
-                .map(this::toStepView)
+                .map(step -> toStepView(step, context))
                 .toList();
     }
 
@@ -178,7 +184,7 @@ public class WorkflowGraphRenderer {
         return context.stepsByNodeId().entrySet().stream()
                 .filter(entry -> entry.getKey().startsWith(prefix))
                 .flatMap(entry -> entry.getValue().stream())
-                .map(this::toStepView)
+                .map(step -> toStepView(step, context))
                 .toList();
     }
 
@@ -187,7 +193,7 @@ public class WorkflowGraphRenderer {
         List<WorkflowRunGraphStepView> children = new ArrayList<>();
         for (String bodyNodeId : loopBlock.bodyNodeIds()) {
             for (RunStepResponse step : context.stepsForNode(bodyNodeId)) {
-                children.add(toStepView(step, bodyNodeId));
+                children.add(toStepView(step, bodyNodeId, context));
             }
         }
         return List.copyOf(children);
@@ -209,7 +215,7 @@ public class WorkflowGraphRenderer {
             for (String branchNodeId : branch.nodeIds()) {
                 RunStepResponse step = context.latestStep(branchNodeId);
                 if (step != null) {
-                    children.add(toStepView(step, branchNodeId));
+                    children.add(toStepView(step, branchNodeId, context));
                 }
             }
         }
@@ -266,13 +272,16 @@ public class WorkflowGraphRenderer {
                     .append("\"]");
         }
         AliasedMermaidBuilder mermaidBuilder = new AliasedMermaidBuilder(builder, aliasesByNodeId);
+        MermaidClassCollector classCollector = new MermaidClassCollector();
+        Map<String, StepStatus> stepStatusByNodeId = stepStatusByNodeId(nodes);
         for (WorkflowParallelBlock parallelBlock : executionPlan.parallelBlocks()) {
-            appendParallelCluster(mermaidBuilder, parallelBlock, nodesById, clusteredNodeIds, aliasCounter);
+            appendParallelCluster(mermaidBuilder, parallelBlock, nodesById, clusteredNodeIds, aliasCounter,
+                    classCollector, stepStatusByNodeId);
             aliasCounter += parallelBlock.branches().size();
         }
         for (WorkflowLoopBlock loopBlock : executionPlan.loopBlocks()) {
             appendLoopCluster(mermaidBuilder, loopBlock, nodesById, clusteredNodeIds, aliasCounter,
-                    loopBackForLoop(definition, loopBlock));
+                    loopBackForLoop(definition, loopBlock), classCollector, stepStatusByNodeId);
             aliasCounter += loopBlock.bodyNodeIds().size() + 1;
         }
         for (WorkflowRunGraphEdgeView edge : edges) {
@@ -281,12 +290,28 @@ public class WorkflowGraphRenderer {
             }
             appendEdge(mermaidBuilder, edge.from(), edge.to(), edge.label(), edge.traversed(), true);
         }
-        appendCompositeChildNodes(mermaidBuilder, nodes, aliasCounter);
-        return builder.toString() + runNodeClasses(nodes);
+        appendCompositeChildNodes(mermaidBuilder, nodes, aliasCounter, classCollector);
+        return builder.toString() + runNodeClasses(nodes) + classCollector.render(this);
+    }
+
+    private Map<String, StepStatus> stepStatusByNodeId(List<WorkflowRunGraphNodeView> nodes) {
+        Map<String, StepStatus> statuses = new LinkedHashMap<>();
+        for (WorkflowRunGraphNodeView node : nodes) {
+            if (node.status() != null) {
+                statuses.put(node.id(), node.status());
+            }
+            for (WorkflowRunGraphStepView child : node.children()) {
+                if (child.status() != null) {
+                    statuses.put(child.id(), child.status());
+                }
+            }
+        }
+        return statuses;
     }
 
     private void appendParallelCluster(AliasedMermaidBuilder builder, WorkflowParallelBlock parallelBlock,
-            Map<String, WorkflowRunGraphNodeView> nodesById, Set<String> clusteredNodeIds, int aliasCounter) {
+            Map<String, WorkflowRunGraphNodeView> nodesById, Set<String> clusteredNodeIds, int aliasCounter,
+            MermaidClassCollector classCollector, Map<String, StepStatus> stepStatusByNodeId) {
         String clusterId = "parallel_" + parallelBlock.parallelNodeId();
         builder.builder().append("\n  subgraph ").append(clusterId).append("[\"parallel ")
                 .append(escapeMermaidLabel(parallelBlock.parallelNodeId()))
@@ -296,6 +321,12 @@ public class WorkflowGraphRenderer {
             String syntheticId = syntheticBranchNodeId(parallelBlock.parallelNodeId(), branch.branchStartNodeId());
             String alias = "pb" + branchAliasOffset++;
             builder.aliasesByNodeId().put(syntheticId, alias);
+            StepStatus branchStatus = branch.nodeIds().stream()
+                    .map(stepStatusByNodeId::get)
+                    .filter(Objects::nonNull)
+                    .reduce(this::mergeStatus)
+                    .orElse(null);
+            classCollector.add(alias, branchStatus);
             builder.builder().append('\n')
                     .append("    ")
                     .append(alias)
@@ -324,7 +355,7 @@ public class WorkflowGraphRenderer {
 
     private void appendLoopCluster(AliasedMermaidBuilder builder, WorkflowLoopBlock loopBlock,
             Map<String, WorkflowRunGraphNodeView> nodesById, Set<String> clusteredNodeIds, int aliasCounter,
-            String loopBackId) {
+            String loopBackId, MermaidClassCollector classCollector, Map<String, StepStatus> stepStatusByNodeId) {
         String clusterId = "loop_" + loopBlock.loopNodeId();
         builder.builder().append("\n  subgraph ").append(clusterId).append("[\"loop body ")
                 .append(escapeMermaidLabel(loopBlock.loopNodeId()))
@@ -338,6 +369,7 @@ public class WorkflowGraphRenderer {
             }
             String alias = "lb" + bodyAliasOffset++;
             builder.aliasesByNodeId().put(bodyNodeId + ":cluster", alias);
+            classCollector.add(alias, stepStatusByNodeId.get(bodyNodeId));
             builder.builder().append('\n')
                     .append("    ")
                     .append(alias)
@@ -352,7 +384,7 @@ public class WorkflowGraphRenderer {
     }
 
     private void appendCompositeChildNodes(AliasedMermaidBuilder builder, List<WorkflowRunGraphNodeView> nodes,
-            int aliasCounter) {
+            int aliasCounter, MermaidClassCollector classCollector) {
         int childAlias = aliasCounter + 1000;
         for (WorkflowRunGraphNodeView node : nodes) {
             if (node.children().isEmpty() || builder.alias(node.id()) == null) {
@@ -364,6 +396,7 @@ public class WorkflowGraphRenderer {
                 }
                 String childAliasId = "c" + childAlias++;
                 builder.aliasesByNodeId().put(child.id(), childAliasId);
+                classCollector.add(childAliasId, child.status());
                 String childLabel = child.id() + " (" + child.type() + ") "
                         + (child.status() == null ? "NOT_EXECUTED" : child.status().name());
                 builder.builder().append('\n')
@@ -405,14 +438,28 @@ public class WorkflowGraphRenderer {
                 step == null ? null : step.errorMessage());
     }
 
-    private WorkflowRunGraphStepView toStepView(RunStepResponse step) {
+    private WorkflowRunGraphStepView toStepView(RunStepResponse step, RunGraphContext context) {
         String nodeId = normalizeStepNodeName(step.nodeName());
-        return toStepView(step, nodeId);
+        return toStepView(step, nodeId, context);
     }
 
-    private WorkflowRunGraphStepView toStepView(RunStepResponse step, String nodeId) {
-        String type = inferStepType(nodeId);
+    private WorkflowRunGraphStepView toStepView(RunStepResponse step, String nodeId, RunGraphContext context) {
+        String type = inferStepType(nodeId, context);
         return new WorkflowRunGraphStepView(nodeId, type, step.status(), step.stepId(), step.errorMessage());
+    }
+
+    private String inferStepType(String nodeId, RunGraphContext context) {
+        String mappedType = context.stepType(nodeId);
+        if (mappedType != null) {
+            return mappedType;
+        }
+        if (nodeId.contains(DYNAMIC_STEP_SEPARATOR)) {
+            return "tool";
+        }
+        if (nodeId.contains("::")) {
+            return "nested";
+        }
+        return "step";
     }
 
     private String inferStepType(String nodeId) {
@@ -605,16 +652,18 @@ public class WorkflowGraphRenderer {
         private final Map<String, RunStepResponse> latestStepByNodeId;
         private final Map<String, String> parallelGroupByNodeId;
         private final Map<String, String> loopBackToLoopNodeId;
+        private final Map<String, String> stepTypesByNodeId;
         private final Map<String, WorkflowRunGraphNodeView> builtLoopNodes = new LinkedHashMap<>();
 
         private RunGraphContext(WorkflowDefinition definition, WorkflowExecutionPlan executionPlan,
-                List<RunStepResponse> steps) {
+                List<RunStepResponse> steps, Map<String, String> stepTypesByNodeId) {
             this.definition = definition;
             this.executionPlan = executionPlan;
             this.stepsByNodeId = groupSteps(steps);
             this.latestStepByNodeId = latestSteps(steps);
             this.parallelGroupByNodeId = buildParallelGroups(executionPlan);
             this.loopBackToLoopNodeId = buildLoopBackMappings(definition);
+            this.stepTypesByNodeId = stepTypesByNodeId == null ? Map.of() : Map.copyOf(stepTypesByNodeId);
         }
 
         private WorkflowDefinition definition() {
@@ -643,6 +692,10 @@ public class WorkflowGraphRenderer {
 
         private String parallelGroup(String nodeId) {
             return parallelGroupByNodeId.get(nodeId);
+        }
+
+        private String stepType(String nodeId) {
+            return stepTypesByNodeId.get(nodeId);
         }
 
         private boolean isCompositeScopedBodyNode(String nodeId, String nodeType) {
@@ -742,6 +795,31 @@ public class WorkflowGraphRenderer {
                 return nodeName.substring("workflow_node_".length());
             }
             return nodeName;
+        }
+
+    }
+
+    private static final class MermaidClassCollector {
+
+        private final Map<String, StepStatus> aliasStatuses = new LinkedHashMap<>();
+
+        private void add(String alias, StepStatus status) {
+            aliasStatuses.put(alias, status);
+        }
+
+        private String render(WorkflowGraphRenderer renderer) {
+            if (aliasStatuses.isEmpty()) {
+                return "";
+            }
+            StringBuilder builder = new StringBuilder();
+            for (Map.Entry<String, StepStatus> entry : aliasStatuses.entrySet()) {
+                builder.append('\n')
+                        .append("  class ")
+                        .append(entry.getKey())
+                        .append(' ')
+                        .append(renderer.nodeClass(entry.getValue()));
+            }
+            return builder.toString();
         }
 
     }

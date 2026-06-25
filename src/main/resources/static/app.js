@@ -962,7 +962,7 @@
       return;
     }
     const childStepIds = new Set();
-    const containers = buildCompositeContainers(graph);
+    const containers = buildCompositeContainers(graph, steps);
     containers.forEach((container) => {
       appendTraceContainer(els.traceSteps, container);
       container.childStepIds.forEach((stepId) => childStepIds.add(stepId));
@@ -975,23 +975,72 @@
     });
   }
 
-  function buildCompositeContainers(graph) {
-    if (!graph || !graph.nodes) {
+  function buildCompositeContainers(graph, steps) {
+    if (graph && graph.nodes) {
+      return graph.nodes
+        .filter((node) => (node.children || []).length > 0)
+        .map((node) => {
+          const childStepIds = (node.children || []).map((child) => `workflow_node_${child.id}`);
+          const iterationLabel = node.compositeRole === "LOOP" && node.iterations != null
+            ? ` · x${node.iterations} iterations`
+            : "";
+          return {
+            title: `${node.id} (${node.type})${iterationLabel}`,
+            children: node.children || [],
+            childStepIds
+          };
+        });
+    }
+    return buildCompositeContainersFromSteps(steps);
+  }
+
+  function buildCompositeContainersFromSteps(steps) {
+    if (!steps || steps.length === 0) {
       return [];
     }
-    return graph.nodes
-      .filter((node) => (node.children || []).length > 0)
-      .map((node) => {
-        const childStepIds = (node.children || []).map((child) => `workflow_node_${child.id}`);
-        const iterationLabel = node.compositeRole === "LOOP" && node.iterations != null
-          ? ` · x${node.iterations} iterations`
-          : "";
-        return {
-          title: `${node.id} (${node.type})${iterationLabel}`,
-          children: node.children || [],
-          childStepIds
-        };
+    const groups = new Map();
+    steps.forEach((step) => {
+      const nodeId = traceStepNodeId(step.nodeName);
+      if (!nodeId) {
+        return;
+      }
+      const subgraphSep = nodeId.indexOf("::");
+      const dynamicSep = nodeId.indexOf(":dynamic:");
+      let parentId;
+      let parentType;
+      if (subgraphSep > 0) {
+        parentId = nodeId.substring(0, subgraphSep);
+        parentType = "subgraph";
+      } else if (dynamicSep > 0) {
+        parentId = nodeId.substring(0, dynamicSep);
+        parentType = "dynamic";
+      } else {
+        return;
+      }
+      if (!groups.has(parentId)) {
+        groups.set(parentId, {
+          title: `${parentId} (${parentType})`,
+          children: [],
+          childStepIds: []
+        });
+      }
+      const group = groups.get(parentId);
+      group.children.push({
+        id: nodeId,
+        status: step.status,
+        stepId: step.stepId,
+        type: parentType
       });
+      group.childStepIds.push(step.nodeName);
+    });
+    return Array.from(groups.values());
+  }
+
+  function traceStepNodeId(nodeName) {
+    if (!nodeName) {
+      return "";
+    }
+    return nodeName.startsWith("workflow_node_") ? nodeName.slice("workflow_node_".length) : nodeName;
   }
 
   function appendTraceContainer(container, composite) {

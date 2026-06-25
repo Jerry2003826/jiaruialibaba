@@ -319,6 +319,10 @@ class WorkflowRunGraphServiceTest {
         assertThat(subgraphNode.children())
                 .extracting(WorkflowRunGraphStepView::id)
                 .contains("sub_1::start", "sub_1::tool_1", "sub_1::end");
+        assertThat(subgraphNode.children())
+                .filteredOn(child -> "sub_1::tool_1".equals(child.id()))
+                .extracting(WorkflowRunGraphStepView::type)
+                .containsExactly("tool");
     }
 
     @Test
@@ -349,6 +353,7 @@ class WorkflowRunGraphServiceTest {
         assertThat(response.mermaid()).contains("workflow_branch_parallel_1_tool_a");
         assertThat(response.mermaid()).contains("n1 --> pb");
         assertThat(response.mermaid()).doesNotContain("n1 --> n4");
+        assertThat(response.mermaid()).contains("class pb");
     }
 
     private WorkflowRunGraphService serviceWithDefinition(WorkflowDefinition definition, String runId,
@@ -356,6 +361,8 @@ class WorkflowRunGraphServiceTest {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         when(definitionService.resolveDefinition("wf-advanced", 1))
                 .thenReturn(new WorkflowDefinitionResolution("wf-advanced", 1, definition));
+        when(definitionService.resolveDefinition("child-wf", null))
+                .thenReturn(new WorkflowDefinitionResolution("child-wf", 1, childSubgraphDefinition()));
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         WorkflowRunRecordEntity record = new WorkflowRunRecordEntity(runId, "wf-advanced", 1,
                 Instant.parse("2026-06-24T06:00:00Z"));
@@ -406,6 +413,17 @@ class WorkflowRunGraphServiceTest {
                 List.of(
                         new WorkflowEdge("start", "sub_1"),
                         new WorkflowEdge("sub_1", "end")));
+    }
+
+    private WorkflowDefinition childSubgraphDefinition() {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end")));
     }
 
     private WorkflowDefinition parallelDefinition() {
