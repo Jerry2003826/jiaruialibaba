@@ -319,6 +319,151 @@ class GraphWorkflowRuntimeTest {
                 .contains("workflow_branch_parallel_1_tool_a", "tool_a", "tool_b", "join_1");
     }
 
+    @Test
+    void runsOnlyFalseConditionBranch() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(any(), any())).thenReturn(AiModelResult.ok("fallback answer"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-false"), any(), any()))
+                .thenAnswer(invocation -> stepForRun("run-false", invocation.getArgument(1)));
+        GraphWorkflowRuntime runtime = graphRuntime(traceService, aiModelService);
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-false", conditionalPlan(),
+                Map.of("message", "explain ai", "intent", "chat"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "check", "fallback", "end");
+        verify(traceService).completeStep(eq("step-workflow_node_fallback"), any());
+    }
+
+    @Test
+    void laterNodeCanReferenceEarlierNodeOutput() {
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                        new ToolGatewayService(List.of(new com.example.agentdemo.support.WorkflowRuntimeTestSupport.MapEchoProvider()),
+                                ToolExecutionPolicy.allowOnlyRemoteTools("map_echo")),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
+                traceService, executorService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_first", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "from first"))),
+                        new WorkflowNode("tool_second", "tool", Map.of(
+                                "toolName", "map_echo",
+                                "arguments", Map.of("text", "{{nodes.tool_first.text}}"))),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_first"),
+                        new WorkflowEdge("tool_first", "tool_second"),
+                        new WorkflowEdge("tool_second", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", plan, Map.of("message", "hello"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "tool_first", "tool_second", "end");
+        assertThat(result.output()).isEqualTo(Map.of("text", "from first"));
+    }
+
+    @Test
+    void retriesConfiguredNodeAndWritesAttemptsToTrace() {
+        com.example.agentdemo.support.WorkflowRuntimeTestSupport.FlakyProvider provider =
+                new com.example.agentdemo.support.WorkflowRuntimeTestSupport.FlakyProvider();
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                        new ToolGatewayService(List.of(provider), ToolExecutionPolicy.allowOnlyRemoteTools("flaky_echo")),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
+                traceService, executorService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of(
+                                "toolName", "flaky_echo",
+                                "retryCount", 1)),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", plan, Map.of("message", "hello"));
+
+        assertThat(provider.attemptCount()).isEqualTo(2);
+        assertThat(result.output()).isEqualTo(Map.of("text", "ok"));
+        verify(traceService).completeStep(eq("step-workflow_node_tool_1"),
+                argThat(output -> com.example.agentdemo.support.WorkflowRuntimeTestSupport.hasAttemptCount(output, 2)));
+    }
+
+    @Test
+    void timesOutConfiguredNodeAndWritesFailedAttemptToTrace() {
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                        new ToolGatewayService(
+                                List.of(new com.example.agentdemo.support.WorkflowRuntimeTestSupport.SlowProvider()),
+                                ToolExecutionPolicy.allowOnlyRemoteTools("slow_echo")),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
+                traceService, executorService);
+
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of(
+                                "toolName", "slow_echo",
+                                "timeoutMs", 10)),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end"))));
+
+        assertThatThrownBy(() -> runtime.run("run-1", plan, Map.of("message", "hello")))
+                .isInstanceOfSatisfying(com.example.agentdemo.common.BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_NODE_TIMEOUT"));
+
+        verify(traceService).failStep(eq("step-workflow_node_tool_1"),
+                any(com.example.agentdemo.common.BusinessException.class),
+                argThat(com.example.agentdemo.support.WorkflowRuntimeTestSupport::hasFailedAttempt));
+    }
+
+    private GraphWorkflowRuntime graphRuntime(TraceService traceService, AiModelService aiModelService) {
+        return new GraphWorkflowRuntime(
+                new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
+                traceService, executorService);
+    }
+
+    private WorkflowExecutionPlan conditionalPlan() {
+        return compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check", "condition", Map.of(
+                                "left", "{{input.intent}}",
+                                "operator", "equals",
+                                "right", "time")),
+                        new WorkflowNode("time", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("fallback", "llm", Map.of("prompt", "Answer {{input}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check"),
+                        new WorkflowEdge("check", "time", "true"),
+                        new WorkflowEdge("check", "fallback", "false"),
+                        new WorkflowEdge("time", "end"),
+                        new WorkflowEdge("fallback", "end"))));
+    }
+
     private static TraceStep step(String nodeName) {
         return new TraceStep("step-" + nodeName, "run-1", nodeName);
     }

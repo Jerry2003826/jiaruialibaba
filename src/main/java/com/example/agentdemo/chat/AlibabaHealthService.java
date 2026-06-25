@@ -3,6 +3,7 @@ package com.example.agentdemo.chat;
 import com.example.agentdemo.chat.dto.HealthResponse;
 import com.example.agentdemo.config.AlibabaProperties;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.DocumentRetriever;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
@@ -23,12 +24,13 @@ public class AlibabaHealthService {
     private final DocumentRepository documentRepository;
     private final AlibabaProperties alibabaProperties;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
+    private final WorkflowRuntimeProperties workflowRuntimeProperties;
     private final boolean mcpEnabled;
 
     public AlibabaHealthService(AiModelService aiModelService, ObjectProvider<EmbeddingModel> embeddingModelProvider,
             VectorStoreGateway vectorStoreGateway, DocumentRetriever documentRetriever,
             DocumentRepository documentRepository, AlibabaProperties alibabaProperties,
-            AlibabaRuntimePolicy alibabaRuntimePolicy,
+            AlibabaRuntimePolicy alibabaRuntimePolicy, WorkflowRuntimeProperties workflowRuntimeProperties,
             @Value("${demo.mcp.enabled:false}") boolean mcpEnabled) {
         this.aiModelService = aiModelService;
         this.embeddingModelProvider = embeddingModelProvider;
@@ -37,6 +39,7 @@ public class AlibabaHealthService {
         this.documentRepository = documentRepository;
         this.alibabaProperties = alibabaProperties;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.workflowRuntimeProperties = workflowRuntimeProperties;
         this.mcpEnabled = mcpEnabled;
     }
 
@@ -53,7 +56,9 @@ public class AlibabaHealthService {
                 alibabaRuntimePolicy.isFallbackEnabled(),
                 alibabaRuntimePolicy.isKeywordFallbackAllowed(),
                 documentRepository.count(),
-                mcpEnabled);
+                mcpEnabled,
+                workflowRuntimeProperties.getRuntime(),
+                workflowRuntimeProperties.isRequirePublishedForRun());
     }
 
 }

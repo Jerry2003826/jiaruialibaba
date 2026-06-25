@@ -58,7 +58,7 @@ DEMO_RAG_KEYWORD_FALLBACK_ENABLED=false
 DEMO_RAG_RETRIEVER=dashvector
 ```
 
-`GET /api/health` 返回 `embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled` 等字段，便于确认当前是否走阿里栈。MCP 远程工具仍可选（`DEMO_MCP_ENABLED=true` + profile），不纳入 strict 必填项。
+`GET /api/health` 返回 `embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled`、`workflowRuntime`、`workflowRequirePublishedForRun` 等字段，便于确认当前是否走阿里栈与 workflow runtime。
 
 本地 dev 可通过 `DEMO_ALIBABA_STRICT_MODE=false` 关闭严格模式（`application-alibaba-strict.yml` 已改为读取该 env）。CI/单测请设 `DEMO_ALIBABA_STRICT_MODE=false` 且 `DEMO_AI_FALLBACK_ENABLED=true`，或使用 `spring.profiles.group.dev=dev` 去掉 profile group 中的 `alibaba-strict`。
 
@@ -98,7 +98,13 @@ RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，Da
 
 ## Workflow Runtime
 
-默认 workflow runtime 是 `simple`，可以切换到 Spring AI Alibaba Graph runtime：
+dev profile 默认组合 `workflow-graph`，即 **Graph Workflow runtime**（Spring AI Alibaba `StateGraph`）。如需回退到顺序执行器，设置：
+
+```bash
+export DEMO_WORKFLOW_RUNTIME=simple
+```
+
+默认 workflow runtime 是 `simple`（非 dev profile 或未加载 `workflow-graph` 时），也可以显式切换到 graph：
 
 ```bash
 export DEMO_WORKFLOW_RUNTIME=graph
@@ -218,7 +224,7 @@ http://localhost:8080/
 - Agent：**Tool Chat** `/api/agent/tool-chat`（DashScope LLM tool calling）。
 - RAG：文档保存/列表/问答；侧边栏 health 显示 `indexedDocumentCount`，重启后无文档时会提示重新索引。
 - Tools / Runs：工具注册表、MCP 状态提示、run trace 列表。
-- Runtime 侧栏：展示 `strictMode`、`fallbackEnabled`、`ragRetriever`、向量/embedding 就绪状态。
+- Runtime 侧栏：展示 `strictMode`、`fallbackEnabled`、`ragRetriever`、向量/embedding 就绪状态，以及 **`workflowRuntime`**（`simple` / `graph`）与 publish guard。
 
 当前限制：
 
@@ -645,7 +651,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 
 ## Workflow DSL
 
-当前 workflow 是平台层最小 DSL + runtime，不是完整 Dify，也没有前端画布。核心结构：
+当前 workflow 是平台层最小 DSL + runtime，配套 **Dify-like 工作台画布**（静态 HTML/JS）。核心结构：
 
 - `WorkflowDefinition`: `nodes` + `edges`
 - `WorkflowNode`: `id`、`type`、`config`

@@ -188,6 +188,7 @@
       const modelLabel = data.modelConfigured ? data.model : "not configured";
       els.runtimeStatus.textContent = `${data.status} · ${modelLabel}`;
       els.runtimeDetails.textContent = [
+        `workflow=${data.workflowRuntime} · publishRequired=${data.workflowRequirePublishedForRun}`,
         `strict=${data.strictMode} · fallback=${data.fallbackEnabled} · keywordFallback=${data.keywordFallbackEnabled}`,
         `embedding=${data.embeddingConfigured} · vector=${data.vectorStoreConfigured} · retriever=${data.ragRetriever}`,
         `indexedDocs=${data.indexedDocumentCount} · mcp=${data.mcpEnabled}`
@@ -204,7 +205,7 @@
       return;
     }
     if (health.vectorStoreConfigured && health.indexedDocumentCount === 0) {
-      els.ragHint.textContent = "DashVector 已就绪，但当前 H2 中没有已索引文档。重启应用后请重新 Save Document，否则 RAG 检索会返回空上下文。";
+      els.ragHint.textContent = "DashVector 已就绪，但当前 PostgreSQL 中没有已索引文档。请重新 Save Document，否则 RAG 检索会返回空上下文。";
       els.ragHint.classList.remove("hidden");
       return;
     }

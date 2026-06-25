@@ -4,6 +4,7 @@ import com.example.agentdemo.chat.dto.HealthResponse;
 import com.example.agentdemo.config.AlibabaProperties;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.DocumentRetriever;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
@@ -31,6 +32,10 @@ class AlibabaHealthServiceTest {
         ragProperties.getRag().setKeywordFallbackEnabled(false);
         AlibabaRuntimePolicy policy = new AlibabaRuntimePolicy(alibabaProperties, ragProperties, false);
 
+        WorkflowRuntimeProperties workflowRuntimeProperties = new WorkflowRuntimeProperties();
+        workflowRuntimeProperties.setRuntime("graph");
+        workflowRuntimeProperties.setRequirePublishedForRun(true);
+
         when(aiModelService.isModelConfigured()).thenReturn(true);
         when(aiModelService.isChatClientAvailable()).thenReturn(true);
         when(aiModelService.modelName()).thenReturn("qwen3.7-max");
@@ -40,7 +45,8 @@ class AlibabaHealthServiceTest {
         when(documentRepository.count()).thenReturn(0L);
 
         AlibabaHealthService service = new AlibabaHealthService(aiModelService, embeddingModelProvider,
-                vectorStoreGateway, documentRetriever, documentRepository, alibabaProperties, policy, false);
+                vectorStoreGateway, documentRetriever, documentRepository, alibabaProperties, policy,
+                workflowRuntimeProperties, false);
 
         HealthResponse health = service.health();
 
@@ -51,6 +57,8 @@ class AlibabaHealthServiceTest {
         assertThat(health.vectorStoreConfigured()).isTrue();
         assertThat(health.ragRetriever()).isEqualTo("DashVectorDocumentRetriever");
         assertThat(health.indexedDocumentCount()).isZero();
+        assertThat(health.workflowRuntime()).isEqualTo("graph");
+        assertThat(health.workflowRequirePublishedForRun()).isTrue();
     }
 
 }

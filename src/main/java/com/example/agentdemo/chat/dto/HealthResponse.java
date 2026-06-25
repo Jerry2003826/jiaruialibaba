@@ -4,5 +4,6 @@ import java.time.Instant;
 
 public record HealthResponse(String status, Instant currentTime, boolean modelConfigured, String model,
         boolean embeddingConfigured, boolean vectorStoreConfigured, String ragRetriever, boolean strictMode,
-        boolean fallbackEnabled, boolean keywordFallbackEnabled, long indexedDocumentCount, boolean mcpEnabled) {
+        boolean fallbackEnabled, boolean keywordFallbackEnabled, long indexedDocumentCount, boolean mcpEnabled,
+        String workflowRuntime, boolean workflowRequirePublishedForRun) {
 }

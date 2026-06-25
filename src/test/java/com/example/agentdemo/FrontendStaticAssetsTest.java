@@ -58,6 +58,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("/api/agent/tool-chat")))
                 .andExpect(content().string(containsString("/api/chat/stream")))
                 .andExpect(content().string(containsString("consumeSse")))
+                .andExpect(content().string(containsString("workflowRuntime")))
+                .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
                 .andExpect(content().string(containsString("runsPage?.content")));
     }
 
