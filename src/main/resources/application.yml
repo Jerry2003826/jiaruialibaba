@@ -44,7 +44,9 @@ spring:
       path: /h2-console
   jpa:
     hibernate:
-      ddl-auto: validate
+      # In-memory H2 default demo profile: Hibernate creates the schema so the app boots
+      # out of the box. The postgres profile uses validate + Flyway-managed migrations.
+      ddl-auto: update
     open-in-view: false
     properties:
       hibernate:
@@ -58,7 +60,18 @@ logging:
 
 demo:
   security:
-    jwt-secret: ${DEMO_SECURITY_JWT_SECRET:}
+    # hmac: validate HS256 tokens with demo.security.jwt-secret (local/demo default).
+    # issuer: back off the local decoder and let Spring Boot auto-configure an
+    #         issuer-uri / jwk-set-uri resource-server decoder (recommended for prod).
+    jwt-mode: ${DEMO_SECURITY_JWT_MODE:hmac}
+    # Insecure built-in secret so the demo boots with `mvnw spring-boot:run`.
+    # MUST be overridden in any non-local deployment (or switch to jwt-mode=issuer).
+    jwt-secret: ${DEMO_SECURITY_JWT_SECRET:dev-local-insecure-jwt-secret-change-me-0123456789}
+    dev-token:
+      # Exposes GET /api/auth/dev-token so the bundled workbench can authenticate
+      # against the secured API in local/demo mode. Disable in production.
+      enabled: ${DEMO_SECURITY_DEV_TOKEN_ENABLED:true}
+      ttl-minutes: ${DEMO_SECURITY_DEV_TOKEN_TTL_MINUTES:120}
   alibaba:
     strict-mode: ${DEMO_ALIBABA_STRICT_MODE:false}
   ai:

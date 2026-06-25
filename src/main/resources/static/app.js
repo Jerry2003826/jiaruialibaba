@@ -3,6 +3,7 @@
 
   const API = {
     health: "/api/health",
+    devToken: "/api/auth/dev-token",
     nodeSchemas: "/api/workflows/node-schemas",
     validateWorkflow: "/api/workflows/validate",
     previewGraph: "/api/workflows/preview-graph",
@@ -74,6 +75,8 @@
   };
 
   const els = {};
+  // Bearer token used for every API/SSE call. Populated by bootstrapAuth() in local/demo mode.
+  let authToken = null;
   const viewRoutes = {
     tools: () => void loadTools(),
     runs: () => void loadRuns(),
@@ -192,6 +195,7 @@
   }
 
   async function loadInitialData() {
+    await bootstrapAuth();
     await Promise.allSettled([
       loadHealth(),
       loadSchemas(),
@@ -199,6 +203,29 @@
       loadTools(),
       loadRuns()
     ]);
+  }
+
+  // Fetches a short-lived dev token (local/demo mode) so the secured API accepts workbench calls.
+  // In production the /api/auth/dev-token endpoint is disabled; the UI must be fronted by a real IdP.
+  async function bootstrapAuth() {
+    try {
+      const data = await requestJson(API.devToken);
+      authToken = data?.token ?? null;
+      if (!authToken) {
+        toast("No dev token returned; API calls may be unauthorized", true);
+      }
+    } catch (error) {
+      authToken = null;
+      toast(`Auth unavailable: ${error.message}. Sign in via your IdP to use the workbench.`, true);
+    }
+  }
+
+  function authHeaders(extra = {}) {
+    const headers = { ...extra };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    return headers;
   }
 
   async function loadHealth() {
@@ -881,10 +908,10 @@
     try {
       const response = await fetch(API.chatStream, {
         method: "POST",
-        headers: {
+        headers: authHeaders({
           Accept: "text/event-stream",
           "Content-Type": "application/json"
-        },
+        }),
         body: JSON.stringify({ conversationId: "workbench", message: els.chatMessage.value })
       });
       if (!response.ok) {
@@ -1223,7 +1250,7 @@
   async function requestJson(url, options = {}) {
     const init = {
       method: options.method || "GET",
-      headers: { Accept: "application/json" }
+      headers: authHeaders({ Accept: "application/json" })
     };
     if (options.body !== undefined) {
       init.headers["Content-Type"] = "application/json";

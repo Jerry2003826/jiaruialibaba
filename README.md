@@ -178,7 +178,24 @@ export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
 
 ## 启动方式
 
-dev profile 默认组合 `alibaba-strict,postgres`，需要 PostgreSQL。任选其一：
+应用有两种启动模式。
+
+### 1. 快速演示（默认，无需 PostgreSQL）
+
+不激活任何 profile 时使用内存 H2，Hibernate 自动建表，开箱即用：
+
+```bash
+./mvnw spring-boot:run
+```
+
+`/api/**` 默认开启 JWT 鉴权（仅 `/api/health` 与 `/api/auth/dev-token` 公开）。内置工作台在加载时
+会自动向 `/api/auth/dev-token` 申请一个短期开发令牌并附加到所有请求与 SSE 调用，因此本地直接可用。
+HS256 secret 未设置时使用内置的不安全默认值，仅供本机演示，任何共享环境务必通过
+`DEMO_SECURITY_JWT_SECRET` 覆盖或改用 issuer 模式。
+
+### 2. 全栈 dev profile（PostgreSQL + 阿里严格模式 + Graph runtime）
+
+`dev` profile 组合 `alibaba-strict,postgres,workflow-graph`，需要 PostgreSQL。先启动数据库，任选其一：
 
 **Docker Compose（推荐）**
 
@@ -190,14 +207,19 @@ docker compose up -d
 
 在 `.env` 中配置 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USERNAME`、`DB_PASSWORD`（见 `.env.example`），并确保库与用户已创建。
 
-然后启动应用：
+然后以 dev profile 启动应用：
 
 ```bash
 ./mvnw clean package
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-如果本机已安装全局 Maven，也可以使用 `mvn clean package` 和 `mvn spring-boot:run`。
+如果本机已安装全局 Maven，也可以使用 `mvn clean package` 和 `mvn spring-boot:run -Dspring-boot.run.profiles=dev`。
+
+> **生产鉴权**：设 `DEMO_SECURITY_JWT_MODE=issuer` 并配置
+> `spring.security.oauth2.resourceserver.jwt.issuer-uri`（或 `jwk-set-uri`），用标准 OIDC 取代内置
+> HS256；同时设 `DEMO_SECURITY_DEV_TOKEN_ENABLED=false` 关闭开发令牌端点，由前置 IdP/BFF 接管工作台登录。
+> 在 `prod` profile 下若仍在使用内置默认 secret，应用会拒绝启动。
 
 默认地址：
 

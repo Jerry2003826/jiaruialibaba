@@ -1,12 +1,24 @@
 package com.example.agentdemo.security;
 
 import com.example.agentdemo.AgentBackendDemoApplication;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
+import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,8 +38,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class ApiSecurityIntegrationTest {
 
+    /** Matches demo.security.jwt-secret in src/test/resources/application.properties. */
+    private static final String TEST_SECRET = "test-security-secret-32-bytes-minimum-value";
+
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void healthAllowsAnonymousAccess() throws Exception {
@@ -61,6 +79,48 @@ class ApiSecurityIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void traceRunsAllowedWithCorrectScope() throws Exception {
+        mockMvc.perform(get("/api/runs")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("trace.read"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void traceRunsForbiddenWithWrongScope() throws Exception {
+        mockMvc.perform(get("/api/runs")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("chat.execute"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void devTokenEndpointMintsUsableToken() throws Exception {
+        String body = mockMvc.perform(get("/api/auth/dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(body).path("data").path("token").asText();
+        mockMvc.perform(get("/api/runs").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/rag/documents")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"t\",\"content\":\"hello world\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private String bearer(List<String> scopes) throws Exception {
+        Instant now = Instant.now();
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("test-user")
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(now.plusSeconds(300)))
+                .claim("scope", String.join(" ", scopes))
+                .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+        jwt.sign(new MACSigner(TEST_SECRET.getBytes(StandardCharsets.UTF_8)));
+        return "Bearer " + jwt.serialize();
     }
 
 }
