@@ -125,6 +125,15 @@ export DEMO_CHAT_MEMORY_MAX_MESSAGES=20
 
 默认情况下，按已保存 `definitionId` 运行 workflow 需要 definition 处于 `PUBLISHED` 状态（可通过 `DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN=false` 关闭）。inline `workflowDefinition` 不受此约束。
 
+### 运行级预算与超时
+
+除了编译期的结构上限（`max-nodes` / `max-edges` / `max-parallel-branches` / `max-dynamic-items`）外，每次运行还有一个**运行级执行预算**：统计整个 run 真实执行的节点数（含主路径、并行分支、循环每次迭代、dynamic 扇出，以及复用同一 `runId` 的嵌套 subgraph），超过即以 `WORKFLOW_BUDGET_EXCEEDED` 中止。这能拦住单靠每个 loop 的 `maxIterations` 无法约束的全局失控（如嵌套 loop / subgraph 相乘放大）。还可选地配置整段 run 的墙钟超时（默认关闭，避免误杀正常的长耗时模型调用）。
+
+```bash
+export DEMO_WORKFLOW_MAX_STEP_EXECUTIONS=1000   # 单次 run 允许的最大节点执行数；<=0 关闭
+export DEMO_WORKFLOW_RUN_DEADLINE_MS=0          # 单次 run 墙钟预算（毫秒）；0 关闭，超时抛 WORKFLOW_DEADLINE_EXCEEDED
+```
+
 ## Conversation Memory
 
 Chat、RAG Chat、Tool Chat 均支持 `conversationId`。未传时会自动生成 UUID，并在 PostgreSQL 表 `conversation_messages` 中持久化最近 N 轮 USER/ASSISTANT 消息（默认 N=20，可通过 `DEMO_CHAT_MEMORY_MAX_MESSAGES` 调整）。每次 append 后会自动裁剪超出上限的旧消息。后续请求会携带历史上下文调用 DashScope。

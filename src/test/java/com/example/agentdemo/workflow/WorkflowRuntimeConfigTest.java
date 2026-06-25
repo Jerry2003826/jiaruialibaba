@@ -15,6 +15,7 @@ class WorkflowRuntimeConfigTest {
             .withBean(WorkflowNodeExecutor.class, () -> mock(WorkflowNodeExecutor.class))
             .withBean(WorkflowInlineExecutionService.class, () -> mock(WorkflowInlineExecutionService.class))
             .withBean(TraceService.class, () -> mock(TraceService.class))
+            .withBean(WorkflowRunBudgetRegistry.class, WorkflowRunBudgetRegistry::new)
             .withUserConfiguration(WorkflowRuntimeConfig.class);
 
     @Test

@@ -1,6 +1,8 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceRun;
@@ -24,15 +26,29 @@ public class WorkflowService {
     private final TraceService traceService;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
+    private final WorkflowRunBudgetRegistry workflowRunBudgetRegistry;
+    private final WorkflowRuntimeProperties workflowRuntimeProperties;
 
+    @Autowired
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
-            WorkflowRunRecordRepository workflowRunRecordRepository) {
+            WorkflowRunRecordRepository workflowRunRecordRepository,
+            WorkflowRunBudgetRegistry workflowRunBudgetRegistry,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
         this.traceService = traceService;
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowRunRecordRepository = workflowRunRecordRepository;
+        this.workflowRunBudgetRegistry = workflowRunBudgetRegistry;
+        this.workflowRuntimeProperties = workflowRuntimeProperties;
+    }
+
+    public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
+            TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
+            WorkflowRunRecordRepository workflowRunRecordRepository) {
+        this(workflowCompiler, workflowRuntime, traceService, workflowDefinitionService, workflowRunRecordRepository,
+                new WorkflowRunBudgetRegistry(), new WorkflowRuntimeProperties());
     }
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
@@ -40,6 +56,8 @@ public class WorkflowService {
         WorkflowDefinitionResolution definitionResolution = resolveDefinition(request);
         TraceRun run = traceService.startRun(RunType.WORKFLOW,
                 new WorkflowRunTraceInput(request, definitionResolution.definitionId(), definitionResolution.version()));
+        workflowRunBudgetRegistry.open(run.runId(), workflowRuntimeProperties.getMaxStepExecutions(),
+                workflowRuntimeProperties.getRunDeadlineMs());
         try {
             recordRunMetadata(run, definitionResolution);
             WorkflowDefinition definition = definitionResolution.workflowDefinition();
@@ -54,6 +72,9 @@ public class WorkflowService {
         catch (RuntimeException ex) {
             traceService.markRunFailed(run.runId(), ex);
             throw ex;
+        }
+        finally {
+            workflowRunBudgetRegistry.close(run.runId());
         }
     }
 

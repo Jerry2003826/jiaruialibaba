@@ -16,6 +16,7 @@ import com.example.agentdemo.workflow.WorkflowDefinitionService;
 import com.example.agentdemo.workflow.WorkflowInlineExecutionService;
 import com.example.agentdemo.workflow.WorkflowNodeExecutor;
 import com.example.agentdemo.workflow.WorkflowNodeSchemaRegistry;
+import com.example.agentdemo.workflow.WorkflowRunBudgetRegistry;
 import com.example.agentdemo.workflow.WorkflowRuntime;
 import com.example.agentdemo.workflow.WorkflowVariableResolver;
 import org.springframework.beans.factory.ObjectProvider;
@@ -43,13 +44,15 @@ public final class WorkflowRuntimeTestSupport {
     public record RuntimeStack(
             SimpleWorkflowRuntime runtime,
             WorkflowNodeExecutor nodeExecutor,
-            WorkflowInlineExecutionService inlineExecutionService) {
+            WorkflowInlineExecutionService inlineExecutionService,
+            WorkflowRunBudgetRegistry budgetRegistry) {
     }
 
     public record GraphRuntimeStack(
             GraphWorkflowRuntime runtime,
             WorkflowNodeExecutor nodeExecutor,
-            WorkflowInlineExecutionService inlineExecutionService) {
+            WorkflowInlineExecutionService inlineExecutionService,
+            WorkflowRunBudgetRegistry budgetRegistry) {
     }
 
     public static TraceService mockPermissiveTraceService() {
@@ -79,6 +82,7 @@ public final class WorkflowRuntimeTestSupport {
         ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider = mock(ObjectProvider.class);
         when(nodeExecutorProvider.getObject()).thenAnswer(ignored -> nodeExecutorRef.get());
 
+        WorkflowRunBudgetRegistry budgetRegistry = new WorkflowRunBudgetRegistry();
         WorkflowInlineExecutionService inlineExecutionService = new WorkflowInlineExecutionService(
                 definitionService,
                 new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
@@ -86,7 +90,8 @@ public final class WorkflowRuntimeTestSupport {
                 nodeExecutorProvider,
                 new WorkflowVariableResolver(),
                 traceService,
-                executorService);
+                executorService,
+                budgetRegistry);
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
                 ragService,
                 aiModelService,
@@ -96,9 +101,9 @@ public final class WorkflowRuntimeTestSupport {
                 inlineExecutionService);
         nodeExecutorRef.set(nodeExecutor);
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
-                nodeExecutor, traceService, executorService, inlineExecutionService);
+                nodeExecutor, traceService, executorService, inlineExecutionService, budgetRegistry);
         runtimeRef.set(runtime);
-        return new RuntimeStack(runtime, nodeExecutor, inlineExecutionService);
+        return new RuntimeStack(runtime, nodeExecutor, inlineExecutionService, budgetRegistry);
     }
 
     @SuppressWarnings("unchecked")
@@ -114,6 +119,7 @@ public final class WorkflowRuntimeTestSupport {
         ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider = mock(ObjectProvider.class);
         when(nodeExecutorProvider.getObject()).thenAnswer(ignored -> nodeExecutorRef.get());
 
+        WorkflowRunBudgetRegistry budgetRegistry = new WorkflowRunBudgetRegistry();
         WorkflowInlineExecutionService inlineExecutionService = new WorkflowInlineExecutionService(
                 definitionService,
                 new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
@@ -121,7 +127,8 @@ public final class WorkflowRuntimeTestSupport {
                 nodeExecutorProvider,
                 new WorkflowVariableResolver(),
                 traceService,
-                executorService);
+                executorService,
+                budgetRegistry);
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
                 ragService,
                 aiModelService,
@@ -131,9 +138,9 @@ public final class WorkflowRuntimeTestSupport {
                 inlineExecutionService);
         nodeExecutorRef.set(nodeExecutor);
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                nodeExecutor, traceService, executorService, inlineExecutionService);
+                nodeExecutor, traceService, executorService, inlineExecutionService, budgetRegistry);
         runtimeRef.set(runtime);
-        return new GraphRuntimeStack(runtime, nodeExecutor, inlineExecutionService);
+        return new GraphRuntimeStack(runtime, nodeExecutor, inlineExecutionService, budgetRegistry);
     }
 
     @SuppressWarnings("unchecked")

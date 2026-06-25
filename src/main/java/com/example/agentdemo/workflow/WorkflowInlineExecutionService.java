@@ -34,6 +34,7 @@ public class WorkflowInlineExecutionService {
     private final TraceService traceService;
     private final ExecutorService workflowNodeExecutorService;
     private final WorkflowRuntimeProperties workflowRuntimeProperties;
+    private final WorkflowRunBudgetRegistry budgetRegistry;
     private final ThreadLocal<Deque<WorkflowExecutionPlan>> activePlans = ThreadLocal.withInitial(ArrayDeque::new);
     private final ThreadLocal<Integer> subgraphNestingDepth = ThreadLocal.withInitial(() -> 0);
     private final ThreadLocal<List<WorkflowStepSummary>> inlineStepSummaries = ThreadLocal.withInitial(ArrayList::new);
@@ -43,7 +44,7 @@ public class WorkflowInlineExecutionService {
             WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
             ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
             TraceService traceService, ExecutorService workflowNodeExecutorService,
-            WorkflowRuntimeProperties workflowRuntimeProperties) {
+            WorkflowRuntimeProperties workflowRuntimeProperties, WorkflowRunBudgetRegistry budgetRegistry) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntimeProvider = workflowRuntimeProvider;
@@ -52,6 +53,7 @@ public class WorkflowInlineExecutionService {
         this.traceService = traceService;
         this.workflowNodeExecutorService = workflowNodeExecutorService;
         this.workflowRuntimeProperties = workflowRuntimeProperties;
+        this.budgetRegistry = budgetRegistry;
     }
 
     public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
@@ -59,7 +61,27 @@ public class WorkflowInlineExecutionService {
             ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
             TraceService traceService, ExecutorService workflowNodeExecutorService) {
         this(workflowDefinitionService, workflowCompiler, workflowRuntimeProvider, nodeExecutorProvider,
-                variableResolver, traceService, workflowNodeExecutorService, new WorkflowRuntimeProperties());
+                variableResolver, traceService, workflowNodeExecutorService, new WorkflowRunBudgetRegistry());
+    }
+
+    public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
+            WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
+            ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
+            TraceService traceService, ExecutorService workflowNodeExecutorService,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
+        this(workflowDefinitionService, workflowCompiler, workflowRuntimeProvider, nodeExecutorProvider,
+                variableResolver, traceService, workflowNodeExecutorService, workflowRuntimeProperties,
+                new WorkflowRunBudgetRegistry());
+    }
+
+    public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
+            WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
+            ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
+            TraceService traceService, ExecutorService workflowNodeExecutorService,
+            WorkflowRunBudgetRegistry budgetRegistry) {
+        this(workflowDefinitionService, workflowCompiler, workflowRuntimeProvider, nodeExecutorProvider,
+                variableResolver, traceService, workflowNodeExecutorService, new WorkflowRuntimeProperties(),
+                budgetRegistry);
     }
 
     void bindPlan(WorkflowExecutionPlan plan) {
@@ -251,7 +273,8 @@ public class WorkflowInlineExecutionService {
     }
 
     private WorkflowNodeTraceExecutor traceExecutor() {
-        return new WorkflowNodeTraceExecutor(nodeExecutorProvider.getObject(), traceService, workflowNodeExecutorService);
+        return new WorkflowNodeTraceExecutor(nodeExecutorProvider.getObject(), traceService,
+                workflowNodeExecutorService, budgetRegistry);
     }
 
     private WorkflowExecutionPlan requirePlan() {

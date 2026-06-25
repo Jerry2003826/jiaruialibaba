@@ -17,6 +17,19 @@ public class WorkflowRuntimeProperties {
 
     private int maxDynamicItems = 50;
 
+    /**
+     * Maximum number of node executions allowed for a single run (across the main path, parallel
+     * branches, loop iterations, dynamic fan-out and nested subgraphs). Guards against runaway runs
+     * that per-loop {@code maxIterations} cannot bound globally. Non-positive disables the guard.
+     */
+    private int maxStepExecutions = 1000;
+
+    /**
+     * Wall-clock budget for a single run, in milliseconds. Non-positive (the default) disables the
+     * deadline so long-running model calls are never interrupted unless an operator opts in.
+     */
+    private long runDeadlineMs = 0;
+
     public String getRuntime() {
         return runtime;
     }
@@ -63,6 +76,22 @@ public class WorkflowRuntimeProperties {
 
     public void setMaxDynamicItems(int maxDynamicItems) {
         this.maxDynamicItems = maxDynamicItems;
+    }
+
+    public int getMaxStepExecutions() {
+        return maxStepExecutions;
+    }
+
+    public void setMaxStepExecutions(int maxStepExecutions) {
+        this.maxStepExecutions = maxStepExecutions;
+    }
+
+    public long getRunDeadlineMs() {
+        return runDeadlineMs;
+    }
+
+    public void setRunDeadlineMs(long runDeadlineMs) {
+        this.runDeadlineMs = runDeadlineMs;
     }
 
 }

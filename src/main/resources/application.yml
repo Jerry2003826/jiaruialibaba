@@ -106,6 +106,11 @@ demo:
     max-edges: ${DEMO_WORKFLOW_MAX_EDGES:200}
     max-parallel-branches: ${DEMO_WORKFLOW_MAX_PARALLEL_BRANCHES:16}
     max-dynamic-items: ${DEMO_WORKFLOW_MAX_DYNAMIC_ITEMS:50}
+    # Run-level execution budget: caps total node executions across the whole run (loops, dynamic
+    # fan-out and nested subgraphs included) so a runaway run is aborted with WORKFLOW_BUDGET_EXCEEDED.
+    max-step-executions: ${DEMO_WORKFLOW_MAX_STEP_EXECUTIONS:1000}
+    # Wall-clock budget for a run in ms; 0 disables it (default) so long model calls are never cut off.
+    run-deadline-ms: ${DEMO_WORKFLOW_RUN_DEADLINE_MS:0}
   tools:
     allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}

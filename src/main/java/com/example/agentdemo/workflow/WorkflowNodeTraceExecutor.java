@@ -10,15 +10,24 @@ class WorkflowNodeTraceExecutor {
     private final WorkflowNodeExecutor nodeExecutor;
     private final WorkflowNodeRunner nodeRunner;
     private final TraceService traceService;
+    private final WorkflowRunBudgetRegistry budgetRegistry;
 
     WorkflowNodeTraceExecutor(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService executorService) {
+        this(nodeExecutor, traceService, executorService, new WorkflowRunBudgetRegistry());
+    }
+
+    WorkflowNodeTraceExecutor(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
+            ExecutorService executorService, WorkflowRunBudgetRegistry budgetRegistry) {
         this.nodeExecutor = nodeExecutor;
         this.nodeRunner = new WorkflowNodeRunner(nodeExecutor, executorService);
         this.traceService = traceService;
+        this.budgetRegistry = budgetRegistry;
     }
 
     WorkflowNodeTraceResult execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
+        // Charge this execution to the run budget before any work; aborts a runaway run early.
+        budgetRegistry.recordStep(runId);
         TraceStep step = traceService.startTraceStep(runId, "workflow_node_" + node.id(),
                 nodeExecutor.nodeInput(node, state));
         try {

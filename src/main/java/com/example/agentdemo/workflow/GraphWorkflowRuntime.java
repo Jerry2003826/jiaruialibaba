@@ -29,8 +29,14 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
 
     public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService executorService, WorkflowInlineExecutionService inlineExecutionService) {
+        this(nodeExecutor, traceService, executorService, inlineExecutionService, new WorkflowRunBudgetRegistry());
+    }
+
+    public GraphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
+            ExecutorService executorService, WorkflowInlineExecutionService inlineExecutionService,
+            WorkflowRunBudgetRegistry budgetRegistry) {
         this.nodeExecutor = nodeExecutor;
-        this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService);
+        this.traceExecutor = new WorkflowNodeTraceExecutor(nodeExecutor, traceService, executorService, budgetRegistry);
         this.inlineExecutionService = inlineExecutionService;
     }
 

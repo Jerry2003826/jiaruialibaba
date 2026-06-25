@@ -24,18 +24,20 @@ public class WorkflowRuntimeConfig {
     @ConditionalOnProperty(prefix = "demo.workflow", name = "runtime", havingValue = "graph")
     public WorkflowRuntime graphWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService workflowNodeExecutorService,
-            WorkflowInlineExecutionService inlineExecutionService) {
+            WorkflowInlineExecutionService inlineExecutionService,
+            WorkflowRunBudgetRegistry workflowRunBudgetRegistry) {
         return new GraphWorkflowRuntime(nodeExecutor, traceService, workflowNodeExecutorService,
-                inlineExecutionService);
+                inlineExecutionService, workflowRunBudgetRegistry);
     }
 
     @Bean
     @ConditionalOnProperty(prefix = "demo.workflow", name = "runtime", havingValue = "simple", matchIfMissing = true)
     public WorkflowRuntime simpleWorkflowRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService,
             ExecutorService workflowNodeExecutorService,
-            WorkflowInlineExecutionService inlineExecutionService) {
+            WorkflowInlineExecutionService inlineExecutionService,
+            WorkflowRunBudgetRegistry workflowRunBudgetRegistry) {
         return new SimpleWorkflowRuntime(nodeExecutor, traceService, workflowNodeExecutorService,
-                inlineExecutionService);
+                inlineExecutionService, workflowRunBudgetRegistry);
     }
 
 }
