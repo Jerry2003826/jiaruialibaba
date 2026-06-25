@@ -137,7 +137,7 @@ public class DocumentManagementService {
 
     private DocumentSummaryResponse toSummary(DocumentEntity document) {
         return new DocumentSummaryResponse(document.getId(), document.getTitle(), document.getContent().length(),
-                document.getCreatedAt());
+                document.getIndexStatus(), document.getCreatedAt());
     }
 
     private DocumentDetailResponse toDetail(DocumentEntity document) {

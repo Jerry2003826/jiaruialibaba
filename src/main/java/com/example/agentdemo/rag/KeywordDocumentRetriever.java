@@ -27,10 +27,17 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
         return "KeywordDocumentRetriever";
     }
 
+    // Keyword search works directly on persisted document content, so it must include every
+    // document that still has content available — PENDING (vector indexing not finished or no
+    // vector store at all), READY and FAILED — and only exclude documents being removed. This is
+    // what makes keyword retrieval usable as a local-only retriever and as a vector fallback.
+    private static final List<DocumentIndexStatus> NON_RETRIEVABLE_STATUSES = List.of(
+            DocumentIndexStatus.DELETING, DocumentIndexStatus.DELETED);
+
     @Override
     public List<RetrievedContext> retrieve(String query, int limit) {
         Set<String> terms = tokenize(query);
-        return documentRepository.findByIndexStatus(DocumentIndexStatus.READY)
+        return documentRepository.findByIndexStatusNotIn(NON_RETRIEVABLE_STATUSES)
                 .stream()
                 .map(document -> score(document, terms))
                 .filter(context -> context.score() > 0)

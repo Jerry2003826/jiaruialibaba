@@ -94,7 +94,16 @@ export DASHVECTOR_METRIC=cosine
 
 `AI_DASHSCOPE_BASE_URL` 只用于 Chat。`AI_DASHSCOPE_EMBEDDING_BASE_URL` 默认留空，让 embedding 使用 DashScope SDK 默认地址；只有 embedding 也需要专属 endpoint 时才设置它。
 
-RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，DashVector 保存向量。`DEMO_RAG_RETRIEVER=dashvector` 且 DashVector 已配置时使用向量检索；否则在非 strict 场景下降级为 naive keyword retrieval。向量检索失败时，若 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true` 且未开启 strict，会回退到 keyword retrieval 并在 trace 中记录 `rag_keyword_fallback_retrieve`；strict 或 `DEMO_AI_FALLBACK_ENABLED=false` 时禁用该降级。索引与删除在阿里栈必填时会同步操作 DashVector（失败则回滚或阻止 DB 变更）。
+RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，DashVector 保存向量。`DEMO_RAG_RETRIEVER=dashvector` 且 DashVector 已配置时使用向量检索；否则在非 strict 场景下降级为 naive keyword retrieval。向量检索失败时，若 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true` 且未开启 strict，会回退到 keyword retrieval 并在 trace 中记录 `rag_keyword_fallback_retrieve`；strict 或 `DEMO_AI_FALLBACK_ENABLED=false` 时禁用该降级。
+
+每个文档带有 `indexStatus`（保存与列表响应都会返回）：
+
+- **PENDING**：chunk 已写入 PostgreSQL，向量写入 DashVector 的任务已入 outbox，尚未完成。
+- **READY**：向量已写入 DashVector；无 DashVector 的 keyword-only 部署下文档保存即为 READY（无需向量）。
+- **FAILED**：向量写入重试耗尽，文档内容仍在库中。
+- **DELETING / DELETED**：删除处理中 / 已删除。
+
+向量索引与删除通过 outbox 异步落到 DashVector（最终一致），不再与 HTTP 请求同步提交。Keyword 检索只要文档内容已持久化即可命中（PENDING/READY/FAILED 都可检索，仅排除 DELETING/DELETED），因此本地 keyword 降级在 DashVector 缺失时也能立即检索到新文档。阿里栈必填（strict）时若 DashVector 未配置仍会在写入/删除入口直接拒绝（`ALIBABA_VECTOR_STORE_NOT_CONFIGURED`）。
 
 ## Workflow Runtime
 

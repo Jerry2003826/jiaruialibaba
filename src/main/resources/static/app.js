@@ -970,7 +970,7 @@
       const documents = page?.content || [];
       renderDataList(els.documentList, documents, (document) => ({
         title: document.title || `Document ${document.id}`,
-        meta: `#${document.id} · ${document.contentLength || 0} chars · ${document.createdAt || ""}`
+        meta: `#${document.id} · ${document.indexStatus || "UNKNOWN"} · ${document.contentLength || 0} chars · ${document.createdAt || ""}`
       }));
       if (state.health) {
         updateRagHint(state.health);

@@ -89,6 +89,8 @@ class DocumentIndexingServiceTest {
         assertThat(vectorStoreGateway.ensureCollectionCalls).isZero();
         assertThat(vectorStoreGateway.upsertedDocuments).isEmpty();
         verify(chunkRepository, never()).saveAllAndFlush(anyList());
+        // Keyword-only deployment: the document must be immediately retrievable, not stuck PENDING.
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentIndexStatus.READY);
     }
 
     @Test

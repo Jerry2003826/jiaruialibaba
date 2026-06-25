@@ -203,7 +203,7 @@ public class RagService {
 
     private DocumentResponse toDocumentResponse(DocumentEntity document) {
         return new DocumentResponse(document.getId(), document.getTitle(), document.getContent().length(),
-                document.getCreatedAt());
+                document.getIndexStatus(), document.getCreatedAt());
     }
 
 }

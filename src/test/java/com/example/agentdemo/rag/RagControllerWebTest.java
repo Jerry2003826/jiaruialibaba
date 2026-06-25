@@ -26,7 +26,8 @@ class RagControllerWebTest {
     void listDocumentsRouteReturnsPagedResponse() throws Exception {
         DocumentManagementService managementService = mock(DocumentManagementService.class);
         when(managementService.listDocuments(0, 20)).thenReturn(new DocumentPageResponse(
-                List.of(new DocumentSummaryResponse(1L, "Doc", 12, Instant.parse("2026-06-25T00:00:00Z"))),
+                List.of(new DocumentSummaryResponse(1L, "Doc", 12, DocumentIndexStatus.READY,
+                        Instant.parse("2026-06-25T00:00:00Z"))),
                 0, 20, 1, 1));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new RagController(mock(RagService.class), managementService))
                 .setControllerAdvice(new com.example.agentdemo.common.GlobalExceptionHandler())
@@ -36,6 +37,7 @@ class RagControllerWebTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content[0].id").value(1))
+                .andExpect(jsonPath("$.data.content[0].indexStatus").value("READY"))
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
 

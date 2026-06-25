@@ -71,6 +71,10 @@ public class DocumentIndexingService {
                 throw new BusinessException("ALIBABA_VECTOR_STORE_NOT_CONFIGURED",
                         "DashVector is required but is not configured");
             }
+            // No vector store: this is a keyword-only deployment. The document content is already
+            // persisted, so it is immediately retrievable by KeywordDocumentRetriever. Mark it READY
+            // instead of leaving it stuck in PENDING (which no worker would ever advance here).
+            document.markReady();
             return List.of();
         }
 

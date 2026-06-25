@@ -15,6 +15,8 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
 
     List<DocumentEntity> findByIndexStatus(DocumentIndexStatus indexStatus);
 
+    List<DocumentEntity> findByIndexStatusNotIn(Collection<DocumentIndexStatus> indexStatuses);
+
     List<DocumentEntity> findByIdInAndIndexStatus(Collection<Long> ids, DocumentIndexStatus indexStatus);
 
 }
