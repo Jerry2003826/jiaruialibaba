@@ -1,6 +1,9 @@
 package com.example.agentdemo.rag;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -12,7 +15,9 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunkEnti
 
     List<DocumentChunkEntity> findByDocumentIdOrderByChunkIndexAsc(Long documentId);
 
-    void deleteByDocumentId(Long documentId);
+    @Modifying
+    @Query("delete from DocumentChunkEntity c where c.documentId = :documentId")
+    void deleteByDocumentId(@Param("documentId") Long documentId);
 
     Optional<DocumentChunkEntity> findByVectorId(String vectorId);
 }

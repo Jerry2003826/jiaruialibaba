@@ -71,6 +71,20 @@ class PostgresFlywayMigrationIntegrationTest {
                         + "where table_name = 'vector_outbox_events' and column_name = 'payload_json'",
                 String.class);
         assertThat(payloadType).isEqualTo("text");
+
+        // V3 recoverable-outbox columns must exist for Hibernate validate to accept the @Version /
+        // lease mapping (their absence would have failed context startup above).
+        String rowVersionType = jdbcTemplate.queryForObject(
+                "select data_type from information_schema.columns "
+                        + "where table_name = 'vector_outbox_events' and column_name = 'row_version'",
+                String.class);
+        assertThat(rowVersionType).isEqualTo("bigint");
+
+        Integer leaseColumns = jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.columns "
+                        + "where table_name = 'vector_outbox_events' and column_name = 'lease_expires_at'",
+                Integer.class);
+        assertThat(leaseColumns).isEqualTo(1);
     }
 
 }

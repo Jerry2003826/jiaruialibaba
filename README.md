@@ -103,7 +103,7 @@ RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，Da
 - **FAILED**：向量写入重试耗尽，文档内容仍在库中。
 - **DELETING / DELETED**：删除处理中 / 已删除。
 
-向量索引与删除通过 outbox 异步落到 DashVector（最终一致），不再与 HTTP 请求同步提交。Keyword 检索只要文档内容已持久化即可命中（PENDING/READY/FAILED 都可检索，仅排除 DELETING/DELETED），因此本地 keyword 降级在 DashVector 缺失时也能立即检索到新文档。阿里栈必填（strict）时若 DashVector 未配置仍会在写入/删除入口直接拒绝（`ALIBABA_VECTOR_STORE_NOT_CONFIGURED`）。
+向量索引与删除通过 outbox 异步落到 DashVector（最终一致），不再与 HTTP 请求同步提交。`VectorOutboxWorker` 把每条事件当作可恢复状态机处理：先在短事务里「认领」（置 `PROCESSING` + 时限租约，并由 `@Version` 乐观锁保证两个 worker 不会认领同一条），随后在事务外调用向量库，最后在第二个短事务里提交结果；worker 中途崩溃时租约到期即被其它 worker 重新认领，事件不丢失。删除时即便目标向量仍在库中也绝不会被静默标记成功（未配置向量库会让该删除事件失败并重试，而非漏删向量造成泄漏）；删除文档时还会取消该文档仍排队的 UPSERT 事件，避免删除后被旧事件「复活」向量。Keyword 检索只要文档内容已持久化即可命中（PENDING/READY/FAILED 都可检索，仅排除 DELETING/DELETED），因此本地 keyword 降级在 DashVector 缺失时也能立即检索到新文档。阿里栈必填（strict）时若 DashVector 未配置仍会在写入/删除入口直接拒绝（`ALIBABA_VECTOR_STORE_NOT_CONFIGURED`）。
 
 ## Workflow Runtime
 
@@ -856,8 +856,8 @@ Password: agent_demo
 
 `postgres` profile 下 schema 由 Flyway 管理、Hibernate 仅做 `validate`：
 
-- 迁移脚本在 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（基线表结构）、`V2__index_status_row_version_outbox.sql`（新增 `rag_documents.index_status`、`workflow_definitions.row_version`、`vector_outbox_events` 表与 claim 索引，采用 expand-contract：先加可空列、回填、再置 NOT NULL）。
-- 配置见 `application-postgres.yml`：`baseline-on-migrate: true`、`baseline-version: 1`。全新库会依次执行 V1+V2；已有（未接入 Flyway 的）库会被标记为 V1 基线，仅执行 V2 起的增量。
+- 迁移脚本在 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（基线表结构）、`V2__index_status_row_version_outbox.sql`（新增 `rag_documents.index_status`、`workflow_definitions.row_version`、`vector_outbox_events` 表与 claim 索引，采用 expand-contract：先加可空列、回填、再置 NOT NULL）、`V3__outbox_lease_optimistic_lock.sql`（为 `vector_outbox_events` 新增 `row_version` 乐观锁列与 `lease_expires_at` 租约列及租约索引，支撑 worker 的原子认领与崩溃恢复）。
+- 配置见 `application-postgres.yml`：`baseline-on-migrate: true`、`baseline-version: 1`。全新库会依次执行 V1+V2+V3；已有（未接入 Flyway 的）库会被标记为 V1 基线，仅执行 V2 起的增量。
 - H2 默认演示与单测不走 Flyway（`spring.flyway.enabled: false`），由 Hibernate `ddl-auto` 直接建表。
 - 真实 Postgres 上的「迁移 + validate」由 `PostgresFlywayMigrationIntegrationTest`（Testcontainers）在 CI 验证；无 Docker 环境会自动跳过。
 

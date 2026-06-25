@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -71,6 +72,10 @@ public class DocumentManagementService {
 
     @Transactional
     public void deleteDocument(Long documentId) {
+        // Drop any still-queued UPSERT for this document first so an obsolete event cannot re-create
+        // its vectors after the delete completes. Done before loading the document so the bulk update's
+        // context clear cannot detach entities we still operate on.
+        cancelPendingUpserts(documentId);
         DocumentEntity document = findDocument(documentId);
         List<DocumentChunkEntity> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
         List<String> vectorIds = chunks.stream().map(DocumentChunkEntity::getVectorId).toList();
@@ -80,6 +85,15 @@ public class DocumentManagementService {
         document.markDeleting();
         documentRepository.save(document);
         enqueueVectorDelete(documentId, vectorIds);
+    }
+
+    private void cancelPendingUpserts(Long documentId) {
+        if (outboxEventRepository == null) {
+            return;
+        }
+        outboxEventRepository.cancelEventsForDocument(documentId, VectorOutboxEventType.UPSERT,
+                List.of(VectorOutboxEventStatus.PENDING, VectorOutboxEventStatus.FAILED),
+                VectorOutboxEventStatus.CANCELED, Instant.now());
     }
 
     private boolean deleteLocallyWhenVectorStoreIsAbsent(DocumentEntity document, Long documentId, List<String> vectorIds) {

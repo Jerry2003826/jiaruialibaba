@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -47,6 +48,10 @@ public class VectorOutboxEventEntity {
     @Column(nullable = false)
     private Instant nextAttemptAt;
 
+    // Lease held by the worker currently processing this event. A PROCESSING event whose lease has
+    // expired is considered abandoned (the worker crashed) and may be reclaimed by another worker.
+    private Instant leaseExpiresAt;
+
     @Column(length = 2048)
     private String lastError;
 
@@ -55,6 +60,10 @@ public class VectorOutboxEventEntity {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @Version
+    @Column(nullable = false)
+    private long rowVersion;
 
     protected VectorOutboxEventEntity() {
     }
@@ -113,13 +122,43 @@ public class VectorOutboxEventEntity {
         return nextAttemptAt;
     }
 
-    public void markProcessing() {
+    public Instant getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public int getAttempts() {
+        return attempts;
+    }
+
+    public long getRowVersion() {
+        return rowVersion;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    /**
+     * Whether this event may be claimed for processing at {@code now}: a fresh attempt whose backoff
+     * has elapsed, or a PROCESSING event whose worker lease has expired (crash recovery).
+     */
+    public boolean isClaimable(Instant now) {
+        return switch (status) {
+            case PENDING, FAILED -> !nextAttemptAt.isAfter(now);
+            case PROCESSING -> leaseExpiresAt != null && leaseExpiresAt.isBefore(now);
+            case SUCCEEDED, DEAD_LETTER, CANCELED -> false;
+        };
+    }
+
+    public void claim(Instant leaseExpiry) {
         this.status = VectorOutboxEventStatus.PROCESSING;
+        this.leaseExpiresAt = leaseExpiry;
     }
 
     public void markSucceeded() {
         this.status = VectorOutboxEventStatus.SUCCEEDED;
         this.lastError = null;
+        this.leaseExpiresAt = null;
     }
 
     public void markFailed(RuntimeException failure) {
@@ -127,6 +166,7 @@ public class VectorOutboxEventEntity {
         this.status = attempts >= MAX_ATTEMPTS ? VectorOutboxEventStatus.DEAD_LETTER : VectorOutboxEventStatus.FAILED;
         this.lastError = abbreviate(failure.getMessage());
         this.nextAttemptAt = Instant.now().plusSeconds(Math.min(300, (long) Math.pow(2, attempts)));
+        this.leaseExpiresAt = null;
     }
 
     private String abbreviate(String message) {

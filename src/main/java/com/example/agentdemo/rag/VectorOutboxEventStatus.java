@@ -5,5 +5,6 @@ public enum VectorOutboxEventStatus {
     PROCESSING,
     SUCCEEDED,
     FAILED,
-    DEAD_LETTER
+    DEAD_LETTER,
+    CANCELED
 }
