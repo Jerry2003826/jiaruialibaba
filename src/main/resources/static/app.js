@@ -8,6 +8,9 @@
     previewGraph: "/api/workflows/preview-graph",
     runWorkflow: "/api/workflows/run",
     definitions: "/api/workflows/definitions",
+    definitionRevisions: (definitionId) => `/api/workflows/definitions/${encodeURIComponent(definitionId)}/revisions`,
+    rollbackDefinition: (definitionId, version) => `/api/workflows/definitions/${encodeURIComponent(definitionId)}/rollback/${version}`,
+    workflowRuns: (definitionId) => `/api/workflows/runs?definitionId=${encodeURIComponent(definitionId)}&page=0&size=20`,
     publishDefinition: (definitionId) => `/api/workflows/definitions/${encodeURIComponent(definitionId)}/publish`,
     workflowRunGraph: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/graph`,
     runSteps: (runId) => `/api/runs/${encodeURIComponent(runId)}/steps`,
@@ -30,6 +33,10 @@
     { type: "condition", displayName: "Condition", configFields: [{ name: "left", type: "string", defaultValue: "{{input}}" }, { name: "operator", type: "string", defaultValue: "contains" }, { name: "right", type: "any", defaultValue: "" }] },
     { type: "parallel", displayName: "Parallel", configFields: [] },
     { type: "join", displayName: "Join", configFields: [] },
+    { type: "loop", displayName: "Loop", configFields: [{ name: "maxIterations", type: "integer", defaultValue: 10 }, { name: "left", type: "string", defaultValue: "{{input.count}}" }, { name: "operator", type: "string", defaultValue: "greaterthan" }, { name: "right", type: "string", defaultValue: "0" }] },
+    { type: "loop_back", displayName: "Loop Back", configFields: [] },
+    { type: "subgraph", displayName: "Subgraph", configFields: [{ name: "definitionId", type: "string", defaultValue: "" }, { name: "version", type: "integer", defaultValue: null }] },
+    { type: "dynamic", displayName: "Dynamic", configFields: [{ name: "itemsFrom", type: "string", defaultValue: "{{input.tools}}" }, { name: "action", type: "string", defaultValue: "tool" }] },
     { type: "end", displayName: "End", configFields: [] }
   ];
 
@@ -41,8 +48,14 @@
     condition: "var(--node-flow)",
     parallel: "var(--node-flow)",
     join: "var(--node-flow)",
+    loop: "var(--node-flow)",
+    loop_back: "var(--node-flow)",
+    subgraph: "var(--node-flow)",
+    dynamic: "var(--node-flow)",
     end: "var(--node-start)"
   };
+
+  const CANVAS_POSITIONS_KEY_PREFIX = "workflow-canvas-positions:";
 
   const state = {
     schemas: fallbackSchemas,
@@ -54,6 +67,8 @@
     connectSourceId: null,
     definitionId: null,
     definitionVersion: null,
+    definitionStatus: null,
+    savedDefinitions: [],
     lastRunId: null,
     toastTimer: null
   };
@@ -100,8 +115,10 @@
   function cacheElements() {
     const ids = [
       "runtime-status", "workflow-status", "definition-name", "definition-select", "new-workflow",
-      "load-definition", "save-definition", "publish-definition", "validate-workflow", "run-workflow", "workflow-canvas",
+      "load-definition", "save-definition", "publish-definition", "insert-loop-template",
+      "validate-workflow", "run-workflow", "workflow-canvas",
       "edge-layer", "node-layer", "node-palette", "node-inspector", "inspector-empty", "inspector-form",
+      "definition-history", "refresh-definition-history", "revision-list", "workflow-run-list",
       "delete-node", "add-edge", "edge-list", "workflow-input", "run-output", "trace-steps",
       "refresh-run-graph", "send-chat", "stream-chat", "chat-mode-pill", "chat-message", "chat-output",
       "send-tool-chat", "tool-chat-message", "tool-chat-output",
@@ -132,6 +149,7 @@
     els.newWorkflow.addEventListener("click", () => {
       resetWorkflow();
       renderAll();
+      void loadDefinitionHistory();
       toast("New workflow ready");
     });
     els.loadDefinition.addEventListener("click", () => {
@@ -142,6 +160,7 @@
     });
     els.saveDefinition.addEventListener("click", () => void saveDefinition());
     els.publishDefinition.addEventListener("click", () => void publishDefinition());
+    els.insertLoopTemplate.addEventListener("click", () => insertLoopTemplate());
     els.validateWorkflow.addEventListener("click", () => void validateWorkflow());
     els.runWorkflow.addEventListener("click", () => void runWorkflow());
     els.refreshRunGraph.addEventListener("click", () => {
@@ -150,6 +169,7 @@
       }
     });
     els.deleteNode.addEventListener("click", deleteSelectedNode);
+    els.refreshDefinitionHistory.addEventListener("click", () => void loadDefinitionHistory());
     els.addEdge.addEventListener("click", () => {
       if (state.nodes.length >= 2) {
         state.edges.push({ from: state.nodes[0].id, to: state.nodes[1].id, condition: "" });
@@ -232,12 +252,14 @@
   async function loadDefinitions() {
     try {
       const definitions = await requestJson(API.definitions);
+      state.savedDefinitions = Array.isArray(definitions) ? definitions : [];
       els.definitionSelect.innerHTML = "";
       appendOption(els.definitionSelect, "", "Saved definitions");
-      definitions.forEach((definition) => {
+      state.savedDefinitions.forEach((definition) => {
         appendOption(els.definitionSelect, definition.definitionId, `${definition.name} v${definition.version}`);
       });
     } catch (error) {
+      state.savedDefinitions = [];
       appendOption(els.definitionSelect, "", "No saved definitions");
     }
   }
@@ -247,10 +269,13 @@
       const definition = await requestJson(`${API.definitions}/${encodeURIComponent(definitionId)}`);
       state.definitionId = definition.definitionId;
       state.definitionVersion = definition.version;
+      state.definitionStatus = definition.status;
       els.definitionName.value = definition.name;
       hydrateWorkflow(definition.workflowDefinition);
+      loadCanvasPositions();
       renderAll();
-      setWorkflowStatus(`Loaded v${definition.version}`);
+      setWorkflowStatus(`${definition.status || "DRAFT"} v${definition.version}`);
+      await loadDefinitionHistory();
     } catch (error) {
       toast(error.message, true);
     }
@@ -259,6 +284,7 @@
   function resetWorkflow() {
     state.definitionId = null;
     state.definitionVersion = null;
+    state.definitionStatus = null;
     state.lastRunId = null;
     state.connectSourceId = null;
     state.selectedNodeId = "start";
@@ -279,10 +305,12 @@
       ["llm_1", { x: 70, y: 250 }],
       ["end", { x: 330, y: 250 }]
     ]);
+    loadCanvasPositions();
     els.definitionName.value = "Agent Workflow";
     els.runOutput.textContent = "{}";
     els.traceSteps.innerHTML = "";
     setWorkflowStatus("Draft");
+    renderDefinitionHistory([], []);
   }
 
   function hydrateWorkflow(definition) {
@@ -302,7 +330,41 @@
       const col = index % 4;
       state.positions.set(node.id, { x: 70 + col * 260, y: 80 + row * 140 });
     });
+    loadCanvasPositions();
     state.selectedNodeId = state.nodes[0]?.id || null;
+  }
+
+  function canvasPositionsStorageKey() {
+    return `${CANVAS_POSITIONS_KEY_PREFIX}${state.definitionId || "draft"}`;
+  }
+
+  function saveCanvasPositions() {
+    const payload = {};
+    state.positions.forEach((position, nodeId) => {
+      payload[nodeId] = position;
+    });
+    try {
+      window.localStorage.setItem(canvasPositionsStorageKey(), JSON.stringify(payload));
+    } catch (error) {
+      // Ignore quota or privacy mode failures.
+    }
+  }
+
+  function loadCanvasPositions() {
+    try {
+      const raw = window.localStorage.getItem(canvasPositionsStorageKey());
+      if (!raw) {
+        return;
+      }
+      const saved = JSON.parse(raw);
+      Object.entries(saved || {}).forEach(([nodeId, position]) => {
+        if (state.nodes.some((node) => node.id === nodeId) && position && typeof position.x === "number") {
+          state.positions.set(nodeId, { x: position.x, y: position.y });
+        }
+      });
+    } catch (error) {
+      // Ignore malformed local storage entries.
+    }
   }
 
   function renderAll() {
@@ -413,14 +475,69 @@
 
     (schema.configFields || []).forEach((field) => {
       const shell = fieldShell(field.name);
-      const control = controlForField(field, node.config[field.name]);
-      control.addEventListener("change", () => {
-        node.config[field.name] = parseControlValue(control.value, field.type);
-        renderNodes();
-      });
+      let control;
+      if (node.type === "subgraph" && field.name === "definitionId") {
+        control = subgraphDefinitionControl(node.config.definitionId || "");
+        control.addEventListener("change", () => {
+          node.config.definitionId = control.value;
+          node.config.version = null;
+          renderInspector();
+          renderNodes();
+        });
+      } else if (node.type === "subgraph" && field.name === "version") {
+        control = document.createElement("select");
+        control.className = "text-input";
+        control.dataset.subgraphVersion = "true";
+        appendOption(control, "", "Latest");
+        if (node.config.version != null && node.config.version !== "") {
+          appendOption(control, String(node.config.version), `v${node.config.version}`);
+          control.value = String(node.config.version);
+        }
+        void populateSubgraphVersionOptions(control, node.config.definitionId, node.config.version);
+        control.addEventListener("change", () => {
+          node.config.version = control.value ? Number.parseInt(control.value, 10) : null;
+          renderNodes();
+        });
+      } else {
+        control = controlForField(field, node.config[field.name]);
+        control.addEventListener("change", () => {
+          node.config[field.name] = parseControlValue(control.value, field.type);
+          renderNodes();
+        });
+      }
       shell.appendChild(control);
       els.inspectorForm.appendChild(shell);
     });
+  }
+
+  function subgraphDefinitionControl(selectedId) {
+    const select = document.createElement("select");
+    select.className = "text-input";
+    appendOption(select, "", "Select definition");
+    state.savedDefinitions.forEach((definition) => {
+      appendOption(select, definition.definitionId, `${definition.name} (${definition.definitionId})`);
+    });
+    select.value = selectedId || "";
+    return select;
+  }
+
+  async function populateSubgraphVersionOptions(select, definitionId, selectedVersion) {
+    if (!definitionId) {
+      return;
+    }
+    try {
+      const revisions = await requestJson(API.definitionRevisions(definitionId));
+      select.innerHTML = "";
+      appendOption(select, "", "Latest");
+      revisions.forEach((revision) => {
+        appendOption(select, String(revision.version), `v${revision.version} (${revision.status})`);
+      });
+      if (selectedVersion != null && selectedVersion !== "") {
+        select.value = String(selectedVersion);
+      }
+    } catch (error) {
+      toast(error.message, true);
+    }
   }
 
   function renderEdgeEditor() {
@@ -437,7 +554,8 @@
       row.className = "edge-row";
       const from = selectNodeControl(edge.from);
       const to = selectNodeControl(edge.to);
-      const condition = textControl(edge.condition || "");
+      const fromNode = state.nodes.find((node) => node.id === edge.from);
+      const condition = edgeConditionControl(fromNode, edge.condition || "");
       condition.classList.add("edge-condition");
       const remove = document.createElement("button");
       remove.type = "button";
@@ -445,10 +563,12 @@
       remove.textContent = "Remove Edge";
       from.addEventListener("change", () => {
         edge.from = from.value;
+        renderEdgeEditor();
         renderEdges();
       });
       to.addEventListener("change", () => {
         edge.to = to.value;
+        renderEdgeEditor();
         renderEdges();
       });
       condition.addEventListener("change", () => {
@@ -465,6 +585,85 @@
     });
   }
 
+  function edgeConditionControl(fromNode, value) {
+    if (fromNode?.type === "loop") {
+      const select = document.createElement("select");
+      select.className = "text-input";
+      appendOption(select, "body", "body");
+      appendOption(select, "exit", "exit");
+      appendOption(select, "", "(none)");
+      select.value = value || "";
+      return select;
+    }
+    if (fromNode?.type === "condition") {
+      const select = document.createElement("select");
+      select.className = "text-input";
+      appendOption(select, "true", "true");
+      appendOption(select, "false", "false");
+      appendOption(select, "", "(none)");
+      select.value = value || "";
+      return select;
+    }
+    return textControl(value);
+  }
+
+  function insertLoopTemplate() {
+    ensureStartEndNodes();
+    const loopId = uniqueNodeId("loop");
+    const bodyId = uniqueNodeId("body_tool");
+    const loopBackId = uniqueNodeId("loop_back");
+    const afterId = uniqueNodeId("after_tool");
+    const loopSchema = schemaForType("loop");
+    const toolSchema = schemaForType("tool");
+    state.nodes.push(
+      { id: loopId, type: "loop", config: defaultConfig(loopSchema) },
+      { id: bodyId, type: "tool", config: defaultConfig(toolSchema) },
+      { id: loopBackId, type: "loop_back", config: {} },
+      { id: afterId, type: "tool", config: defaultConfig(toolSchema) }
+    );
+    const startNode = state.nodes.find((node) => node.type === "start");
+    const endNode = state.nodes.find((node) => node.type === "end");
+    if (startNode && !state.edges.some((edge) => edge.from === startNode.id && edge.to === loopId)) {
+      state.edges.push({ from: startNode.id, to: loopId, condition: "" });
+    }
+    state.edges.push(
+      { from: loopId, to: bodyId, condition: "body" },
+      { from: bodyId, to: loopBackId, condition: "" },
+      { from: loopBackId, to: loopId, condition: "" },
+      { from: loopId, to: afterId, condition: "exit" },
+      { from: afterId, to: endNode.id, condition: "" }
+    );
+    const baseY = 80 + Math.floor(state.nodes.length / 4) * 120;
+    state.positions.set(loopId, { x: 200, y: baseY });
+    state.positions.set(bodyId, { x: 420, y: baseY });
+    state.positions.set(loopBackId, { x: 640, y: baseY });
+    state.positions.set(afterId, { x: 420, y: baseY + 140 });
+    loadCanvasPositions();
+    state.selectedNodeId = loopId;
+    saveCanvasPositions();
+    renderAll();
+    toast("Loop template inserted — run Validate to check topology");
+  }
+
+  function ensureStartEndNodes() {
+    if (!state.nodes.some((node) => node.type === "start")) {
+      state.nodes.unshift({ id: uniqueNodeId("start"), type: "start", config: {} });
+    }
+    if (!state.nodes.some((node) => node.type === "end")) {
+      state.nodes.push({ id: uniqueNodeId("end"), type: "end", config: {} });
+    }
+  }
+
+  function uniqueNodeId(base) {
+    let index = 1;
+    let id = `${base}_${index}`;
+    while (state.nodes.some((node) => node.id === id)) {
+      index += 1;
+      id = `${base}_${index}`;
+    }
+    return id;
+  }
+
   function addNode(type) {
     const baseId = type.replace(/[^a-zA-Z0-9_]/g, "_") || "node";
     let index = 1;
@@ -478,6 +677,7 @@
     state.nodes.push(node);
     state.positions.set(id, { x: 120 + (state.nodes.length % 4) * 210, y: 180 + Math.floor(state.nodes.length / 4) * 120 });
     state.selectedNodeId = id;
+    saveCanvasPositions();
     renderAll();
   }
 
@@ -518,6 +718,7 @@
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", stop);
       target.removeEventListener("pointercancel", stop);
+      saveCanvasPositions();
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", stop);
@@ -533,6 +734,7 @@
     state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
     state.positions.delete(node.id);
     state.selectedNodeId = state.nodes[0]?.id || null;
+    saveCanvasPositions();
     renderAll();
   }
 
@@ -558,6 +760,7 @@
       }
     });
     state.selectedNodeId = newId;
+    saveCanvasPositions();
     renderAll();
   }
 
@@ -605,9 +808,12 @@
       onSuccess: async (response) => {
         state.definitionId = response.definitionId;
         state.definitionVersion = response.version;
-        setWorkflowStatus(`Saved v${response.version}`);
+        state.definitionStatus = response.status;
+        setWorkflowStatus(`${response.status || "DRAFT"} v${response.version}`);
+        saveCanvasPositions();
         await loadDefinitions();
         els.definitionSelect.value = response.definitionId;
+        await loadDefinitionHistory();
         toast("Workflow saved");
       },
       onError: (error) => toast(error.message, true)
@@ -623,8 +829,10 @@
       request: () => requestJson(API.publishDefinition(state.definitionId), { method: "POST" }),
       onSuccess: async (response) => {
         state.definitionVersion = response.version;
-        setWorkflowStatus(`Published v${response.version}`);
+        state.definitionStatus = response.status;
+        setWorkflowStatus(`${response.status || "PUBLISHED"} v${response.version}`);
         await loadDefinitions();
+        await loadDefinitionHistory();
         toast("Workflow published");
       },
       onError: (error) => toast(error.message, true)
@@ -644,6 +852,7 @@
         setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
         await refreshRunTrace(response.runId);
         await loadRuns();
+        await loadDefinitionHistory();
         toast("Workflow run complete");
       },
       onError: (error) => {
@@ -850,6 +1059,126 @@
     }));
   }
 
+  async function loadDefinitionHistory() {
+    if (!state.definitionId) {
+      renderDefinitionHistory([], []);
+      return;
+    }
+    const [revisionsResult, runsResult] = await Promise.allSettled([
+      requestJson(API.definitionRevisions(state.definitionId)),
+      requestJson(API.workflowRuns(state.definitionId))
+    ]);
+    const revisions = revisionsResult.status === "fulfilled" ? revisionsResult.value : [];
+    const runs = runsResult.status === "fulfilled" ? (runsResult.value?.content || []) : [];
+    renderDefinitionHistory(revisions, runs);
+  }
+
+  function renderDefinitionHistory(revisions, runs) {
+    els.revisionList.innerHTML = "";
+    els.workflowRunList.innerHTML = "";
+    if (!state.definitionId) {
+      const emptyRevision = document.createElement("div");
+      emptyRevision.className = "empty-state";
+      emptyRevision.textContent = "Save workflow to view history";
+      els.revisionList.appendChild(emptyRevision);
+      const emptyRuns = document.createElement("div");
+      emptyRuns.className = "empty-state";
+      emptyRuns.textContent = "Save workflow to view history";
+      els.workflowRunList.appendChild(emptyRuns);
+      return;
+    }
+    if (!revisions || revisions.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No revisions";
+      els.revisionList.appendChild(empty);
+    } else {
+      revisions.forEach((revision) => {
+        const row = document.createElement("div");
+        row.className = "history-row";
+        const meta = document.createElement("div");
+        meta.innerHTML = `<strong>v${revision.version}</strong> <span class="history-row-meta">${revision.status} · ${revision.updatedAt || revision.createdAt || ""}</span>`;
+        const actions = document.createElement("div");
+        actions.className = "history-row-actions";
+        const loadButton = document.createElement("button");
+        loadButton.type = "button";
+        loadButton.className = "secondary-button";
+        loadButton.textContent = "Load";
+        loadButton.addEventListener("click", () => loadRevisionOntoCanvas(revision));
+        const rollbackButton = document.createElement("button");
+        rollbackButton.type = "button";
+        rollbackButton.className = "secondary-button";
+        rollbackButton.textContent = "Rollback";
+        rollbackButton.addEventListener("click", () => void rollbackDefinitionVersion(revision.version));
+        actions.append(loadButton, rollbackButton);
+        row.append(meta, actions);
+        els.revisionList.appendChild(row);
+      });
+    }
+    if (!runs || runs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No runs for this definition";
+      els.workflowRunList.appendChild(empty);
+    } else {
+      runs.forEach((run) => {
+        const row = document.createElement("div");
+        row.className = "history-row clickable";
+        row.innerHTML = `<div><strong>${escapeHtml(run.status)}</strong><div class="history-row-meta">v${run.definitionVersion} · ${run.runId} · ${run.startedAt || ""}</div></div>`;
+        row.addEventListener("click", () => void selectWorkflowRun(run));
+        els.workflowRunList.appendChild(row);
+      });
+    }
+  }
+
+  function loadRevisionOntoCanvas(revision) {
+    if (!revision?.workflowDefinition) {
+      return;
+    }
+    hydrateWorkflow(revision.workflowDefinition);
+    state.definitionVersion = revision.version;
+    state.definitionStatus = revision.status;
+    setWorkflowStatus(`${revision.status || "DRAFT"} v${revision.version} (loaded)`);
+    saveCanvasPositions();
+    renderAll();
+    toast(`Loaded revision v${revision.version} onto canvas`);
+  }
+
+  async function rollbackDefinitionVersion(version) {
+    if (!state.definitionId) {
+      return;
+    }
+    if (!window.confirm(`Rollback to revision v${version}? This creates a new draft version.`)) {
+      return;
+    }
+    await runCommand({
+      request: () => requestJson(API.rollbackDefinition(state.definitionId, version), { method: "POST" }),
+      onSuccess: async (response) => {
+        state.definitionVersion = response.version;
+        state.definitionStatus = response.status;
+        hydrateWorkflow(response.workflowDefinition);
+        setWorkflowStatus(`${response.status || "DRAFT"} v${response.version} (rollback)`);
+        saveCanvasPositions();
+        renderAll();
+        await loadDefinitions();
+        els.definitionSelect.value = response.definitionId;
+        await loadDefinitionHistory();
+        toast(`Rolled back to v${version} as v${response.version}`);
+      },
+      onError: (error) => toast(error.message, true)
+    });
+  }
+
+  async function selectWorkflowRun(run) {
+    if (!run?.runId) {
+      return;
+    }
+    state.lastRunId = run.runId;
+    setWorkflowStatus(`Run ${run.runId.slice(0, 8)} · ${run.status}`);
+    await refreshRunTrace(run.runId);
+    toast(`Loaded run ${run.runId.slice(0, 8)}`);
+  }
+
   async function loadRuns() {
     try {
       const runsPage = await requestJson(`${API.runs}?page=0&size=20`);
@@ -999,6 +1328,23 @@
       return [];
     }
     const groups = new Map();
+    const claimStep = (groupKey, title, step, childId) => {
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { title, children: [], childStepIds: [] });
+      }
+      const group = groups.get(groupKey);
+      if (group.childStepIds.includes(step.nodeName)) {
+        return;
+      }
+      group.children.push({
+        id: childId,
+        status: step.status,
+        stepId: step.stepId,
+        type: title.includes("(") ? title.split("(")[1].replace(")", "") : "step"
+      });
+      group.childStepIds.push(step.nodeName);
+    };
+
     steps.forEach((step) => {
       const nodeId = traceStepNodeId(step.nodeName);
       if (!nodeId) {
@@ -1006,34 +1352,114 @@
       }
       const subgraphSep = nodeId.indexOf("::");
       const dynamicSep = nodeId.indexOf(":dynamic:");
-      let parentId;
-      let parentType;
       if (subgraphSep > 0) {
-        parentId = nodeId.substring(0, subgraphSep);
-        parentType = "subgraph";
-      } else if (dynamicSep > 0) {
-        parentId = nodeId.substring(0, dynamicSep);
-        parentType = "dynamic";
-      } else {
+        const parentId = nodeId.substring(0, subgraphSep);
+        claimStep(`subgraph:${parentId}`, `${parentId} (subgraph)`, step, nodeId);
         return;
       }
-      if (!groups.has(parentId)) {
-        groups.set(parentId, {
-          title: `${parentId} (${parentType})`,
-          children: [],
-          childStepIds: []
+      if (dynamicSep > 0) {
+        const parentId = nodeId.substring(0, dynamicSep);
+        claimStep(`dynamic:${parentId}`, `${parentId} (dynamic)`, step, nodeId);
+      }
+    });
+
+    state.nodes.filter((node) => node.type === "loop").forEach((loopNode) => {
+      const loopStepName = `workflow_node_${loopNode.id}`;
+      if (!steps.some((step) => step.nodeName === loopStepName)) {
+        return;
+      }
+      const bodyStart = state.edges.find((edge) => edge.from === loopNode.id && edge.condition === "body");
+      if (!bodyStart) {
+        return;
+      }
+      collectLinearChain(bodyStart.to, new Set([loopNode.id])).forEach((bodyNodeId) => {
+        const bodyStep = steps.find((step) => step.nodeName === `workflow_node_${bodyNodeId}`);
+        if (bodyStep) {
+          claimStep(`loop:${loopNode.id}`, `${loopNode.id} (loop)`, bodyStep, bodyNodeId);
+        }
+      });
+      const loopBackId = findLoopBackId(loopNode.id);
+      if (loopBackId) {
+        const loopBackStep = steps.find((step) => step.nodeName === `workflow_node_${loopBackId}`);
+        if (loopBackStep) {
+          claimStep(`loop:${loopNode.id}`, `${loopNode.id} (loop)`, loopBackStep, loopBackId);
+        }
+      }
+    });
+
+    state.nodes.filter((node) => node.type === "parallel").forEach((parallelNode) => {
+      const parallelStepName = `workflow_node_${parallelNode.id}`;
+      const hasParallel = steps.some((step) => step.nodeName === parallelStepName);
+      const branchEdges = state.edges.filter((edge) => edge.from === parallelNode.id && !edge.condition);
+      let grouped = false;
+      branchEdges.forEach((edge) => {
+        const syntheticId = `workflow_branch_${parallelNode.id}_${edge.to}`;
+        const syntheticStep = steps.find((step) => step.nodeName === `workflow_node_${syntheticId}`);
+        if (syntheticStep) {
+          claimStep(`parallel:${parallelNode.id}`, `${parallelNode.id} (parallel)`, syntheticStep, syntheticId);
+          grouped = true;
+        }
+        collectLinearChain(edge.to, new Set([parallelNode.id])).forEach((branchNodeId) => {
+          const branchStep = steps.find((step) => step.nodeName === `workflow_node_${branchNodeId}`);
+          if (branchStep) {
+            claimStep(`parallel:${parallelNode.id}`, `${parallelNode.id} (parallel)`, branchStep, branchNodeId);
+            grouped = true;
+          }
+        });
+      });
+      if (!grouped && hasParallel) {
+        steps.forEach((step) => {
+          const nodeId = traceStepNodeId(step.nodeName);
+          if (nodeId.startsWith("workflow_branch_") && nodeId.includes(`_${parallelNode.id}_`)) {
+            claimStep(`parallel:${parallelNode.id}`, `${parallelNode.id} (parallel)`, step, nodeId);
+          }
         });
       }
-      const group = groups.get(parentId);
-      group.children.push({
-        id: nodeId,
-        status: step.status,
-        stepId: step.stepId,
-        type: parentType
-      });
-      group.childStepIds.push(step.nodeName);
     });
+
     return Array.from(groups.values());
+  }
+
+  function collectLinearChain(startId, stopIds) {
+    const ids = [];
+    let current = startId;
+    const visited = new Set();
+    while (current && !visited.has(current) && !stopIds.has(current)) {
+      visited.add(current);
+      const node = state.nodes.find((item) => item.id === current);
+      if (!node) {
+        break;
+      }
+      if (node.type === "loop_back" || node.type === "join") {
+        break;
+      }
+      ids.push(current);
+      const nextEdge = state.edges.find((edge) => edge.from === current);
+      if (!nextEdge) {
+        break;
+      }
+      current = nextEdge.to;
+    }
+    return ids;
+  }
+
+  function findLoopBackId(loopId) {
+    const bodyEdge = state.edges.find((edge) => edge.from === loopId && edge.condition === "body");
+    if (!bodyEdge) {
+      return null;
+    }
+    let current = bodyEdge.to;
+    const visited = new Set();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const node = state.nodes.find((item) => item.id === current);
+      if (node?.type === "loop_back") {
+        return node.id;
+      }
+      const nextEdge = state.edges.find((edge) => edge.from === current);
+      current = nextEdge?.to;
+    }
+    return null;
   }
 
   function traceStepNodeId(nodeName) {
@@ -1135,6 +1561,15 @@
     }
     if (node.type === "condition") {
       return `${node.config.operator || "contains"}`;
+    }
+    if (node.type === "subgraph") {
+      return node.config.definitionId ? `def ${node.config.definitionId}` : "subgraph";
+    }
+    if (node.type === "loop") {
+      return `max ${node.config.maxIterations || 10}`;
+    }
+    if (node.type === "dynamic") {
+      return String(node.config.itemsFrom || "items").slice(0, 40);
     }
     return schemaForType(node.type).displayName || node.type;
   }

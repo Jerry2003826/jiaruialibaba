@@ -46,6 +46,7 @@
             <button id="load-definition" class="secondary-button" type="button">Load</button>
             <button id="save-definition" class="primary-button" type="button">Save</button>
             <button id="publish-definition" class="secondary-button" type="button">Publish</button>
+            <button id="insert-loop-template" class="secondary-button" type="button">Insert Loop</button>
             <button id="validate-workflow" class="secondary-button" type="button">Validate</button>
             <button id="run-workflow" class="primary-button" type="button">Run</button>
           </div>
@@ -86,6 +87,16 @@
             </div>
             <div id="inspector-empty" class="empty-state">No node selected</div>
             <form id="inspector-form" class="inspector-form hidden"></form>
+            <section class="definition-history" id="definition-history">
+              <div class="panel-header">
+                <h3>Definition History</h3>
+                <button id="refresh-definition-history" class="secondary-button" type="button">Refresh</button>
+              </div>
+              <h4 class="history-subtitle">Revisions</h4>
+              <div id="revision-list" class="history-list"></div>
+              <h4 class="history-subtitle">Runs</h4>
+              <div id="workflow-run-list" class="history-list"></div>
+            </section>
             <section class="edge-editor">
               <div class="panel-header">
                 <h3>Edges</h3>

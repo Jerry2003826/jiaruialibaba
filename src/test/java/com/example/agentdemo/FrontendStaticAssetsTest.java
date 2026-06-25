@@ -43,6 +43,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("AI Agent Workbench")))
                 .andExpect(content().string(containsString("Tool Agent")))
                 .andExpect(content().string(containsString("runtime-details")))
+                .andExpect(content().string(containsString("insert-loop-template")))
+                .andExpect(content().string(containsString("definition-history")))
                 .andExpect(content().string(containsString("/app.js")))
                 .andExpect(content().string(containsString("/styles.css")));
     }
@@ -60,6 +62,10 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("consumeSse")))
                 .andExpect(content().string(containsString("workflowRuntime")))
                 .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
+                .andExpect(content().string(containsString("insertLoopTemplate")))
+                .andExpect(content().string(containsString("saveCanvasPositions")))
+                .andExpect(content().string(containsString("buildCompositeContainersFromSteps")))
+                .andExpect(content().string(containsString("loadDefinitionHistory")))
                 .andExpect(content().string(containsString("runsPage?.content")));
     }
 
@@ -69,7 +75,9 @@ class FrontendStaticAssetsTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString(".workflow-canvas")))
                 .andExpect(content().string(containsString(".canvas-node")))
-                .andExpect(content().string(containsString(".inspector-panel")));
+                .andExpect(content().string(containsString(".inspector-panel")))
+                .andExpect(content().string(containsString(".definition-history")))
+                .andExpect(content().string(containsString(".history-list")));
     }
 
 }

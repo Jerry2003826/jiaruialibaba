@@ -217,9 +217,10 @@ http://localhost:8080/
 
 当前工作台包含：
 
-- Workflow canvas：节点 palette、拖拽节点、连线、节点配置 inspector、edge 编辑。
-- Workflow execution：调用 `/api/workflows/validate`、`/api/workflows/preview-graph`、`/api/workflows/run`，并读取 run graph 和 run steps。
-- Definition 管理：保存、更新、加载、**Publish** 已保存 workflow definition。
+- Workflow canvas：节点 palette、拖拽节点、连线、节点配置 inspector、edge 编辑；**Insert Loop** 一键插入标准 loop 拓扑；subgraph 节点可通过下拉选择已保存 definition 与 revision。
+- Workflow execution：调用 `/api/workflows/validate`、`/api/workflows/preview-graph`、`/api/workflows/run`，并读取 run graph 和 run steps；graph 不可用时 trace 仍会对 subgraph/dynamic/loop/parallel 做启发式分组。
+- Definition 管理：保存、更新、加载、**Publish**、**Revisions 列表 / Rollback / Load revision**、当前 definition 的 **运行历史**（点击加载 trace）。
+- 画布布局：节点坐标保存在浏览器 **localStorage**（按 definitionId 或 draft），刷新页面后布局保留。
 - Chat：同步 `/api/chat` 与 SSE **Stream** `/api/chat/stream`。
 - Agent：**Tool Chat** `/api/agent/tool-chat`（DashScope LLM tool calling）。
 - RAG：文档保存/列表/问答；侧边栏 health 显示 `indexedDocumentCount`，重启后无文档时会提示重新索引。
