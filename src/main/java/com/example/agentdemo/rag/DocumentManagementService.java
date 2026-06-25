@@ -142,7 +142,7 @@ public class DocumentManagementService {
 
     private DocumentDetailResponse toDetail(DocumentEntity document) {
         return new DocumentDetailResponse(document.getId(), document.getTitle(), document.getContent(),
-                document.getCreatedAt());
+                document.getIndexStatus(), document.getCreatedAt());
     }
 
 }

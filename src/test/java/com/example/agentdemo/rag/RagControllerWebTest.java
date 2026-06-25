@@ -44,14 +44,16 @@ class RagControllerWebTest {
     @Test
     void getDocumentRouteReturnsDetail() throws Exception {
         DocumentManagementService managementService = mock(DocumentManagementService.class);
-        when(managementService.getDocument(1L)).thenReturn(new DocumentDetailResponse(1L, "Doc", "content", Instant.now()));
+        when(managementService.getDocument(1L)).thenReturn(
+                new DocumentDetailResponse(1L, "Doc", "content", DocumentIndexStatus.READY, Instant.now()));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new RagController(mock(RagService.class), managementService))
                 .setControllerAdvice(new com.example.agentdemo.common.GlobalExceptionHandler())
                 .build();
 
         mockMvc.perform(get("/api/rag/documents/1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.title").value("Doc"));
+                .andExpect(jsonPath("$.data.title").value("Doc"))
+                .andExpect(jsonPath("$.data.indexStatus").value("READY"));
     }
 
     @Test
