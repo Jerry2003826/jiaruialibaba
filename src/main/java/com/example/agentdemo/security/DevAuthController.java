@@ -10,6 +10,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,9 +27,15 @@ import java.util.List;
  * {@code demo.security.dev-token.enabled=true} (default) and only mints tokens in
  * {@code demo.security.jwt-mode=hmac}. Disable it for production deployments and front the UI
  * with a real identity provider (issuer mode) instead.
+ *
+ * <p>{@code @Profile("!prod")} is a hard, fail-safe guard: this anonymous full-scope token endpoint
+ * is never registered under the {@code prod} profile, even if {@code dev-token.enabled} is left at
+ * its default {@code true}. That prevents a prod deployment from silently exposing a way to mint a
+ * fully-privileged token without any credentials.
  */
 @RestController
 @RequestMapping("/api/auth")
+@Profile("!prod")
 @ConditionalOnProperty(prefix = "demo.security.dev-token", name = "enabled", havingValue = "true",
         matchIfMissing = true)
 public class DevAuthController {
