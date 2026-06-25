@@ -19,6 +19,9 @@ import java.util.concurrent.ExecutorService;
 public class WorkflowInlineExecutionService {
 
     private static final int MAX_SUBGRAPH_NESTING_DEPTH = 10;
+    static final String TRACE_NODE_NAME_PREFIX = "workflow_node_";
+    static final int MAX_TRACE_NODE_NAME_LENGTH = 128;
+    static final int MAX_TRACE_NODE_ID_LENGTH = MAX_TRACE_NODE_NAME_LENGTH - TRACE_NODE_NAME_PREFIX.length();
 
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowCompiler workflowCompiler;
@@ -107,6 +110,7 @@ public class WorkflowInlineExecutionService {
         Integer version = configInteger(node, "version");
         WorkflowDefinitionResolution resolution = workflowDefinitionService.resolveDefinition(definitionId, version);
         WorkflowDefinition namespacedDefinition = namespaceDefinition(resolution.workflowDefinition(), node.id());
+        validateTraceNodeIds(namespacedDefinition, node.id());
         WorkflowExecutionPlan nestedPlan = workflowCompiler.compile(namespacedDefinition);
         Map<String, Object> nestedInput = new LinkedHashMap<>(state.input());
         nestedInput.put("parentNodeId", node.id());
@@ -250,6 +254,16 @@ public class WorkflowInlineExecutionService {
                 .map(edge -> new WorkflowEdge(prefix + edge.from(), prefix + edge.to(), edge.condition()))
                 .toList();
         return new WorkflowDefinition(nodes, edges);
+    }
+
+    private void validateTraceNodeIds(WorkflowDefinition definition, String subgraphNodeId) {
+        for (WorkflowNode namespacedNode : definition.nodes()) {
+            if (namespacedNode.id().length() > MAX_TRACE_NODE_ID_LENGTH) {
+                throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                        "Subgraph namespaced node id exceeds trace storage limit of " + MAX_TRACE_NODE_ID_LENGTH
+                                + " characters: " + subgraphNodeId);
+            }
+        }
     }
 
 }

@@ -109,6 +109,36 @@ class WorkflowInlineExecutionServiceTest {
     }
 
     @Test
+    void executeSubgraphRejectsNamespacedNodeIdsExceedingTraceLimit() {
+        String longNodeId = "n".repeat(WorkflowInlineExecutionService.MAX_TRACE_NODE_ID_LENGTH);
+        WorkflowDefinition childDefinition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode(longNodeId, "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", longNodeId),
+                        new WorkflowEdge(longNodeId, "end")));
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        when(definitionService.resolveDefinition("child-long", null))
+                .thenReturn(new WorkflowDefinitionResolution("child-long", 1, childDefinition));
+
+        WorkflowRuntimeTestSupport.RuntimeStack runtimeStack = runtimeStack(definitionService);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("sub_1", "subgraph", Map.of("definitionId", "child-long")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "sub_1"),
+                        new WorkflowEdge("sub_1", "end"))));
+
+        assertThatThrownBy(() -> runtimeStack.runtime().run("run-long-id", plan, Map.of()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("exceeds trace storage limit");
+    }
+
+    @Test
     void executeSubgraphAllowsMaxNestingDepth() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         registerSubgraphChain(definitionService, 9);

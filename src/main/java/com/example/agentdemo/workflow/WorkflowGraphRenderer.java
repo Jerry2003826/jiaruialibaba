@@ -129,9 +129,15 @@ public class WorkflowGraphRenderer {
         String errorMessage;
         if ("loop_back".equals(nodeType)) {
             WorkflowRunGraphNodeView loopNode = context.loopNodeForLoopBack(node.id());
-            executed = loopNode != null && loopNode.executed()
-                    && loopNode.iterations() != null && loopNode.iterations() > 0;
-            status = executed ? StepStatus.SUCCEEDED : null;
+            boolean ranBody = loopNode != null && loopNode.iterations() != null && loopNode.iterations() > 0;
+            executed = ranBody;
+            status = ranBody && loopNode != null ? loopNode.status() : null;
+            stepId = null;
+            errorMessage = null;
+        }
+        else if (context.isCompositeScopedBodyNode(node.id(), nodeType)) {
+            executed = false;
+            status = null;
             stepId = null;
             errorMessage = null;
         }
@@ -265,7 +271,8 @@ public class WorkflowGraphRenderer {
             aliasCounter += parallelBlock.branches().size();
         }
         for (WorkflowLoopBlock loopBlock : executionPlan.loopBlocks()) {
-            appendLoopCluster(mermaidBuilder, loopBlock, nodesById, clusteredNodeIds, aliasCounter);
+            appendLoopCluster(mermaidBuilder, loopBlock, nodesById, clusteredNodeIds, aliasCounter,
+                    loopBackForLoop(definition, loopBlock));
             aliasCounter += loopBlock.bodyNodeIds().size() + 1;
         }
         for (WorkflowRunGraphEdgeView edge : edges) {
@@ -301,14 +308,23 @@ public class WorkflowGraphRenderer {
         }
         builder.builder().append("\n  end");
         WorkflowRunGraphNodeView parallelNode = nodesById.get(parallelBlock.parallelNodeId());
-        if (parallelNode != null && builder.alias(parallelBlock.parallelNodeId()) != null) {
-            appendEdge(builder, parallelBlock.parallelNodeId(), parallelBlock.joinNodeId(), null,
-                    parallelNode.executed(), true);
+        if (parallelNode == null || builder.alias(parallelBlock.parallelNodeId()) == null) {
+            return;
+        }
+        for (WorkflowBranchPath branch : parallelBlock.branches()) {
+            String syntheticId = syntheticBranchNodeId(parallelBlock.parallelNodeId(), branch.branchStartNodeId());
+            boolean branchExecuted = branch.nodeIds().stream()
+                    .map(nodesById::get)
+                    .filter(Objects::nonNull)
+                    .allMatch(WorkflowRunGraphNodeView::executed);
+            appendEdge(builder, parallelBlock.parallelNodeId(), syntheticId, null, parallelNode.executed(), true);
+            appendEdge(builder, syntheticId, parallelBlock.joinNodeId(), null, branchExecuted, true);
         }
     }
 
     private void appendLoopCluster(AliasedMermaidBuilder builder, WorkflowLoopBlock loopBlock,
-            Map<String, WorkflowRunGraphNodeView> nodesById, Set<String> clusteredNodeIds, int aliasCounter) {
+            Map<String, WorkflowRunGraphNodeView> nodesById, Set<String> clusteredNodeIds, int aliasCounter,
+            String loopBackId) {
         String clusterId = "loop_" + loopBlock.loopNodeId();
         builder.builder().append("\n  subgraph ").append(clusterId).append("[\"loop body ")
                 .append(escapeMermaidLabel(loopBlock.loopNodeId()))
@@ -330,7 +346,6 @@ public class WorkflowGraphRenderer {
                     .append("\"]");
         }
         builder.builder().append("\n  end");
-        String loopBackId = findLoopBackNodeId(loopBlock, nodesById);
         if (loopBackId != null && builder.alias(loopBackId) != null && builder.alias(loopBlock.loopNodeId()) != null) {
             appendEdge(builder, loopBackId, loopBlock.loopNodeId(), "loop_back", true, true);
         }
@@ -362,13 +377,22 @@ public class WorkflowGraphRenderer {
         }
     }
 
-    private String findLoopBackNodeId(WorkflowLoopBlock loopBlock, Map<String, WorkflowRunGraphNodeView> nodesById) {
-        return nodesById.values().stream()
-                .filter(node -> "loop_back".equals(normalizeType(node.type())))
-                .map(WorkflowRunGraphNodeView::id)
-                .filter(loopBackId -> nodesById.containsKey(loopBackId))
-                .findFirst()
-                .orElse(null);
+    private String loopBackForLoop(WorkflowDefinition definition, WorkflowLoopBlock loopBlock) {
+        for (WorkflowEdge edge : definition.edges()) {
+            WorkflowNode from = definition.nodes().stream()
+                    .filter(node -> node.id().equals(edge.from()))
+                    .findFirst()
+                    .orElse(null);
+            WorkflowNode to = definition.nodes().stream()
+                    .filter(node -> node.id().equals(edge.to()))
+                    .findFirst()
+                    .orElse(null);
+            if (from != null && to != null && "loop_back".equalsIgnoreCase(from.type())
+                    && loopBlock.loopNodeId().equals(to.id())) {
+                return from.id();
+            }
+        }
+        return null;
     }
 
     private WorkflowRunGraphNodeView runNode(WorkflowNode node, RunStepResponse step) {
@@ -619,6 +643,10 @@ public class WorkflowGraphRenderer {
 
         private String parallelGroup(String nodeId) {
             return parallelGroupByNodeId.get(nodeId);
+        }
+
+        private boolean isCompositeScopedBodyNode(String nodeId, String nodeType) {
+            return !"loop_back".equals(nodeType) && executionPlan.isCompositeScopedNode(nodeId);
         }
 
         private WorkflowRunGraphNodeView loopNodeForLoopBack(String loopBackNodeId) {

@@ -272,7 +272,30 @@ class WorkflowRunGraphServiceTest {
         assertThat(loopBackNode.compositeRole()).isEqualTo("LOOP_BACK");
         assertThat(loopBackNode.executed()).isTrue();
         assertThat(loopBackNode.status()).isEqualTo(StepStatus.SUCCEEDED);
+        WorkflowRunGraphNodeView bodyNode = response.nodes().stream()
+                .filter(node -> "body_tool".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(bodyNode.executed()).isFalse();
         assertThat(response.mermaid()).contains("subgraph loop_loop_1");
+    }
+
+    @Test
+    void derivesLoopBackStatusFromFailedLoopContainer() {
+        WorkflowDefinition definition = loopDefinition();
+        WorkflowRunGraphService service = serviceWithDefinition(definition, "run-loop-failed", List.of(
+                runStep("run-loop-failed", "step-start", "workflow_node_start", StepStatus.SUCCEEDED, null),
+                runStep("run-loop-failed", "step-loop", "workflow_node_loop_1", StepStatus.FAILED, "loop failed"),
+                runStep("run-loop-failed", "step-body", "workflow_node_body_tool", StepStatus.SUCCEEDED, null)));
+
+        WorkflowRunGraphResponse response = service.getRunGraph("run-loop-failed");
+
+        WorkflowRunGraphNodeView loopBackNode = response.nodes().stream()
+                .filter(node -> "loop_back".equals(node.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(loopBackNode.executed()).isTrue();
+        assertThat(loopBackNode.status()).isEqualTo(StepStatus.FAILED);
     }
 
     @Test
@@ -323,6 +346,9 @@ class WorkflowRunGraphServiceTest {
         assertThat(response.nodes().stream().filter(node -> "tool_a".equals(node.id())).findFirst().orElseThrow()
                 .parallelGroup()).isEqualTo("parallel_1");
         assertThat(response.mermaid()).contains("subgraph parallel_parallel_1");
+        assertThat(response.mermaid()).contains("workflow_branch_parallel_1_tool_a");
+        assertThat(response.mermaid()).contains("n1 --> pb");
+        assertThat(response.mermaid()).doesNotContain("n1 --> n4");
     }
 
     private WorkflowRunGraphService serviceWithDefinition(WorkflowDefinition definition, String runId,
