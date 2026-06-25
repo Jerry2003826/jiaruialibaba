@@ -282,6 +282,191 @@ class WorkflowCompilerTest {
                 .hasMessageContaining("Config tool.timeoutMs must be <= 300000");
     }
 
+    @Test
+    void compilesLoopWithLoopBackAsOnlyAllowedCycle() {
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of(
+                                "maxIterations", 5,
+                                "left", "{{input.count}}",
+                                "operator", "greaterthan",
+                                "right", "0")),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body", "body"),
+                        new WorkflowEdge("loop_1", "after", "exit"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after", "end"))));
+
+        assertThat(plan.loopBlocks()).hasSize(1);
+        assertThat(plan.loopBlocks().getFirst().exitNodeId()).isEqualTo("after");
+    }
+
+    @Test
+    void rejectsLoopWithoutBodyAndExitEdges() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 3)),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Loop node must have body and exit outgoing edges");
+    }
+
+    @Test
+    void rejectsLoopBackNotPointingToLoopNode() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 3)),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("wrong_target", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body", "body"),
+                        new WorkflowEdge("loop_1", "after", "exit"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "wrong_target"),
+                        new WorkflowEdge("after", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("loop_back node must point to a loop node");
+    }
+
+    @Test
+    void rejectsArbitraryWorkflowCycle() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("a", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("b", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "a"),
+                        new WorkflowEdge("a", "b"),
+                        new WorkflowEdge("b", "a"),
+                        new WorkflowEdge("b", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Only condition or parallel nodes can branch");
+    }
+
+    @Test
+    void rejectsSubgraphInsideLoopBody() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 3)),
+                        new WorkflowNode("sub_1", "subgraph", Map.of("definitionId", "child")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "sub_1", "body"),
+                        new WorkflowEdge("loop_1", "after", "exit"),
+                        new WorkflowEdge("sub_1", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Loop body cannot contain branching or composite nodes");
+    }
+
+    @Test
+    void rejectsLoopInsideParallelBranch() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("parallel_1", "parallel", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 3)),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("join_1", "join", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "parallel_1"),
+                        new WorkflowEdge("parallel_1", "loop_1"),
+                        new WorkflowEdge("loop_1", "body", "body"),
+                        new WorkflowEdge("loop_1", "after", "exit"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after", "join_1"),
+                        new WorkflowEdge("parallel_1", "join_1"),
+                        new WorkflowEdge("join_1", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Parallel branches only support linear nodes");
+    }
+
+    @Test
+    void rejectsLoopMaxIterationsOutsideRange() {
+        WorkflowDefinition tooLow = loopDefinitionWithMaxIterations(0);
+        WorkflowDefinition tooHigh = loopDefinitionWithMaxIterations(51);
+
+        assertThatThrownBy(() -> compiler.compile(tooLow))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config loop_1.maxIterations must be >= 1");
+        assertThatThrownBy(() -> compiler.compile(tooHigh))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config loop_1.maxIterations must be <= 50");
+    }
+
+    @Test
+    void rejectsSubgraphWithoutDefinitionId() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("sub_1", "subgraph", Map.of()),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Config sub_1.definitionId is required");
+    }
+
+    private WorkflowDefinition loopDefinitionWithMaxIterations(int maxIterations) {
+        return new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", maxIterations)),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body", "body"),
+                        new WorkflowEdge("loop_1", "after", "exit"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after", "end")));
+    }
+
     private WorkflowDefinition definition(WorkflowNode... nodes) {
         return new WorkflowDefinition(List.of(nodes), edgesFor(nodes));
     }

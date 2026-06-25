@@ -1,20 +1,16 @@
 package com.example.agentdemo.support;
 
+import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.config.AlibabaRuntimePolicy;
+import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
+import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolProvider;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
-import org.springframework.beans.factory.ObjectProvider;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.mockito.Mockito.mock;
-
+import com.example.agentdemo.workflow.GraphWorkflowRuntime;
+import com.example.agentdemo.workflow.SimpleWorkflowRuntime;
 import com.example.agentdemo.workflow.WorkflowCompiler;
 import com.example.agentdemo.workflow.WorkflowDefinitionService;
 import com.example.agentdemo.workflow.WorkflowInlineExecutionService;
@@ -22,6 +18,18 @@ import com.example.agentdemo.workflow.WorkflowNodeExecutor;
 import com.example.agentdemo.workflow.WorkflowNodeSchemaRegistry;
 import com.example.agentdemo.workflow.WorkflowRuntime;
 import com.example.agentdemo.workflow.WorkflowVariableResolver;
+import org.springframework.beans.factory.ObjectProvider;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public final class WorkflowRuntimeTestSupport {
 
@@ -32,15 +40,113 @@ public final class WorkflowRuntimeTestSupport {
         return new TraceStep("step-" + nodeName, runId, nodeName);
     }
 
+    public record RuntimeStack(
+            SimpleWorkflowRuntime runtime,
+            WorkflowNodeExecutor nodeExecutor,
+            WorkflowInlineExecutionService inlineExecutionService) {
+    }
+
+    public record GraphRuntimeStack(
+            GraphWorkflowRuntime runtime,
+            WorkflowNodeExecutor nodeExecutor,
+            WorkflowInlineExecutionService inlineExecutionService) {
+    }
+
+    public static TraceService mockPermissiveTraceService() {
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(any(), any(), any()))
+                .thenAnswer(invocation -> traceStep(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1)));
+        return traceService;
+    }
+
+    public static ToolGatewayService localToolGateway() {
+        return new ToolGatewayService(List.of(new com.example.agentdemo.tool.LocalToolProvider(
+                new com.example.agentdemo.tool.ToolService())));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static RuntimeStack simpleRuntimeStack(WorkflowDefinitionService definitionService,
+            RagService ragService, AiModelService aiModelService, ToolGatewayService toolGatewayService,
+            AlibabaRuntimePolicy alibabaRuntimePolicy, TraceService traceService,
+            ExecutorService executorService) {
+        AtomicReference<SimpleWorkflowRuntime> runtimeRef = new AtomicReference<>();
+        ObjectProvider<WorkflowRuntime> workflowRuntimeProvider = mock(ObjectProvider.class);
+        when(workflowRuntimeProvider.getObject()).thenAnswer(ignored -> runtimeRef.get());
+
+        AtomicReference<WorkflowNodeExecutor> nodeExecutorRef = new AtomicReference<>();
+        ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider = mock(ObjectProvider.class);
+        when(nodeExecutorProvider.getObject()).thenAnswer(ignored -> nodeExecutorRef.get());
+
+        WorkflowInlineExecutionService inlineExecutionService = new WorkflowInlineExecutionService(
+                definitionService,
+                new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                workflowRuntimeProvider,
+                nodeExecutorProvider,
+                new WorkflowVariableResolver(),
+                traceService,
+                executorService);
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
+                ragService,
+                aiModelService,
+                toolGatewayService,
+                new WorkflowVariableResolver(),
+                alibabaRuntimePolicy,
+                inlineExecutionService);
+        nodeExecutorRef.set(nodeExecutor);
+        SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
+                nodeExecutor, traceService, executorService, inlineExecutionService);
+        runtimeRef.set(runtime);
+        return new RuntimeStack(runtime, nodeExecutor, inlineExecutionService);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static GraphRuntimeStack graphRuntimeStack(WorkflowDefinitionService definitionService,
+            RagService ragService, AiModelService aiModelService, ToolGatewayService toolGatewayService,
+            AlibabaRuntimePolicy alibabaRuntimePolicy, TraceService traceService,
+            ExecutorService executorService) {
+        AtomicReference<GraphWorkflowRuntime> runtimeRef = new AtomicReference<>();
+        ObjectProvider<WorkflowRuntime> workflowRuntimeProvider = mock(ObjectProvider.class);
+        when(workflowRuntimeProvider.getObject()).thenAnswer(ignored -> runtimeRef.get());
+
+        AtomicReference<WorkflowNodeExecutor> nodeExecutorRef = new AtomicReference<>();
+        ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider = mock(ObjectProvider.class);
+        when(nodeExecutorProvider.getObject()).thenAnswer(ignored -> nodeExecutorRef.get());
+
+        WorkflowInlineExecutionService inlineExecutionService = new WorkflowInlineExecutionService(
+                definitionService,
+                new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                workflowRuntimeProvider,
+                nodeExecutorProvider,
+                new WorkflowVariableResolver(),
+                traceService,
+                executorService);
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
+                ragService,
+                aiModelService,
+                toolGatewayService,
+                new WorkflowVariableResolver(),
+                alibabaRuntimePolicy,
+                inlineExecutionService);
+        nodeExecutorRef.set(nodeExecutor);
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
+                nodeExecutor, traceService, executorService, inlineExecutionService);
+        runtimeRef.set(runtime);
+        return new GraphRuntimeStack(runtime, nodeExecutor, inlineExecutionService);
+    }
+
     @SuppressWarnings("unchecked")
     public static WorkflowInlineExecutionService inlineExecutionService(WorkflowNodeExecutor nodeExecutor,
             TraceService traceService, ExecutorService executorService) {
         ObjectProvider<WorkflowRuntime> workflowRuntimeProvider = mock(ObjectProvider.class);
+        ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider = mock(ObjectProvider.class);
+        when(nodeExecutorProvider.getObject()).thenReturn(nodeExecutor);
         return new WorkflowInlineExecutionService(
                 mock(WorkflowDefinitionService.class),
                 new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
                 workflowRuntimeProvider,
-                nodeExecutor,
+                nodeExecutorProvider,
                 new WorkflowVariableResolver(),
                 traceService,
                 executorService);

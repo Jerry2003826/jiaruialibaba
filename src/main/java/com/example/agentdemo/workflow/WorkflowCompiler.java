@@ -357,9 +357,10 @@ public class WorkflowCompiler {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
                         "Loop body must be linear before loop_back: " + currentId);
             }
-            if ("loop".equals(type) || "parallel".equals(type) || "condition".equals(type)) {
+            if ("loop".equals(type) || "parallel".equals(type) || "condition".equals(type)
+                    || "subgraph".equals(type) || "dynamic".equals(type) || "loop_back".equals(type)) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
-                        "Loop body cannot contain branching nodes: " + currentId);
+                        "Loop body cannot contain branching or composite nodes: " + currentId);
             }
             bodyNodeIds.add(currentId);
             List<WorkflowExecutionEdge> outgoing = edgeIndex.outgoing().getOrDefault(currentId, List.of());
@@ -493,7 +494,8 @@ public class WorkflowCompiler {
             if ("join".equals(type)) {
                 return new WorkflowBranchPath(branchStartNodeId, current.id(), branchNodeIds);
             }
-            if ("condition".equals(type) || "parallel".equals(type)) {
+            if ("condition".equals(type) || "parallel".equals(type) || "loop".equals(type)
+                    || "subgraph".equals(type) || "dynamic".equals(type) || "loop_back".equals(type)) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED",
                         "Parallel branches only support linear nodes before join: " + current.id());
             }

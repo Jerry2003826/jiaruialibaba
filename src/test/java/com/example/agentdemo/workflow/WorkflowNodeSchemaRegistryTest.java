@@ -63,6 +63,26 @@ class WorkflowNodeSchemaRegistryTest {
     }
 
     @Test
+    void exposesAdvancedNodeSchemas() {
+        WorkflowNodeSchema loop = schema("loop");
+        assertThat(field(loop, "maxIterations").constraints())
+                .containsEntry("min", 1)
+                .containsEntry("max", 50);
+        assertThat(field(loop, "operator").defaultValue()).isEqualTo("greaterthan");
+
+        WorkflowNodeSchema subgraph = schema("subgraph");
+        assertThat(field(subgraph, "definitionId").required()).isTrue();
+
+        WorkflowNodeSchema dynamic = schema("dynamic");
+        assertThat(field(dynamic, "itemsFrom").required()).isTrue();
+        assertThat(field(dynamic, "action").defaultValue()).isEqualTo("tool");
+
+        assertThat(schema("loop_back").configFields())
+                .extracting(WorkflowNodeConfigField::name)
+                .containsExactly("retryCount", "timeoutMs");
+    }
+
+    @Test
     void exposesExecutionControlsOnEveryNodeSchema() {
         for (WorkflowNodeSchema schema : registry.listSchemas()) {
             assertThat(field(schema, "retryCount").defaultValue()).isEqualTo(0);

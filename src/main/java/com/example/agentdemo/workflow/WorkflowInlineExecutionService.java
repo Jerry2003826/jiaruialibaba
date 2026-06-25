@@ -3,11 +3,12 @@ package com.example.agentdemo.workflow;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.trace.TraceService;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -17,34 +18,52 @@ import java.util.concurrent.ExecutorService;
 @Component
 public class WorkflowInlineExecutionService {
 
+    private static final int MAX_SUBGRAPH_NESTING_DEPTH = 10;
+
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowCompiler workflowCompiler;
     private final ObjectProvider<WorkflowRuntime> workflowRuntimeProvider;
-    private final WorkflowNodeExecutor nodeExecutor;
+    private final ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider;
     private final WorkflowVariableResolver variableResolver;
     private final TraceService traceService;
     private final ExecutorService workflowNodeExecutorService;
-    private final ThreadLocal<WorkflowExecutionPlan> activePlan = new ThreadLocal<>();
+    private final ThreadLocal<Deque<WorkflowExecutionPlan>> activePlans = ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Integer> subgraphNestingDepth = ThreadLocal.withInitial(() -> 0);
+    private final ThreadLocal<List<WorkflowStepSummary>> inlineStepSummaries = ThreadLocal.withInitial(ArrayList::new);
 
     public WorkflowInlineExecutionService(WorkflowDefinitionService workflowDefinitionService,
             WorkflowCompiler workflowCompiler, ObjectProvider<WorkflowRuntime> workflowRuntimeProvider,
-            @Lazy WorkflowNodeExecutor nodeExecutor, WorkflowVariableResolver variableResolver,
+            ObjectProvider<WorkflowNodeExecutor> nodeExecutorProvider, WorkflowVariableResolver variableResolver,
             TraceService traceService, ExecutorService workflowNodeExecutorService) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntimeProvider = workflowRuntimeProvider;
-        this.nodeExecutor = nodeExecutor;
+        this.nodeExecutorProvider = nodeExecutorProvider;
         this.variableResolver = variableResolver;
         this.traceService = traceService;
         this.workflowNodeExecutorService = workflowNodeExecutorService;
     }
 
     void bindPlan(WorkflowExecutionPlan plan) {
-        activePlan.set(plan);
+        activePlans.get().push(plan);
     }
 
     void clearPlan() {
-        activePlan.remove();
+        Deque<WorkflowExecutionPlan> plans = activePlans.get();
+        if (!plans.isEmpty()) {
+            plans.pop();
+        }
+        if (plans.isEmpty()) {
+            activePlans.remove();
+            subgraphNestingDepth.remove();
+            inlineStepSummaries.remove();
+        }
+    }
+
+    List<WorkflowStepSummary> drainInlineStepSummaries() {
+        List<WorkflowStepSummary> drained = List.copyOf(inlineStepSummaries.get());
+        inlineStepSummaries.get().clear();
+        return drained;
     }
 
     Object executeLoop(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -52,7 +71,6 @@ public class WorkflowInlineExecutionService {
         WorkflowLoopBlock loopBlock = plan.loopBlock(node.id());
         int maxIterations = loopBlock.maxIterations();
         List<Object> iterationOutputs = new ArrayList<>();
-        WorkflowNodeTraceExecutor traceExecutor = traceExecutor();
 
         while (state.loopIteration(node.id()) < maxIterations) {
             if (!evaluateLoopCondition(node, state)) {
@@ -60,7 +78,7 @@ public class WorkflowInlineExecutionService {
             }
             for (String bodyNodeId : loopBlock.bodyNodeIds()) {
                 WorkflowNode bodyNode = plan.node(bodyNodeId);
-                traceExecutor.execute(runId, bodyNode, state);
+                recordInlineSummary(traceExecutor().execute(runId, bodyNode, state).summary());
             }
             iterationOutputs.add(state.lastOutput());
             state.incrementLoopIteration(node.id());
@@ -81,6 +99,11 @@ public class WorkflowInlineExecutionService {
             throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
                     "Subgraph node requires config.definitionId: " + node.id());
         }
+        int nestingDepth = subgraphNestingDepth.get() + 1;
+        if (nestingDepth > MAX_SUBGRAPH_NESTING_DEPTH) {
+            throw new BusinessException("WORKFLOW_UNSUPPORTED",
+                    "Subgraph nesting depth exceeds limit of " + MAX_SUBGRAPH_NESTING_DEPTH + ": " + node.id());
+        }
         Integer version = configInteger(node, "version");
         WorkflowDefinitionResolution resolution = workflowDefinitionService.resolveDefinition(definitionId, version);
         WorkflowExecutionPlan nestedPlan = workflowCompiler.compile(resolution.workflowDefinition());
@@ -89,16 +112,23 @@ public class WorkflowInlineExecutionService {
         nestedInput.put("parentLastOutput", state.lastOutput());
         nestedInput.put("parentNodeOutputs", state.nodeOutputs());
 
-        WorkflowRuntime nestedRuntime = workflowRuntimeProvider.getObject();
-        WorkflowRuntime.WorkflowExecutionResult nestedResult = nestedRuntime.run(
-                runId + ":subgraph:" + node.id(), nestedPlan, nestedInput);
-        Map<String, Object> output = orderedMap();
-        output.put("definitionId", resolution.definitionId());
-        output.put("version", resolution.version());
-        output.put("nestedOutput", nestedResult.output());
-        output.put("nestedStepCount", nestedResult.steps().size());
-        state.setLastOutput(output);
-        return output;
+        subgraphNestingDepth.set(nestingDepth);
+        try {
+            WorkflowRuntime nestedRuntime = workflowRuntimeProvider.getObject();
+            WorkflowRuntime.WorkflowExecutionResult nestedResult = nestedRuntime.run(
+                    runId + ":subgraph:" + node.id(), nestedPlan, nestedInput);
+            nestedResult.steps().forEach(this::recordInlineSummary);
+            Map<String, Object> output = orderedMap();
+            output.put("definitionId", resolution.definitionId());
+            output.put("version", resolution.version());
+            output.put("nestedOutput", nestedResult.output());
+            output.put("nestedStepCount", nestedResult.steps().size());
+            state.setLastOutput(output);
+            return output;
+        }
+        finally {
+            subgraphNestingDepth.set(nestingDepth - 1);
+        }
     }
 
     Object executeDynamic(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -120,9 +150,9 @@ public class WorkflowInlineExecutionService {
 
         List<Object> outputs = new ArrayList<>();
         WorkflowNodeTraceExecutor traceExecutor = traceExecutor();
-        for (Object item : items) {
-            WorkflowNode syntheticNode = syntheticToolNode(node.id(), item);
-            traceExecutor.execute(runId, syntheticNode, state);
+        for (int index = 0; index < items.size(); index++) {
+            WorkflowNode syntheticNode = syntheticToolNode(node.id(), index, items.get(index));
+            recordInlineSummary(traceExecutor.execute(runId, syntheticNode, state).summary());
             outputs.add(state.lastOutput());
         }
 
@@ -133,14 +163,14 @@ public class WorkflowInlineExecutionService {
         return output;
     }
 
-    private WorkflowNode syntheticToolNode(String dynamicNodeId, Object item) {
+    private WorkflowNode syntheticToolNode(String dynamicNodeId, int index, Object item) {
         String toolName = item instanceof Map<?, ?> map && map.get("toolName") != null
                 ? String.valueOf(map.get("toolName"))
                 : String.valueOf(item);
         Map<String, Object> arguments = item instanceof Map<?, ?> map
                 ? copyStringKeyMap(map)
                 : Map.of();
-        return new WorkflowNode(dynamicNodeId + ":dynamic:" + toolName, "tool",
+        return new WorkflowNode(dynamicNodeId + ":dynamic:" + index + ":" + toolName, "tool",
                 Map.of("toolName", toolName, "arguments", arguments));
     }
 
@@ -162,25 +192,29 @@ public class WorkflowInlineExecutionService {
                 "Dynamic node itemsFrom must resolve to a list: " + nodeId);
     }
 
+    private void recordInlineSummary(WorkflowStepSummary summary) {
+        inlineStepSummaries.get().add(summary);
+    }
+
     private boolean evaluateLoopCondition(WorkflowNode node, WorkflowExecutionState state) {
         String left = variableResolver.renderString(configString(node, "left", ""), state);
         String operator = configString(node, "operator", "exists").toLowerCase(Locale.ROOT);
         Object right = variableResolver.renderValue(node.config().getOrDefault("right", ""), state);
         boolean caseSensitive = Boolean.TRUE.equals(node.config().get("caseSensitive"));
-        return nodeExecutor.evaluateCondition(left, operator, right, caseSensitive);
+        return nodeExecutorProvider.getObject().evaluateCondition(left, operator, right, caseSensitive);
     }
 
     private WorkflowNodeTraceExecutor traceExecutor() {
-        return new WorkflowNodeTraceExecutor(nodeExecutor, traceService, workflowNodeExecutorService);
+        return new WorkflowNodeTraceExecutor(nodeExecutorProvider.getObject(), traceService, workflowNodeExecutorService);
     }
 
     private WorkflowExecutionPlan requirePlan() {
-        WorkflowExecutionPlan plan = activePlan.get();
-        if (plan == null) {
+        Deque<WorkflowExecutionPlan> plans = activePlans.get();
+        if (plans.isEmpty()) {
             throw new BusinessException("WORKFLOW_UNSUPPORTED",
                     "Inline workflow execution requires an active execution plan");
         }
-        return plan;
+        return plans.peek();
     }
 
     private String configString(WorkflowNode node, String key) {

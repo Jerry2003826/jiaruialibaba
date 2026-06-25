@@ -53,7 +53,7 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
             if (!visited.add(node.id()) && !"loop_back".equals(nodeExecutor.normalizeType(node))) {
                 throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow cycles are not supported");
             }
-            executeWithTrace(runId, node, state, summaries);
+            executeWithTrace(runId, node, state, summaries, executionPlan);
             if (node.id().equals(executionPlan.endNode().id())) {
                 break;
             }
@@ -132,7 +132,7 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
         List<WorkflowStepSummary> branchSummaries = new ArrayList<>();
         for (String nodeId : path.nodeIds()) {
             WorkflowNode branchNode = executionPlan.node(nodeId);
-            executeWithTrace(runId, branchNode, branchState, branchSummaries);
+            executeWithTrace(runId, branchNode, branchState, branchSummaries, executionPlan);
         }
         return new BranchExecutionResult(path.branchStartNodeId(), branchState.lastOutput(), branchState,
                 branchSummaries);
@@ -145,12 +145,18 @@ public class SimpleWorkflowRuntime implements WorkflowRuntime {
     }
 
     private void executeWithTrace(String runId, WorkflowNode node, WorkflowExecutionState state,
-            List<WorkflowStepSummary> summaries) {
+            List<WorkflowStepSummary> summaries, WorkflowExecutionPlan executionPlan) {
         try {
             summaries.add(traceExecutor.execute(runId, node, state).summary());
+            if (executionPlan.isCompositeContainerNode(node.id())) {
+                summaries.addAll(inlineExecutionService.drainInlineStepSummaries());
+            }
         }
         catch (WorkflowNodeTraceExecutor.TracedWorkflowNodeFailure ex) {
             summaries.add(ex.summary());
+            if (executionPlan.isCompositeContainerNode(node.id())) {
+                inlineExecutionService.drainInlineStepSummaries();
+            }
             throw ex.original();
         }
     }

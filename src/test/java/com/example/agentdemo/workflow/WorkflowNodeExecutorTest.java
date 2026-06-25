@@ -76,6 +76,28 @@ class WorkflowNodeExecutorTest {
                         ex -> assertThat(ex.getCode()).isEqualTo(ToolExecutionLog.ERROR_REMOTE_TOOL));
     }
 
+    @Test
+    void evaluateConditionSupportsNumericComparisons() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+
+        assertThat(executor.evaluateCondition("5", "greaterthan", "3", false)).isTrue();
+        assertThat(executor.evaluateCondition("2", "lessthan", "4", false)).isTrue();
+        assertThat(executor.evaluateCondition("5", "lessthan", "3", false)).isFalse();
+    }
+
+    @Test
+    void evaluateConditionRejectsNonNumericValuesForNumericOperators() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+
+        assertThatThrownBy(() -> executor.evaluateCondition("abc", "greaterthan", "3", false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Numeric comparison requires numeric left/right values");
+    }
+
     private static final class RemoteEchoProvider implements ToolProvider {
 
         @Override

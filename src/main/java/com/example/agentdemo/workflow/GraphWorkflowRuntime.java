@@ -171,10 +171,16 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
             WorkflowNodeTraceResult result = traceExecutor.execute(runId, node, state);
             Object output = result.output();
             context.addSummary(result.summary());
+            if (context.executionPlan().isCompositeContainerNode(node.id())) {
+                inlineExecutionService.drainInlineStepSummaries().forEach(context::addSummary);
+            }
             return Map.of(NODE_OUTPUT_STATE_KEY, output == null ? "" : output);
         }
         catch (WorkflowNodeTraceExecutor.TracedWorkflowNodeFailure ex) {
             context.addSummary(ex.summary());
+            if (context.executionPlan().isCompositeContainerNode(node.id())) {
+                inlineExecutionService.drainInlineStepSummaries();
+            }
             throw ex.original();
         }
     }
