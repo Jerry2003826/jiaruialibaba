@@ -40,7 +40,7 @@ class DocumentIndexingServiceTest {
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         RagProperties ragProperties = ragProperties(10, 0);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties);
+                vectorStoreGateway, ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -73,7 +73,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(false);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         DocumentEntity document = new DocumentEntity(null, "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
@@ -91,7 +91,7 @@ class DocumentIndexingServiceTest {
     void failsWhenEmbeddingModelIsAbsent() {
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), (EmbeddingModel) null,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
@@ -111,7 +111,7 @@ class DocumentIndexingServiceTest {
         embeddingModel.failOnEmbed = true;
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
@@ -134,7 +134,7 @@ class DocumentIndexingServiceTest {
         embeddingModel.dropLastEmbedding = true;
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
@@ -153,7 +153,7 @@ class DocumentIndexingServiceTest {
         FakeEmbeddingModel embeddingModel = new FakeEmbeddingModel();
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenThrow(new IllegalStateException("database unavailable"));
 
@@ -175,7 +175,7 @@ class DocumentIndexingServiceTest {
         FakeVectorStoreGateway vectorStoreGateway = new FakeVectorStoreGateway(true);
         vectorStoreGateway.failOnUpsert = true;
         DocumentIndexingService service = new DocumentIndexingService(chunkPersistenceService(), embeddingModel,
-                vectorStoreGateway, ragProperties(10, 0));
+                vectorStoreGateway, ragProperties(10, 0), com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         when(chunkRepository.saveAllAndFlush(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -276,6 +276,10 @@ class DocumentIndexingServiceTest {
                 throw new IllegalStateException("vector upsert unavailable");
             }
             upsertedDocuments.addAll(documents);
+        }
+
+        @Override
+        public void delete(java.util.Collection<String> vectorIds) {
         }
 
         @Override

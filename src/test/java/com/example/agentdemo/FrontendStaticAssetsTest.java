@@ -13,6 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = AgentBackendDemoApplication.class, properties = {
+        "spring.profiles.group.dev=dev",
+        "demo.alibaba.strict-mode=false",
+        "demo.ai.fallback-enabled=true",
+        "demo.rag.keyword-fallback-enabled=true",
         "spring.ai.dashscope.api-key=",
         "spring.datasource.url=jdbc:h2:mem:frontend_static_assets_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
         "demo.dashvector.endpoint=",
@@ -37,7 +41,8 @@ class FrontendStaticAssetsTest {
         mockMvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("AI Agent Workbench")))
-                .andExpect(content().string(containsString("workflow-canvas")))
+                .andExpect(content().string(containsString("Tool Agent")))
+                .andExpect(content().string(containsString("runtime-details")))
                 .andExpect(content().string(containsString("/app.js")))
                 .andExpect(content().string(containsString("/styles.css")));
     }
@@ -49,7 +54,11 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("WorkflowCanvasController")))
                 .andExpect(content().string(containsString("/api/workflows/run")))
                 .andExpect(content().string(containsString("/api/workflows/validate")))
-                .andExpect(content().string(containsString("/api/rag/chat")));
+                .andExpect(content().string(containsString("/api/rag/chat")))
+                .andExpect(content().string(containsString("/api/agent/tool-chat")))
+                .andExpect(content().string(containsString("/api/chat/stream")))
+                .andExpect(content().string(containsString("consumeSse")))
+                .andExpect(content().string(containsString("runsPage?.content")));
     }
 
     @Test

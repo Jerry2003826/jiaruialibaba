@@ -1,7 +1,9 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -23,8 +25,14 @@ class WorkflowDefinitionServiceTest {
     private final WorkflowDefinitionRevisionRepository revisionRepository = mock(WorkflowDefinitionRevisionRepository.class);
     private final WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
+    private final WorkflowRuntimeProperties workflowRuntimeProperties = new WorkflowRuntimeProperties();
     private final WorkflowDefinitionService service = new WorkflowDefinitionService(repository, revisionRepository, compiler,
-            new ObjectMapper(), runRecordRepository);
+            new ObjectMapper(), runRecordRepository, workflowRuntimeProperties);
+
+    @BeforeEach
+    void disablePublishGuardByDefault() {
+        workflowRuntimeProperties.setRequirePublishedForRun(false);
+    }
 
     @Test
     void savesWorkflowDefinitionAfterCompilerValidation() {
@@ -308,6 +316,33 @@ class WorkflowDefinitionServiceTest {
                 List.of(
                         new WorkflowEdge("start", "tool"),
                         new WorkflowEdge("tool", "end")));
+    }
+
+    @Test
+    void resolveDefinitionRejectsDraftWhenPublishGuardEnabled() {
+        workflowRuntimeProperties.setRequirePublishedForRun(true);
+        WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("def-1", "Draft Flow", "desc", "{}");
+        entity.prePersist();
+        when(repository.findByDefinitionId("def-1")).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> service.resolveDefinition("def-1", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("WORKFLOW_DEFINITION_NOT_PUBLISHED");
+    }
+
+    @Test
+    void resolveDefinitionAllowsDraftWhenPublishGuardDisabled() {
+        workflowRuntimeProperties.setRequirePublishedForRun(false);
+        WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("def-1", "Draft Flow", "desc",
+                "{\"nodes\":[{\"id\":\"start\",\"type\":\"start\",\"config\":{}},{\"id\":\"end\",\"type\":\"end\",\"config\":{}}],"
+                        + "\"edges\":[{\"from\":\"start\",\"to\":\"end\"}]}");
+        entity.prePersist();
+        when(repository.findByDefinitionId("def-1")).thenReturn(Optional.of(entity));
+
+        WorkflowDefinitionResolution resolution = service.resolveDefinition("def-1", null);
+
+        assertThat(resolution.definitionId()).isEqualTo("def-1");
     }
 
 }

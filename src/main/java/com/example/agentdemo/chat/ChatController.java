@@ -13,24 +13,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.time.Instant;
-
 @RestController
 @RequestMapping("/api")
 public class ChatController {
 
     private final ChatService chatService;
-    private final AiModelService aiModelService;
+    private final AlibabaHealthService alibabaHealthService;
 
-    public ChatController(ChatService chatService, AiModelService aiModelService) {
+    public ChatController(ChatService chatService, AlibabaHealthService alibabaHealthService) {
         this.chatService = chatService;
-        this.aiModelService = aiModelService;
+        this.alibabaHealthService = alibabaHealthService;
     }
 
     @GetMapping("/health")
     public ApiResponse<HealthResponse> health() {
-        return ApiResponse.ok(new HealthResponse("UP", Instant.now(), aiModelService.isModelConfigured(),
-                aiModelService.modelName()));
+        return ApiResponse.ok(alibabaHealthService.health());
     }
 
     @PostMapping("/chat")

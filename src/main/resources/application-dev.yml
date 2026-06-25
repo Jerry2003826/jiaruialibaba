@@ -1,19 +1,6 @@
 spring:
-  datasource:
-    url: jdbc:h2:mem:agent_demo;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-
-# Future database switch point:
-# spring:
-#   datasource:
-#     url: jdbc:postgresql://localhost:5432/agent_demo
-#     username: ${DB_USERNAME:agent_demo}
-#     password: ${DB_PASSWORD:}
-#   jpa:
-#     hibernate:
-#       ddl-auto: validate
+  config:
+    import: optional:file:.env[.properties]
 
 # Future MCP switch point. Keep real server URLs, commands, and tokens local.
 # spring:

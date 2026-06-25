@@ -2,16 +2,20 @@ package com.example.agentdemo.rag;
 
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
-import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.chat.memory.ConversationMemoryService;
+import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.rag.dto.DocumentRequest;
 import com.example.agentdemo.rag.dto.DocumentResponse;
 import com.example.agentdemo.rag.dto.RagChatRequest;
 import com.example.agentdemo.rag.dto.RagChatResponse;
 import com.example.agentdemo.rag.dto.RetrievedContext;
-import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.AlibabaRuntimePolicy;
+import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
+import com.example.agentdemo.trace.RunType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,21 +36,27 @@ public class RagService {
     private final KeywordDocumentRetriever keywordDocumentRetriever;
     private final DocumentIndexingService documentIndexingService;
     private final AiModelService aiModelService;
+    private final ConversationMemoryService conversationMemoryService;
     private final TraceService traceService;
     private final RagProperties ragProperties;
+    private final AlibabaRuntimePolicy alibabaRuntimePolicy;
 
     public RagService(DocumentPersistenceService documentPersistenceService, DocumentRetriever documentRetriever,
             KeywordDocumentRetriever keywordDocumentRetriever, DocumentIndexingService documentIndexingService,
-            AiModelService aiModelService, TraceService traceService, RagProperties ragProperties) {
+            AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
+            TraceService traceService, RagProperties ragProperties, AlibabaRuntimePolicy alibabaRuntimePolicy) {
         this.documentPersistenceService = documentPersistenceService;
         this.documentRetriever = documentRetriever;
         this.keywordDocumentRetriever = keywordDocumentRetriever;
         this.documentIndexingService = documentIndexingService;
         this.aiModelService = aiModelService;
+        this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
         this.ragProperties = ragProperties;
+        this.alibabaRuntimePolicy = alibabaRuntimePolicy;
     }
 
+    @Transactional
     public DocumentResponse saveDocument(DocumentRequest request) {
         DocumentEntity document = documentPersistenceService.save(request);
         documentIndexingService.index(document);
@@ -64,7 +74,10 @@ public class RagService {
     }
 
     public RagChatResponse chat(RagChatRequest request) {
-        TraceRun run = traceService.startRun(RunType.RAG_CHAT, request);
+        String conversationId = conversationMemoryService.resolveConversationId(request.conversationId());
+        List<ConversationMessage> history = conversationMemoryService.loadRecentMessages(conversationId);
+        RagChatRequest traceRequest = new RagChatRequest(conversationId, request.message());
+        TraceRun run = traceService.startRun(RunType.RAG_CHAT, traceRequest);
         TraceStep activeStep = null;
         try {
             List<RetrievedContext> contexts = retrieveForChat(run.runId(), request.message());
@@ -75,12 +88,12 @@ public class RagService {
                     .collect(Collectors.joining("\n\n"));
             String prompt = "Question:\n" + request.message() + "\n\nRetrieved context:\n" + contextText;
             activeStep = traceService.startTraceStep(run.runId(), "rag_generate_answer",
-                    Map.of("prompt", prompt, "contextCount", contexts.size()));
-            AiModelResult modelResult = aiModelService.generate(RAG_SYSTEM_PROMPT, prompt);
-            String answer = modelResult.fallback()
-                    ? fallbackAnswer(request.message(), contexts)
-                    : modelResult.answer();
-            RagChatResponse response = new RagChatResponse(answer, run.runId(), contexts);
+                    Map.of("prompt", prompt, "contextCount", contexts.size(), "historySize", history.size()));
+            AiModelResult modelResult = aiModelService.generate(RAG_SYSTEM_PROMPT, history, prompt);
+            String answer = resolveAnswer(request.message(), contexts, modelResult);
+            conversationMemoryService.appendUserMessage(conversationId, request.message());
+            conversationMemoryService.appendAssistantMessage(conversationId, answer);
+            RagChatResponse response = new RagChatResponse(answer, conversationId, run.runId(), contexts);
             traceService.completeStep(activeStep.stepId(),
                     Map.of("answer", answer, "fallback", modelResult.fallback()));
             activeStep = null;
@@ -111,7 +124,7 @@ public class RagService {
         }
         catch (RuntimeException ex) {
             failStep(primaryStep, ex);
-            if (!ragProperties.getRag().isKeywordFallbackEnabled() || isKeywordRetrieverActive()) {
+            if (!isKeywordFallbackAllowed() || isKeywordRetrieverActive()) {
                 throw ex;
             }
             return retrieveWithKeywordFallback(runId, message, topK, ex);
@@ -164,6 +177,21 @@ public class RagService {
 
     private int normalizeTopK(int topK) {
         return Math.max(1, Math.min(topK, 20));
+    }
+
+    private boolean isKeywordFallbackAllowed() {
+        return alibabaRuntimePolicy.isKeywordFallbackAllowed();
+    }
+
+    private String resolveAnswer(String question, List<RetrievedContext> contexts, AiModelResult modelResult) {
+        if (!modelResult.fallback()) {
+            return modelResult.answer();
+        }
+        if (alibabaRuntimePolicy.isStrictMode()) {
+            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                    "Alibaba LLM is required for RAG answer generation: " + modelResult.errorMessage());
+        }
+        return fallbackAnswer(question, contexts);
     }
 
     private String fallbackAnswer(String question, List<RetrievedContext> contexts) {

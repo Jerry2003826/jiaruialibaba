@@ -244,4 +244,20 @@ class WorkflowServiceDefinitionIdTest {
                 List.of(new WorkflowEdge("start", "end")));
     }
 
+    @Test
+    void runByDefinitionIdPropagatesNotPublishedError() {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        when(definitionService.resolveDefinition("wf-1", null))
+                .thenThrow(new BusinessException("WORKFLOW_DEFINITION_NOT_PUBLISHED",
+                        "Workflow definition must be published before it can be run"));
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), mock(TraceService.class), definitionService,
+                mock(WorkflowRunRecordRepository.class));
+
+        assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, "wf-1", Map.of("message", "hello"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("WORKFLOW_DEFINITION_NOT_PUBLISHED");
+    }
+
 }

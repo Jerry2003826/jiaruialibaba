@@ -8,6 +8,7 @@ import com.aliyun.dashvector.models.CollectionMeta;
 import com.aliyun.dashvector.models.Doc;
 import com.aliyun.dashvector.models.Vector;
 import com.aliyun.dashvector.models.requests.CreateCollectionRequest;
+import com.aliyun.dashvector.models.requests.DeleteDocRequest;
 import com.aliyun.dashvector.models.requests.QueryDocRequest;
 import com.aliyun.dashvector.models.requests.UpsertDocRequest;
 import com.aliyun.dashvector.models.responses.Response;
@@ -18,6 +19,7 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -144,6 +146,31 @@ public class DashVectorGateway implements VectorStoreGateway {
         }
         catch (DashVectorException ex) {
             throw new BusinessException("VECTOR_STORE_INDEX_FAILED", "Failed to upsert DashVector documents", ex);
+        }
+    }
+
+    @Override
+    public void delete(Collection<String> vectorIds) {
+        if (vectorIds == null || vectorIds.isEmpty()) {
+            return;
+        }
+        if (!isConfigured()) {
+            return;
+        }
+        ensureCollection();
+        try {
+            DashVectorClient client = client();
+            DashVectorCollection collection = client.get(properties.getCollection());
+            if (!collection.isSuccess()) {
+                throw new BusinessException("VECTOR_STORE_INDEX_FAILED", collection.getMessage());
+            }
+            Response<?> response = collection.delete(DeleteDocRequest.builder()
+                    .ids(new ArrayList<>(vectorIds))
+                    .build());
+            ensureSuccess(response, "delete DashVector documents", "VECTOR_STORE_INDEX_FAILED");
+        }
+        catch (DashVectorException ex) {
+            throw new BusinessException("VECTOR_STORE_INDEX_FAILED", "Failed to delete DashVector documents", ex);
         }
     }
 

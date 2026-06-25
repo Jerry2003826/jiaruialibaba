@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
@@ -27,13 +28,16 @@ public class WorkflowNodeExecutor {
     private final AiModelService aiModelService;
     private final ToolGatewayService toolGatewayService;
     private final WorkflowVariableResolver variableResolver;
+    private final AlibabaRuntimePolicy alibabaRuntimePolicy;
 
     public WorkflowNodeExecutor(RagService ragService, AiModelService aiModelService,
-            ToolGatewayService toolGatewayService, WorkflowVariableResolver variableResolver) {
+            ToolGatewayService toolGatewayService, WorkflowVariableResolver variableResolver,
+            AlibabaRuntimePolicy alibabaRuntimePolicy) {
         this.ragService = ragService;
         this.aiModelService = aiModelService;
         this.toolGatewayService = toolGatewayService;
         this.variableResolver = variableResolver;
+        this.alibabaRuntimePolicy = alibabaRuntimePolicy;
     }
 
     Object execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
@@ -94,7 +98,7 @@ public class WorkflowNodeExecutor {
                 "Answer the workflow input using this context: {{context}}\nInput: {{input}}");
         String prompt = variableResolver.renderString(promptTemplate, state);
         AiModelResult result = aiModelService.generate(WORKFLOW_SYSTEM_PROMPT, prompt);
-        String answer = result.fallback() ? fallbackAnswer(prompt, state) : result.answer();
+        String answer = resolveAnswer(prompt, state, result);
         state.setAnswer(answer);
 
         Map<String, Object> output = orderedMap();
@@ -202,6 +206,17 @@ public class WorkflowNodeExecutor {
         output.put("retrievedContext", state.retrievedContext());
         output.put("toolCalls", state.toolCalls());
         return output;
+    }
+
+    private String resolveAnswer(String prompt, WorkflowExecutionState state, AiModelResult result) {
+        if (!result.fallback()) {
+            return result.answer();
+        }
+        if (alibabaRuntimePolicy.isStrictMode()) {
+            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                    "Alibaba LLM is required for workflow LLM nodes: " + result.errorMessage());
+        }
+        return fallbackAnswer(prompt, state);
     }
 
     private String fallbackAnswer(String prompt, WorkflowExecutionState state) {

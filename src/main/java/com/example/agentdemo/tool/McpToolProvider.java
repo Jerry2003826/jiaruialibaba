@@ -100,6 +100,13 @@ public class McpToolProvider implements ToolProvider {
                 .toList();
     }
 
+    /**
+     * Exposes raw MCP tool callbacks for LLM tool-calling integration.
+     */
+    public List<ToolCallback> exposedToolCallbacks() {
+        return callbacks.values().stream().toList();
+    }
+
     private ToolDescriptor descriptor(ToolCallback callback) {
         return new ToolDescriptor(
                 callback.getToolDefinition().name(),

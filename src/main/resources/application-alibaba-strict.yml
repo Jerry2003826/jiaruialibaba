@@ -1,0 +1,8 @@
+demo:
+  alibaba:
+    strict-mode: ${DEMO_ALIBABA_STRICT_MODE:true}
+  ai:
+    fallback-enabled: ${DEMO_AI_FALLBACK_ENABLED:false}
+  rag:
+    keyword-fallback-enabled: ${DEMO_RAG_KEYWORD_FALLBACK_ENABLED:false}
+    retriever: dashvector

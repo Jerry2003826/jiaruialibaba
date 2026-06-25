@@ -52,7 +52,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", conditionalPlan(),
@@ -73,7 +73,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -103,7 +103,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -135,7 +135,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -183,7 +183,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -214,7 +214,7 @@ class SimpleWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         SimpleWorkflowRuntime runtime = new SimpleWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), gateway,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(

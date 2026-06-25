@@ -24,7 +24,6 @@ import static com.alibaba.cloud.ai.dashscope.common.DashScopeApiConstants.MULTIM
 public class AiConfig {
 
     private static final String API_V1_PREFIX = "/api/v1";
-    private static final String QWEN_3_7_PLUS = "qwen3.7-plus";
 
     @Bean
     @Conditional(DashScopeApiKeyPresentCondition.class)
@@ -34,6 +33,7 @@ public class AiConfig {
         String model = environment.getProperty("spring.ai.dashscope.chat.options.model", "qwen-plus");
         String baseUrl = normalizeBaseUrl(environment.getProperty("spring.ai.dashscope.base-url"));
         String completionsPath = completionsPath(environment, model, baseUrl);
+        boolean enableThinking = environment.getProperty("demo.ai.enable-thinking", Boolean.class, false);
 
         DashScopeApi.Builder dashScopeApiBuilder = DashScopeApi.builder().apiKey(apiKey);
         if (StringUtils.hasText(baseUrl)) {
@@ -43,13 +43,15 @@ public class AiConfig {
             dashScopeApiBuilder.completionsPath(completionsPath);
         }
         DashScopeApi dashScopeApi = dashScopeApiBuilder.build();
-        DashScopeChatOptions chatOptions = DashScopeChatOptions.builder()
+        DashScopeChatOptions.DashScopeChatOptionsBuilder chatOptionsBuilder = DashScopeChatOptions.builder()
                 .model(model)
-                .incrementalOutput(true)
-                .build();
+                .incrementalOutput(true);
+        if (enableThinking) {
+            chatOptionsBuilder.enableThinking(true);
+        }
         DashScopeChatModel chatModel = DashScopeChatModel.builder()
                 .dashScopeApi(dashScopeApi)
-                .defaultOptions(chatOptions)
+                .defaultOptions(chatOptionsBuilder.build())
                 .build();
         return ChatClient.builder(chatModel).build();
     }
@@ -77,10 +79,17 @@ public class AiConfig {
 
     private static String completionsPath(Environment environment, String model, String baseUrl) {
         String configuredPath = environment.getProperty("spring.ai.dashscope.chat.completions-path");
-        if (!StringUtils.hasText(configuredPath) && QWEN_3_7_PLUS.equalsIgnoreCase(model)) {
+        if (!StringUtils.hasText(configuredPath) && isQwen37MultimodalModel(model)) {
             configuredPath = MULTIMODAL_GENERATION_RESTFUL_URL;
         }
         return normalizePath(configuredPath, baseUrl);
+    }
+
+    static boolean isQwen37MultimodalModel(String model) {
+        if (!StringUtils.hasText(model)) {
+            return false;
+        }
+        return "qwen3.7-plus".equalsIgnoreCase(model.trim());
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

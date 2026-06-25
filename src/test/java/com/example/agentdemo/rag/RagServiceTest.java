@@ -33,8 +33,8 @@ class RagServiceTest {
         when(keywordRetriever.name()).thenReturn("KeywordDocumentRetriever");
         when(keywordRetriever.retrieve("question", 3)).thenReturn(List.of(fallbackContext));
 
-        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, null,
-                ragProperties);
+        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, null, null,
+                ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         List<RetrievedContext> contexts = service.retrieve("question", 3);
 
@@ -60,8 +60,8 @@ class RagServiceTest {
         when(traceService.startTraceStep(eq("run-1"), eq("rag_keyword_fallback_retrieve"), any()))
                 .thenReturn(fallbackStep);
 
-        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, traceService,
-                ragProperties);
+        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, null, traceService,
+                ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
 
         List<RetrievedContext> contexts = service.retrieve("question", 3, "run-1");
 
@@ -81,8 +81,8 @@ class RagServiceTest {
         when(primaryRetriever.name()).thenReturn("DashVectorDocumentRetriever");
         when(primaryRetriever.retrieve("question", 3)).thenThrow(primaryFailure);
 
-        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, null,
-                ragProperties);
+        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, null, null, null,
+                ragProperties, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(false));
 
         assertThatThrownBy(() -> service.retrieve("question", 3))
                 .isSameAs(primaryFailure);

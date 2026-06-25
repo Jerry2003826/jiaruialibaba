@@ -8,13 +8,17 @@
     previewGraph: "/api/workflows/preview-graph",
     runWorkflow: "/api/workflows/run",
     definitions: "/api/workflows/definitions",
+    publishDefinition: (definitionId) => `/api/workflows/definitions/${encodeURIComponent(definitionId)}/publish`,
     workflowRunGraph: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/graph`,
     runSteps: (runId) => `/api/runs/${encodeURIComponent(runId)}/steps`,
     runs: "/api/runs",
     tools: "/api/tools",
     mcpServers: "/api/tools/mcp/servers",
     chat: "/api/chat",
+    chatStream: "/api/chat/stream",
+    toolChat: "/api/agent/tool-chat",
     saveDocument: "/api/rag/documents",
+    listDocuments: "/api/rag/documents",
     ragChat: "/api/rag/chat"
   };
 
@@ -42,6 +46,7 @@
 
   const state = {
     schemas: fallbackSchemas,
+    health: null,
     nodes: [],
     edges: [],
     positions: new Map(),
@@ -56,7 +61,9 @@
   const els = {};
   const viewRoutes = {
     tools: () => void loadTools(),
-    runs: () => void loadRuns()
+    runs: () => void loadRuns(),
+    rag: () => void loadDocuments(),
+    agent: () => void loadHealth()
   };
 
   class WorkflowCanvasController {
@@ -93,12 +100,15 @@
   function cacheElements() {
     const ids = [
       "runtime-status", "workflow-status", "definition-name", "definition-select", "new-workflow",
-      "load-definition", "save-definition", "validate-workflow", "run-workflow", "workflow-canvas",
+      "load-definition", "save-definition", "publish-definition", "validate-workflow", "run-workflow", "workflow-canvas",
       "edge-layer", "node-layer", "node-palette", "node-inspector", "inspector-empty", "inspector-form",
       "delete-node", "add-edge", "edge-list", "workflow-input", "run-output", "trace-steps",
-      "refresh-run-graph", "send-chat", "chat-message", "chat-output", "save-document",
+      "refresh-run-graph", "send-chat", "stream-chat", "chat-mode-pill", "chat-message", "chat-output",
+      "send-tool-chat", "tool-chat-message", "tool-chat-output",
+      "save-document", "refresh-documents", "document-list", "rag-hint",
       "ask-rag", "document-title", "document-content", "rag-message", "rag-output",
-      "refresh-tools", "tool-list", "mcp-server-list", "refresh-runs", "run-list", "toast"
+      "refresh-tools", "tool-list", "mcp-server-list", "refresh-runs", "run-list",
+      "runtime-details", "toast"
     ];
     ids.forEach((id) => {
       els[toCamel(id)] = requiredElement(id);
@@ -131,6 +141,7 @@
       }
     });
     els.saveDefinition.addEventListener("click", () => void saveDefinition());
+    els.publishDefinition.addEventListener("click", () => void publishDefinition());
     els.validateWorkflow.addEventListener("click", () => void validateWorkflow());
     els.runWorkflow.addEventListener("click", () => void runWorkflow());
     els.refreshRunGraph.addEventListener("click", () => {
@@ -151,7 +162,10 @@
 
   function bindAssistantPanels() {
     els.sendChat.addEventListener("click", () => void sendChat());
+    els.streamChat.addEventListener("click", () => void streamChat());
+    els.sendToolChat.addEventListener("click", () => void sendToolChat());
     els.saveDocument.addEventListener("click", () => void saveDocument());
+    els.refreshDocuments.addEventListener("click", () => void loadDocuments());
     els.askRag.addEventListener("click", () => void askRag());
     els.refreshTools.addEventListener("click", () => void loadTools());
     els.refreshRuns.addEventListener("click", () => void loadRuns());
@@ -170,10 +184,36 @@
   async function loadHealth() {
     try {
       const data = await requestJson(API.health);
-      els.runtimeStatus.textContent = data.modelName ? `${data.status} · ${data.modelName}` : data.status;
+      state.health = data;
+      const modelLabel = data.modelConfigured ? data.model : "not configured";
+      els.runtimeStatus.textContent = `${data.status} · ${modelLabel}`;
+      els.runtimeDetails.textContent = [
+        `strict=${data.strictMode} · fallback=${data.fallbackEnabled} · keywordFallback=${data.keywordFallbackEnabled}`,
+        `embedding=${data.embeddingConfigured} · vector=${data.vectorStoreConfigured} · retriever=${data.ragRetriever}`,
+        `indexedDocs=${data.indexedDocumentCount} · mcp=${data.mcpEnabled}`
+      ].join("\n");
+      updateRagHint(data);
     } catch (error) {
       els.runtimeStatus.textContent = "Unavailable";
+      els.runtimeDetails.textContent = error.message;
     }
+  }
+
+  function updateRagHint(health) {
+    if (!els.ragHint) {
+      return;
+    }
+    if (health.vectorStoreConfigured && health.indexedDocumentCount === 0) {
+      els.ragHint.textContent = "DashVector 已就绪，但当前 H2 中没有已索引文档。重启应用后请重新 Save Document，否则 RAG 检索会返回空上下文。";
+      els.ragHint.classList.remove("hidden");
+      return;
+    }
+    if (!health.strictMode && !health.modelConfigured) {
+      els.ragHint.textContent = "模型未配置，当前处于 demo fallback 模式。配置 DashScope 并开启 strict 可走真实阿里栈。";
+      els.ragHint.classList.remove("hidden");
+      return;
+    }
+    els.ragHint.classList.add("hidden");
   }
 
   async function loadSchemas() {
@@ -573,6 +613,23 @@
     });
   }
 
+  async function publishDefinition() {
+    if (!state.definitionId) {
+      toast("Save the workflow before publishing", true);
+      return;
+    }
+    await runCommand({
+      request: () => requestJson(API.publishDefinition(state.definitionId), { method: "POST" }),
+      onSuccess: async (response) => {
+        state.definitionVersion = response.version;
+        setWorkflowStatus(`Published v${response.version}`);
+        await loadDefinitions();
+        toast("Workflow published");
+      },
+      onError: (error) => toast(error.message, true)
+    });
+  }
+
   async function runWorkflow() {
     const input = parseJsonInput(els.workflowInput.value, {});
     await runCommand({
@@ -596,6 +653,7 @@
   }
 
   async function sendChat() {
+    els.chatModePill.textContent = "Sync";
     await runCommand({
       request: () => requestJson(API.chat, {
         method: "POST",
@@ -606,6 +664,55 @@
     });
   }
 
+  async function streamChat() {
+    els.chatModePill.textContent = "Streaming";
+    els.chatOutput.textContent = "";
+    const answerParts = [];
+    try {
+      const response = await fetch(API.chatStream, {
+        method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ conversationId: "workbench", message: els.chatMessage.value })
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      await consumeSse(response, (eventName, data) => {
+        if (eventName === "message" && data?.delta) {
+          answerParts.push(data.delta);
+          els.chatOutput.textContent = answerParts.join("");
+        }
+        if (eventName === "done") {
+          els.chatOutput.textContent = formatJson(data);
+        }
+        if (eventName === "error") {
+          throw new Error(data?.error || data?.message || "Stream failed");
+        }
+      });
+      toast("Stream complete");
+    } catch (error) {
+      els.chatOutput.textContent = formatJson({ error: error.message });
+      toast(error.message, true);
+    } finally {
+      els.chatModePill.textContent = "Sync";
+    }
+  }
+
+  async function sendToolChat() {
+    await runCommand({
+      request: () => requestJson(API.toolChat, {
+        method: "POST",
+        body: { conversationId: "workbench-agent", message: els.toolChatMessage.value }
+      }),
+      outputEl: els.toolChatOutput,
+      errorToast: false,
+      onSuccess: () => void loadRuns()
+    });
+  }
+
   async function saveDocument() {
     await runCommand({
       request: () => requestJson(API.saveDocument, {
@@ -613,8 +720,27 @@
         body: { title: els.documentTitle.value, content: els.documentContent.value }
       }),
       outputEl: els.ragOutput,
-      successToast: "Document saved"
+      successToast: "Document saved",
+      onSuccess: async () => {
+        await Promise.allSettled([loadDocuments(), loadHealth()]);
+      }
     });
+  }
+
+  async function loadDocuments() {
+    try {
+      const page = await requestJson(`${API.listDocuments}?page=0&size=20`);
+      const documents = page?.content || [];
+      renderDataList(els.documentList, documents, (document) => ({
+        title: document.title || `Document ${document.id}`,
+        meta: `#${document.id} · ${document.contentLength || 0} chars · ${document.createdAt || ""}`
+      }));
+      if (state.health) {
+        updateRagHint(state.health);
+      }
+    } catch (error) {
+      renderDataList(els.documentList, [], () => ({ title: "Unable to load documents", meta: error.message }));
+    }
   }
 
   async function askRag() {
@@ -691,7 +817,20 @@
       title: tool.name,
       meta: `${tool.provider || "local"} · remote=${Boolean(tool.remote)}`
     }));
-    renderDataList(els.mcpServerList, servers.status === "fulfilled" ? servers.value : [], (server) => ({
+    const serverItems = servers.status === "fulfilled" ? servers.value : [];
+    if (serverItems.length === 0 && state.health && !state.health.mcpEnabled) {
+      renderDataList(els.mcpServerList, [{
+        name: "MCP disabled",
+        transport: "n/a",
+        enabled: false,
+        hint: "Set DEMO_MCP_ENABLED=true and configure spring.ai.mcp.client.* to enable remote tools."
+      }], (server) => ({
+        title: server.name,
+        meta: server.hint || `${server.transport || "stdio"} · enabled=${Boolean(server.enabled)}`
+      }));
+      return;
+    }
+    renderDataList(els.mcpServerList, serverItems, (server) => ({
       title: server.name,
       meta: `${server.transport || "stdio"} · enabled=${Boolean(server.enabled)}`
     }));
@@ -699,8 +838,9 @@
 
   async function loadRuns() {
     try {
-      const runs = await requestJson(API.runs);
-      renderDataList(els.runList, runs || [], (run) => ({
+      const runsPage = await requestJson(`${API.runs}?page=0&size=20`);
+      const runs = runsPage?.content || [];
+      renderDataList(els.runList, runs, (run) => ({
         title: `${run.type} · ${run.status}`,
         meta: `${run.runId} · ${run.startedAt || ""}`
       }));
@@ -753,6 +893,49 @@
       throw new Error(payload?.message || payload?.code || `HTTP ${response.status}`);
     }
     return payload?.data ?? payload;
+  }
+
+  async function consumeSse(response, onEvent) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      buffer = drainSseBuffer(buffer, onEvent);
+    }
+    drainSseBuffer(`${buffer}\n\n`, onEvent);
+  }
+
+  function drainSseBuffer(buffer, onEvent) {
+    const blocks = buffer.split("\n\n");
+    const remainder = blocks.pop() || "";
+    blocks.forEach((block) => {
+      if (!block.trim()) {
+        return;
+      }
+      let eventName = "message";
+      const dataLines = [];
+      block.split("\n").forEach((line) => {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      });
+      if (dataLines.length === 0) {
+        return;
+      }
+      try {
+        onEvent(eventName, JSON.parse(dataLines.join("\n")));
+      } catch (error) {
+        onEvent(eventName, { message: dataLines.join("\n") });
+      }
+    });
+    return remainder;
   }
 
   function renderTraceSteps(steps) {

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-demo-postgres
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-agent_demo}
+      POSTGRES_USER: ${DB_USERNAME:-agent_demo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agent_demo}
+    volumes:
+      - agent_demo_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-agent_demo} -d ${DB_NAME:-agent_demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  agent_demo_pg_data:

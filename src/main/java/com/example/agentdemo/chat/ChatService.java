@@ -5,6 +5,8 @@ import com.example.agentdemo.chat.dto.ChatResponse;
 import com.example.agentdemo.chat.dto.StreamChunk;
 import com.example.agentdemo.chat.dto.StreamDone;
 import com.example.agentdemo.chat.dto.StreamError;
+import com.example.agentdemo.chat.memory.ConversationMemoryService;
+import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.config.SseConfig;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceRun;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -32,25 +35,31 @@ public class ChatService {
             """;
 
     private final AiModelService aiModelService;
+    private final ConversationMemoryService conversationMemoryService;
     private final TraceService traceService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
 
-    public ChatService(AiModelService aiModelService, TraceService traceService, Executor sseExecutor,
-            SseConfig.SseProperties sseProperties) {
+    public ChatService(AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
+            TraceService traceService, Executor sseExecutor, SseConfig.SseProperties sseProperties) {
         this.aiModelService = aiModelService;
+        this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
     }
 
     public ChatResponse chat(ChatRequest request) {
-        TraceRun run = traceService.startRun(RunType.CHAT, request);
+        String conversationId = conversationMemoryService.resolveConversationId(request.conversationId());
+        List<ConversationMessage> history = conversationMemoryService.loadRecentMessages(conversationId);
+        TraceRun run = traceService.startRun(RunType.CHAT, requestWithConversation(request, conversationId));
         TraceStep step = traceService.startTraceStep(run.runId(), "dashscope_chat",
-                Map.of("message", request.message(), "conversationId", nullable(request.conversationId())));
+                Map.of("message", request.message(), "conversationId", conversationId, "historySize", history.size()));
         try {
-            AiModelResult result = aiModelService.generate(SYSTEM_PROMPT, request.message());
-            ChatResponse response = new ChatResponse(result.answer(), run.runId());
+            AiModelResult result = aiModelService.generate(SYSTEM_PROMPT, history, request.message());
+            conversationMemoryService.appendUserMessage(conversationId, request.message());
+            conversationMemoryService.appendAssistantMessage(conversationId, result.answer());
+            ChatResponse response = new ChatResponse(result.answer(), conversationId, run.runId());
             traceService.completeStep(step.stepId(),
                     Map.of("answer", result.answer(), "fallback", result.fallback(),
                             "errorMessage", nullable(result.errorMessage())));
@@ -65,14 +74,15 @@ public class ChatService {
     }
 
     public SseEmitter stream(ChatRequest request) {
-        TraceRun run = traceService.startRun(RunType.CHAT, request);
+        String conversationId = conversationMemoryService.resolveConversationId(request.conversationId());
+        TraceRun run = traceService.startRun(RunType.CHAT, requestWithConversation(request, conversationId));
         SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
         AtomicBoolean terminal = new AtomicBoolean(false);
         AtomicReference<TraceStep> stepRef = new AtomicReference<>();
         emitter.onTimeout(() -> handleEmitterTimeout(run, emitter, terminal, stepRef));
         emitter.onError(error -> handleEmitterError(run, terminal, stepRef, error));
         try {
-            sseExecutor.execute(() -> streamInBackground(request, run, emitter, terminal, stepRef));
+            sseExecutor.execute(() -> streamInBackground(conversationId, request, run, emitter, terminal, stepRef));
         }
         catch (RejectedExecutionException ex) {
             handleStreamFailure(run, emitter, terminal, stepRef, ex);
@@ -80,24 +90,29 @@ public class ChatService {
         return emitter;
     }
 
-    private void streamInBackground(ChatRequest request, TraceRun run, SseEmitter emitter, AtomicBoolean terminal,
-            AtomicReference<TraceStep> stepRef) {
+    private void streamInBackground(String conversationId, ChatRequest request, TraceRun run, SseEmitter emitter,
+            AtomicBoolean terminal, AtomicReference<TraceStep> stepRef) {
+        List<ConversationMessage> history = conversationMemoryService.loadRecentMessages(conversationId);
         StringBuilder answer = new StringBuilder();
         try {
             TraceStep step = traceService.startTraceStep(run.runId(), "dashscope_stream_chat",
-                    Map.of("message", request.message(), "conversationId", nullable(request.conversationId())));
+                    Map.of("message", request.message(), "conversationId", conversationId, "historySize",
+                            history.size()));
             stepRef.set(step);
-            boolean fallback = aiModelService.stream(SYSTEM_PROMPT, request.message(), chunk -> {
+            boolean fallback = aiModelService.stream(SYSTEM_PROMPT, history, request.message(), chunk -> {
                 answer.append(chunk);
                 send(emitter, "message", new StreamChunk(run.runId(), chunk));
             });
             if (terminal.compareAndSet(false, true)) {
+                conversationMemoryService.appendUserMessage(conversationId, request.message());
+                conversationMemoryService.appendAssistantMessage(conversationId, answer.toString());
                 traceService.completeStep(step.stepId(),
                         Map.of("answer", answer.toString(), "fallback", fallback));
                 stepRef.set(null);
-                traceService.markRunSucceeded(run.runId(), new ChatResponse(answer.toString(), run.runId()));
+                traceService.markRunSucceeded(run.runId(),
+                        new ChatResponse(answer.toString(), conversationId, run.runId()));
                 try {
-                    send(emitter, "done", new StreamDone(run.runId(), answer.toString()));
+                    send(emitter, "done", new StreamDone(run.runId(), conversationId, answer.toString()));
                     emitter.complete();
                 }
                 catch (RuntimeException sendFailure) {
@@ -165,6 +180,10 @@ public class ChatService {
         catch (IOException ex) {
             throw new IllegalStateException("Failed to send SSE event", ex);
         }
+    }
+
+    private ChatRequest requestWithConversation(ChatRequest request, String conversationId) {
+        return new ChatRequest(conversationId, request.message());
     }
 
     private String nullable(String value) {

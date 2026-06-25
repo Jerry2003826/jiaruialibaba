@@ -1,10 +1,14 @@
 package com.example.agentdemo.trace;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.trace.dto.RunPageResponse;
 import com.example.agentdemo.trace.dto.RunResponse;
 import com.example.agentdemo.trace.dto.RunStepResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -98,10 +102,26 @@ public class TraceService {
 
     @Transactional(readOnly = true)
     public List<RunResponse> listRuns() {
-        return runRepository.findAllByOrderByStartedAtDesc()
-                .stream()
-                .map(this::toRunResponse)
-                .toList();
+        return listRuns(null, null, 0, 20).content();
+    }
+
+    @Transactional(readOnly = true)
+    public RunPageResponse listRuns(RunType type, RunStatus status, int page, int size) {
+        validateRunQuery(page, size);
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
+        Page<RunEntity> runPage = runRepository.findAll(RunSpecifications.filter(type, status), pageable);
+        List<RunResponse> content = runPage.getContent().stream().map(this::toRunResponse).toList();
+        return new RunPageResponse(content, runPage.getNumber(), runPage.getSize(), runPage.getTotalElements(),
+                runPage.getTotalPages());
+    }
+
+    private void validateRunQuery(int page, int size) {
+        if (page < 0) {
+            throw new BusinessException("RUN_QUERY_INVALID", "page must be greater than or equal to 0");
+        }
+        if (size < 1 || size > 100) {
+            throw new BusinessException("RUN_QUERY_INVALID", "size must be between 1 and 100");
+        }
     }
 
     @Transactional(readOnly = true)

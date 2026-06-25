@@ -20,6 +20,7 @@
       <nav class="nav-list">
         <button class="nav-button active" type="button" data-view="workflow">Workflow</button>
         <button class="nav-button" type="button" data-view="chat">Chat</button>
+        <button class="nav-button" type="button" data-view="agent">Agent</button>
         <button class="nav-button" type="button" data-view="rag">RAG</button>
         <button class="nav-button" type="button" data-view="tools">Tools</button>
         <button class="nav-button" type="button" data-view="runs">Runs</button>
@@ -27,6 +28,7 @@
       <div class="runtime-panel">
         <span class="runtime-label">Runtime</span>
         <strong id="runtime-status">Checking</strong>
+        <div id="runtime-details" class="runtime-details">Loading stack status…</div>
       </div>
     </aside>
 
@@ -43,6 +45,7 @@
             <button id="new-workflow" class="secondary-button" type="button">New</button>
             <button id="load-definition" class="secondary-button" type="button">Load</button>
             <button id="save-definition" class="primary-button" type="button">Save</button>
+            <button id="publish-definition" class="secondary-button" type="button">Publish</button>
             <button id="validate-workflow" class="secondary-button" type="button">Validate</button>
             <button id="run-workflow" class="primary-button" type="button">Run</button>
           </div>
@@ -98,9 +101,12 @@
         <header class="workbench-toolbar">
           <div class="title-group">
             <h2>Chat</h2>
-            <span class="status-pill">Model Gateway</span>
+            <span id="chat-mode-pill" class="status-pill">Sync</span>
           </div>
-          <button id="send-chat" class="primary-button" type="button">Send</button>
+          <div class="toolbar-actions">
+            <button id="send-chat" class="primary-button" type="button">Send</button>
+            <button id="stream-chat" class="secondary-button" type="button">Stream</button>
+          </div>
         </header>
         <div class="two-column">
           <section>
@@ -114,6 +120,27 @@
         </div>
       </section>
 
+      <section class="view-panel" id="view-agent" data-view-panel="agent">
+        <header class="workbench-toolbar">
+          <div class="title-group">
+            <h2>Tool Agent</h2>
+            <span class="status-pill">LLM Tool Calling</span>
+          </div>
+          <button id="send-tool-chat" class="primary-button" type="button">Run Agent</button>
+        </header>
+        <div class="two-column">
+          <section>
+            <label class="field-label" for="tool-chat-message">Message</label>
+            <textarea id="tool-chat-message" class="large-input">Please calculate (12 + 8) / 5 and tell me the current time.</textarea>
+            <p class="hint-text">Uses DashScope LLM tool calling with local tools. MCP remote tools require <code>DEMO_MCP_ENABLED=true</code>.</p>
+          </section>
+          <section>
+            <h3>Agent Result</h3>
+            <pre id="tool-chat-output" class="result-box">{}</pre>
+          </section>
+        </div>
+      </section>
+
       <section class="view-panel" id="view-rag" data-view-panel="rag">
         <header class="workbench-toolbar">
           <div class="title-group">
@@ -121,11 +148,13 @@
             <span class="status-pill">Documents</span>
           </div>
           <div class="toolbar-actions">
+            <button id="refresh-documents" class="secondary-button" type="button">Refresh Docs</button>
             <button id="save-document" class="secondary-button" type="button">Save Document</button>
             <button id="ask-rag" class="primary-button" type="button">Ask</button>
           </div>
         </header>
-        <div class="two-column">
+        <div id="rag-hint" class="hint-banner hidden"></div>
+        <div class="two-column rag-layout">
           <section>
             <label class="field-label" for="document-title">Title</label>
             <input id="document-title" class="text-input" type="text" value="Workbench Notes">
@@ -135,6 +164,8 @@
             <textarea id="rag-message" class="large-input">What does the demo support?</textarea>
           </section>
           <section>
+            <h3>Saved Documents</h3>
+            <div id="document-list" class="data-list compact-list"></div>
             <h3>RAG Result</h3>
             <pre id="rag-output" class="result-box">{}</pre>
           </section>

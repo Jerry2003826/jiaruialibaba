@@ -143,7 +143,46 @@ button:disabled {
   margin-bottom: 4px;
 }
 
-.workspace {
+.runtime-details {
+  margin-top: 8px;
+  color: #d7deea;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.hint-text,
+.hint-banner {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hint-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0d58a;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #7a5b00;
+}
+
+.hint-banner.hidden {
+  display: none;
+}
+
+.compact-list .data-item {
+  padding: 8px 10px;
+}
+
+.rag-layout h3 {
+  margin: 16px 0 8px;
+}
+
+.rag-layout h3:first-child {
+  margin-top: 0;
+}
+
   min-width: 0;
   padding: 18px;
 }

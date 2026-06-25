@@ -1,8 +1,10 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
+import com.example.agentdemo.support.TestAlibabaPolicies;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolExecutionPolicy;
@@ -17,6 +19,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class WorkflowNodeExecutorTest {
 
@@ -27,7 +30,7 @@ class WorkflowNodeExecutorTest {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_echo"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway, variableResolver);
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         Object output = executor.execute("run-1",
@@ -43,11 +46,27 @@ class WorkflowNodeExecutorTest {
     }
 
     @Test
+    void throwsWhenStrictModeEnabledAndLlmReturnsFallback() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(AiModelResult.fallback("Workflow fallback answer. Prompt: test", "model unavailable"));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode());
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute("run-1", new WorkflowNode("llm_1", "llm", Map.of()), state))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+    }
+
+    @Test
     void failedToolNodeThrowsBusinessExceptionWithToolErrorCategory() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                gateway, variableResolver);
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         assertThatThrownBy(() -> executor.execute("run-1",

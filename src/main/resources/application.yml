@@ -17,6 +17,8 @@ spring:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
   profiles:
     active: dev
+    group:
+      dev: dev,alibaba-strict,postgres
   ai:
     mcp:
       client:
@@ -56,11 +58,17 @@ logging:
     org.springframework.ai: INFO
 
 demo:
+  alibaba:
+    strict-mode: ${DEMO_ALIBABA_STRICT_MODE:false}
   ai:
-    fallback-enabled: true
+    fallback-enabled: ${DEMO_AI_FALLBACK_ENABLED:true}
+    enable-thinking: ${AI_DASHSCOPE_ENABLE_THINKING:false}
     embedding-model: ${AI_DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
     embedding-dimension: ${AI_DASHSCOPE_EMBEDDING_DIMENSION:1024}
     embedding-base-url: ${AI_DASHSCOPE_EMBEDDING_BASE_URL:}
+  chat:
+    memory:
+      max-messages: ${DEMO_CHAT_MEMORY_MAX_MESSAGES:20}
   rag:
     retriever: ${DEMO_RAG_RETRIEVER:dashvector}
     keyword-fallback-enabled: ${DEMO_RAG_KEYWORD_FALLBACK_ENABLED:true}
@@ -75,6 +83,7 @@ demo:
     metric: ${DASHVECTOR_METRIC:cosine}
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
+    require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}
   tools:
     allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}

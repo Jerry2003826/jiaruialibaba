@@ -56,7 +56,8 @@ class GraphWorkflowRuntimeTest {
                 .thenReturn(AiModelResult.ok("graph answer"));
 
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
-                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService, variableResolver),
+                new WorkflowNodeExecutor(ragService, aiModelService, toolGatewayService, variableResolver,
+                        com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-1", compiler.compile(new WorkflowDefinition(
@@ -83,7 +84,7 @@ class GraphWorkflowRuntimeTest {
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -118,7 +119,7 @@ class GraphWorkflowRuntimeTest {
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class), toolGatewayService,
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -148,7 +149,7 @@ class GraphWorkflowRuntimeTest {
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -194,7 +195,7 @@ class GraphWorkflowRuntimeTest {
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new MapEchoProvider()),
                                 ToolExecutionPolicy.allowOnlyRemoteTools("map_echo")),
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -249,7 +250,7 @@ class GraphWorkflowRuntimeTest {
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new MapEchoProvider()),
                                 ToolExecutionPolicy.allowOnlyRemoteTools("map_echo")),
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
@@ -289,7 +290,7 @@ class GraphWorkflowRuntimeTest {
         GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(
                 new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                         new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
-                        variableResolver),
+                        variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed()),
                 traceService, executorService);
 
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(

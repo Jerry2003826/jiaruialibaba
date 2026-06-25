@@ -10,5 +10,9 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunkEnti
 
     List<DocumentChunkEntity> findByVectorIdIn(Collection<String> vectorIds);
 
+    List<DocumentChunkEntity> findByDocumentIdOrderByChunkIndexAsc(Long documentId);
+
+    void deleteByDocumentId(Long documentId);
+
     Optional<DocumentChunkEntity> findByVectorId(String vectorId);
 }

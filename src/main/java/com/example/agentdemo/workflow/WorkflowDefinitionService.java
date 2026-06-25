@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -17,15 +18,18 @@ public class WorkflowDefinitionService {
     private final WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository;
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
     private final WorkflowCompiler workflowCompiler;
+    private final WorkflowRuntimeProperties workflowRuntimeProperties;
     private final ObjectMapper objectMapper;
 
     public WorkflowDefinitionService(WorkflowDefinitionRepository workflowDefinitionRepository,
             WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository, WorkflowCompiler workflowCompiler,
-            ObjectMapper objectMapper, WorkflowRunRecordRepository workflowRunRecordRepository) {
+            ObjectMapper objectMapper, WorkflowRunRecordRepository workflowRunRecordRepository,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowDefinitionRevisionRepository = workflowDefinitionRevisionRepository;
         this.workflowRunRecordRepository = workflowRunRecordRepository;
         this.workflowCompiler = workflowCompiler;
+        this.workflowRuntimeProperties = workflowRuntimeProperties;
         this.objectMapper = objectMapper;
     }
 
@@ -117,10 +121,22 @@ public class WorkflowDefinitionService {
     public WorkflowDefinitionResolution resolveDefinition(String definitionId, Integer version) {
         if (version == null) {
             WorkflowDefinitionEntity entity = findEntity(definitionId);
+            ensureRunnable(entity.getStatus());
             return new WorkflowDefinitionResolution(entity.getDefinitionId(), entity.getVersion(), fromJson(entity));
         }
         WorkflowDefinitionRevisionEntity revision = findRevision(definitionId, version);
+        ensureRunnable(revision.getStatus());
         return new WorkflowDefinitionResolution(revision.getDefinitionId(), revision.getVersion(), fromJson(revision));
+    }
+
+    private void ensureRunnable(WorkflowDefinitionStatus status) {
+        if (!workflowRuntimeProperties.isRequirePublishedForRun()) {
+            return;
+        }
+        if (status != WorkflowDefinitionStatus.PUBLISHED) {
+            throw new BusinessException("WORKFLOW_DEFINITION_NOT_PUBLISHED",
+                    "Workflow definition must be published before it can be run");
+        }
     }
 
     private WorkflowDefinitionEntity findEntity(String definitionId) {
