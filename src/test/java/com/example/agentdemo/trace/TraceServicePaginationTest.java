@@ -141,4 +141,25 @@ class TraceServicePaginationTest {
         assertThat(node.path("sha256").asText()).hasSize(64);
     }
 
+    @Test
+    void toJsonDegradesPathologicallyNestedInputInsteadOfThrowing() {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        // Deeply nested input would otherwise either trip Jackson's nesting limit (an
+        // IllegalArgumentException from valueToTree) or overflow the sanitizer's recursion. Tracing
+        // must never break the operation it traces, so toJson degrades to a safe value instead.
+        Map<String, Object> root = new java.util.HashMap<>();
+        Map<String, Object> current = root;
+        for (int i = 0; i < 3000; i++) {
+            Map<String, Object> child = new java.util.HashMap<>();
+            current.put("a", child);
+            current = child;
+        }
+
+        String json = traceService.toJson(root);
+
+        assertThat(json).isNotBlank();
+    }
+
 }

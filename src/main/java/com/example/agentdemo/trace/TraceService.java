@@ -33,6 +33,7 @@ public class TraceService {
     private static final int MAX_TRACE_JSON_CHARS = 32768;
     private static final int MAX_TRACE_TEXT_CHARS = 2048;
     private static final int MAX_TRACE_ARRAY_ITEMS = 50;
+    private static final int MAX_SANITIZE_DEPTH = 200;
     private static final List<String> SENSITIVE_KEY_FRAGMENTS = List.of(
             "api_key", "apikey", "authorization", "cookie", "password", "secret", "token");
 
@@ -164,7 +165,7 @@ public class TraceService {
 
     public String toJson(Object value) {
         try {
-            JsonNode sanitized = sanitize(objectMapper.valueToTree(value));
+            JsonNode sanitized = sanitize(objectMapper.valueToTree(value), 0);
             String json = objectMapper.writeValueAsString(sanitized);
             if (json.length() <= MAX_TRACE_JSON_CHARS) {
                 return json;
@@ -178,11 +179,23 @@ public class TraceService {
         catch (JsonProcessingException ex) {
             return escapedSerializationError(ex.getOriginalMessage());
         }
+        catch (RuntimeException | StackOverflowError ex) {
+            // Tracing must never break the operation being traced. Degrade payloads that Jackson
+            // rejects (e.g. an IllegalArgumentException from valueToTree) or that are nested deeply
+            // enough to exhaust the stack while serializing (StackOverflowError, which unwinds cleanly
+            // unlike OutOfMemoryError) to a safe marker instead of propagating.
+            return escapedSerializationError(ex.getMessage());
+        }
     }
 
-    private JsonNode sanitize(JsonNode node) {
+    private JsonNode sanitize(JsonNode node, int depth) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             return objectMapper.nullNode();
+        }
+        if (depth >= MAX_SANITIZE_DEPTH) {
+            // Defence in depth against pathologically nested payloads (including JSON nested inside
+            // JSON strings): stop recursing rather than risk a StackOverflowError.
+            return objectMapper.getNodeFactory().textNode("[TRUNCATED_DEPTH]");
         }
         if (node.isObject()) {
             ObjectNode sanitized = objectMapper.createObjectNode();
@@ -191,7 +204,7 @@ public class TraceService {
                     sanitized.put(entry.getKey(), "[REDACTED]");
                 }
                 else {
-                    sanitized.set(entry.getKey(), sanitize(entry.getValue()));
+                    sanitized.set(entry.getKey(), sanitize(entry.getValue(), depth + 1));
                 }
             });
             return sanitized;
@@ -205,13 +218,13 @@ public class TraceService {
                             .put("truncatedItems", node.size() - MAX_TRACE_ARRAY_ITEMS));
                     break;
                 }
-                sanitized.add(sanitize(item));
+                sanitized.add(sanitize(item, depth + 1));
                 count++;
             }
             return sanitized;
         }
         if (node.isTextual()) {
-            return sanitizeTextual(node.asText());
+            return sanitizeTextual(node.asText(), depth);
         }
         return node;
     }
@@ -224,11 +237,11 @@ public class TraceService {
      * truncation is applied only after redaction so a preview can never leak a secret. Non-JSON text
      * (or malformed JSON) is left as-is, subject to length truncation.
      */
-    private JsonNode sanitizeTextual(String text) {
+    private JsonNode sanitizeTextual(String text, int depth) {
         JsonNode embedded = parseEmbeddedJsonContainer(text);
         if (embedded != null) {
             try {
-                return truncateTextual(objectMapper.writeValueAsString(sanitize(embedded)));
+                return truncateTextual(objectMapper.writeValueAsString(sanitize(embedded, depth + 1)));
             }
             catch (JsonProcessingException ignored) {
                 // Fall back to treating the value as opaque text.
