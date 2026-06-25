@@ -210,13 +210,62 @@ public class TraceService {
             }
             return sanitized;
         }
-        if (node.isTextual() && node.asText().length() > MAX_TRACE_TEXT_CHARS) {
-            return objectMapper.createObjectNode()
-                    .put("truncated", true)
-                    .put("length", node.asText().length())
-                    .put("preview", node.asText().substring(0, MAX_TRACE_TEXT_CHARS));
+        if (node.isTextual()) {
+            return sanitizeTextual(node.asText());
         }
         return node;
+    }
+
+    /**
+     * Sanitizes a string value. A value that is itself serialized JSON (a JSON object or array
+     * embedded in a string) would otherwise bypass key-based redaction, because the sanitizer sees a
+     * single opaque text node and only checks its length. Such values are parsed, recursively
+     * sanitized and re-embedded as a string so secrets inside the embedded JSON are redacted too;
+     * truncation is applied only after redaction so a preview can never leak a secret. Non-JSON text
+     * (or malformed JSON) is left as-is, subject to length truncation.
+     */
+    private JsonNode sanitizeTextual(String text) {
+        JsonNode embedded = parseEmbeddedJsonContainer(text);
+        if (embedded != null) {
+            try {
+                return truncateTextual(objectMapper.writeValueAsString(sanitize(embedded)));
+            }
+            catch (JsonProcessingException ignored) {
+                // Fall back to treating the value as opaque text.
+            }
+        }
+        return truncateTextual(text);
+    }
+
+    /**
+     * Returns the parsed node when {@code text} is a JSON object or array, otherwise {@code null}. A
+     * cheap shape pre-check avoids paying for a parse attempt on ordinary (non-JSON) strings.
+     */
+    private JsonNode parseEmbeddedJsonContainer(String text) {
+        String trimmed = text.strip();
+        boolean looksLikeContainer = trimmed.length() >= 2
+                && ((trimmed.charAt(0) == '{' && trimmed.charAt(trimmed.length() - 1) == '}')
+                        || (trimmed.charAt(0) == '[' && trimmed.charAt(trimmed.length() - 1) == ']'));
+        if (!looksLikeContainer) {
+            return null;
+        }
+        try {
+            JsonNode parsed = objectMapper.readTree(trimmed);
+            return parsed.isContainerNode() ? parsed : null;
+        }
+        catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    private JsonNode truncateTextual(String text) {
+        if (text.length() > MAX_TRACE_TEXT_CHARS) {
+            return objectMapper.createObjectNode()
+                    .put("truncated", true)
+                    .put("length", text.length())
+                    .put("preview", text.substring(0, MAX_TRACE_TEXT_CHARS));
+        }
+        return objectMapper.getNodeFactory().textNode(text);
     }
 
     private boolean isSensitiveKey(String key) {

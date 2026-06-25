@@ -64,6 +64,68 @@ class TraceServicePaginationTest {
     }
 
     @Test
+    void toJsonRedactsSensitiveKeysInsideEmbeddedJsonString() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        // Mirrors TracingToolCallback: a tool's raw JSON arguments arrive as a *string* under a
+        // non-sensitive "arguments" key, so naive key-based redaction would miss the embedded secret.
+        String toolArguments = "{\"api_key\":\"sk-leak-123\",\"city\":\"Beijing\"}";
+        String json = traceService.toJson(Map.of("toolName", "weather", "arguments", toolArguments));
+
+        assertThat(json).doesNotContain("sk-leak-123");
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        com.fasterxml.jackson.databind.JsonNode embedded =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(node.path("arguments").asText());
+        assertThat(embedded.path("api_key").asText()).isEqualTo("[REDACTED]");
+        assertThat(embedded.path("city").asText()).isEqualTo("Beijing");
+    }
+
+    @Test
+    void toJsonRedactsSensitiveKeysWhenWholeValueIsAJsonString() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        String json = traceService.toJson("{\"password\":\"hunter2\",\"keep\":\"ok\"}");
+
+        assertThat(json).doesNotContain("hunter2");
+        // The whole value was a JSON string, so it round-trips as a (sanitized) string literal.
+        String inner = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json).asText();
+        com.fasterxml.jackson.databind.JsonNode embedded =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(inner);
+        assertThat(embedded.path("password").asText()).isEqualTo("[REDACTED]");
+        assertThat(embedded.path("keep").asText()).isEqualTo("ok");
+    }
+
+    @Test
+    void toJsonRedactsSensitiveKeysInsideEmbeddedJsonArrayString() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        String json = traceService.toJson(Map.of("messages", "[{\"token\":\"sk-array-leak\",\"role\":\"user\"}]"));
+
+        assertThat(json).doesNotContain("sk-array-leak");
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        com.fasterxml.jackson.databind.JsonNode embedded =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(node.path("messages").asText());
+        assertThat(embedded.get(0).path("token").asText()).isEqualTo("[REDACTED]");
+        assertThat(embedded.get(0).path("role").asText()).isEqualTo("user");
+    }
+
+    @Test
+    void toJsonKeepsMalformedJsonLikeTextUnchanged() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        // Looks like a container (starts with '{', ends with '}') but is not valid JSON, so it must
+        // be preserved verbatim rather than dropped or misinterpreted.
+        String json = traceService.toJson(Map.of("note", "{oops not json}"));
+
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        assertThat(node.path("note").asText()).isEqualTo("{oops not json}");
+    }
+
+    @Test
     void toJsonSummarizesOversizedPayload() throws Exception {
         TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
                 new com.fasterxml.jackson.databind.ObjectMapper());
