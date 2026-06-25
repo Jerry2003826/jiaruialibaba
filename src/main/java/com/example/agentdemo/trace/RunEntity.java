@@ -6,8 +6,10 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -30,14 +32,16 @@ public class RunEntity {
     @Column(nullable = false, length = 32)
     private RunStatus status;
 
-    @Lob
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(nullable = false, length = Integer.MAX_VALUE)
     private String input;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(length = Integer.MAX_VALUE)
     private String output;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(length = Integer.MAX_VALUE)
     private String errorMessage;
 
     @Column(nullable = false)

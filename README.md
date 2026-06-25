@@ -852,6 +852,17 @@ Password: agent_demo
 
 可用 `psql` 或任意 PostgreSQL 客户端查看 `rag_documents`、`conversation_messages`、`workflow_definitions` 等表。单测通过 `src/test/resources/application.properties` 隔离为 H2，不依赖本地 Postgres。
 
+### 数据库迁移（Flyway）
+
+`postgres` profile 下 schema 由 Flyway 管理、Hibernate 仅做 `validate`：
+
+- 迁移脚本在 `src/main/resources/db/migration/`：`V1__baseline_schema.sql`（基线表结构）、`V2__index_status_row_version_outbox.sql`（新增 `rag_documents.index_status`、`workflow_definitions.row_version`、`vector_outbox_events` 表与 claim 索引，采用 expand-contract：先加可空列、回填、再置 NOT NULL）。
+- 配置见 `application-postgres.yml`：`baseline-on-migrate: true`、`baseline-version: 1`。全新库会依次执行 V1+V2；已有（未接入 Flyway 的）库会被标记为 V1 基线，仅执行 V2 起的增量。
+- H2 默认演示与单测不走 Flyway（`spring.flyway.enabled: false`），由 Hibernate `ddl-auto` 直接建表。
+- 真实 Postgres 上的「迁移 + validate」由 `PostgresFlywayMigrationIntegrationTest`（Testcontainers）在 CI 验证；无 Docker 环境会自动跳过。
+
+> **遗留库注意**：大文本/JSON 列（`content`、`*_json`、`input`/`output` 等）现在映射为 `text`。若某个 Postgres 库是更早版本用 Hibernate `ddl-auto` 自动建表的，这些列可能是 `oid`（大对象），采用本套迁移前需要先做一次性的 `oid → text` 数据转换（与具体部署相关，未自动化）。
+
 ## 后续扩展方向
 
 - 当前已接入 DashVector + DashScope `EmbeddingModel`；后续可继续替换为 Spring AI `VectorStore` 标准抽象或增加 hybrid retrieval / rerank。

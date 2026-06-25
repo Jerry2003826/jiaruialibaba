@@ -7,11 +7,13 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -40,8 +42,8 @@ public class WorkflowDefinitionRevisionEntity {
     @Column(length = 512)
     private String description;
 
-    @Lob
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(nullable = false, length = Integer.MAX_VALUE)
     private String definitionJson;
 
     @Column(nullable = false)
