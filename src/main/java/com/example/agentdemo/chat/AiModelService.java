@@ -10,6 +10,10 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
@@ -55,7 +59,16 @@ public class AiModelService {
         return generate(systemPrompt, List.of(), userMessage);
     }
 
+    public AiModelResult generateWithModel(String systemPrompt, String userMessage, String modelOverride) {
+        return generate(systemPrompt, List.of(), userMessage, modelOverride);
+    }
+
     public AiModelResult generate(String systemPrompt, List<ConversationMessage> history, String userMessage) {
+        return generate(systemPrompt, history, userMessage, null);
+    }
+
+    private AiModelResult generate(String systemPrompt, List<ConversationMessage> history, String userMessage,
+            String modelOverride) {
         if (!isModelConfigured()) {
             return handleUnavailableLlm("AI_DASHSCOPE_API_KEY is not configured", userMessage);
         }
@@ -66,12 +79,17 @@ public class AiModelService {
         }
 
         try {
-            String answer = chatClient.prompt()
+            ChatClient.ChatClientRequestSpec request = chatClient.prompt()
                     .system(systemPrompt)
-                    .messages(toSpringMessages(history, userMessage))
-                    .call()
-                    .content();
-            return AiModelResult.ok(StringUtils.hasText(answer) ? answer : "");
+                    .messages(toSpringMessages(history, userMessage));
+            String requestedModel = StringUtils.hasText(modelOverride) ? modelOverride : modelName();
+            if (StringUtils.hasText(modelOverride)) {
+                request = request.options(ChatOptions.builder().model(modelOverride).build());
+            }
+            ChatResponse response = request.call().chatResponse();
+            String answer = extractAnswer(response);
+            return AiModelResult.ok(StringUtils.hasText(answer) ? answer : "",
+                    extractTokenUsage(response, requestedModel));
         }
         catch (Exception ex) {
             if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
@@ -81,6 +99,33 @@ public class AiModelService {
             log.warn("DashScope chat call failed, using fallback answer", ex);
             return legacyFallback(userMessage, ex.getMessage());
         }
+    }
+
+    private String extractAnswer(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return "";
+        }
+        return response.getResult().getOutput().getText();
+    }
+
+    private TokenUsage extractTokenUsage(ChatResponse response, String requestedModel) {
+        if (response == null || response.getMetadata() == null) {
+            return null;
+        }
+        ChatResponseMetadata metadata = response.getMetadata();
+        Usage usage = metadata.getUsage();
+        if (usage == null) {
+            return null;
+        }
+        String model = StringUtils.hasText(metadata.getModel()) ? metadata.getModel() : requestedModel;
+        Integer promptTokens = usage.getPromptTokens();
+        Integer completionTokens = usage.getCompletionTokens();
+        Integer totalTokens = usage.getTotalTokens();
+        if (totalTokens == null && promptTokens != null && completionTokens != null) {
+            totalTokens = promptTokens + completionTokens;
+        }
+        return new TokenUsage("dashscope", model, promptTokens, completionTokens, totalTokens,
+                usage.getNativeUsage());
     }
 
     public boolean stream(String systemPrompt, String userMessage, Consumer<String> onChunk) {

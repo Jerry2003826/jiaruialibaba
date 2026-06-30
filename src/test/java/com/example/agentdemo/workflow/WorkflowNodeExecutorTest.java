@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.chat.TokenUsage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.support.TestAlibabaPolicies;
@@ -18,7 +19,10 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowNodeExecutorTest {
@@ -59,6 +63,33 @@ class WorkflowNodeExecutorTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getCode())
                 .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+    }
+
+    @Test
+    void llmNodeUsesConfiguredModelAndReturnsTokenUsageDetails() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        TokenUsage usage = new TokenUsage("dashscope", "qwen-max", 14, 9, 23,
+                Map.of("input_tokens", 14, "output_tokens", 9));
+        when(aiModelService.generateWithModel(anyString(), eq("Summarize: hello"), eq("qwen-max")))
+                .thenReturn(AiModelResult.ok("summary", usage));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Object output = executor.execute("run-1",
+                new WorkflowNode("llm_1", "llm", Map.of(
+                        "prompt", "Summarize: {{input.message}}",
+                        "model", "qwen-max"
+                )),
+                state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class, map -> {
+            assertThat(map).containsEntry("answer", "summary");
+            assertThat(map).containsEntry("model", "qwen-max");
+            assertThat(map).containsEntry("tokenUsage", usage);
+        });
+        verify(aiModelService).generateWithModel(anyString(), eq("Summarize: hello"), eq("qwen-max"));
     }
 
     @Test

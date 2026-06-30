@@ -107,15 +107,22 @@ public class WorkflowNodeExecutor {
         String promptTemplate = configString(node, "prompt",
                 "Answer the workflow input using this context: {{context}}\nInput: {{input}}");
         String prompt = variableResolver.renderString(promptTemplate, state);
-        AiModelResult result = aiModelService.generate(WORKFLOW_SYSTEM_PROMPT, prompt);
+        String configuredModel = configString(node, "model", null);
+        AiModelResult result = StringUtils.hasText(configuredModel)
+                ? aiModelService.generateWithModel(WORKFLOW_SYSTEM_PROMPT, prompt, configuredModel)
+                : aiModelService.generate(WORKFLOW_SYSTEM_PROMPT, prompt);
         String answer = resolveAnswer(prompt, state, result);
         state.setAnswer(answer);
 
         Map<String, Object> output = orderedMap();
         output.put("prompt", prompt);
         output.put("answer", answer);
+        output.put("model", outputModel(configuredModel, result));
         output.put("fallback", result.fallback());
         output.put("errorMessage", result.errorMessage());
+        if (result.tokenUsage() != null) {
+            output.put("tokenUsage", result.tokenUsage());
+        }
         state.setLastOutput(output);
         return output;
     }
@@ -249,6 +256,16 @@ public class WorkflowNodeExecutor {
                     "Alibaba LLM is required for workflow LLM nodes: " + result.errorMessage());
         }
         return fallbackAnswer(prompt, state);
+    }
+
+    private String outputModel(String configuredModel, AiModelResult result) {
+        if (result.tokenUsage() != null && StringUtils.hasText(result.tokenUsage().model())) {
+            return result.tokenUsage().model();
+        }
+        if (StringUtils.hasText(configuredModel)) {
+            return configuredModel;
+        }
+        return aiModelService.modelName();
     }
 
     private String fallbackAnswer(String prompt, WorkflowExecutionState state) {

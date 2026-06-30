@@ -1,34 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Agent Workbench</title>
+  <title>AI 智能体工作台</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="app" class="app-shell">
-    <aside class="side-nav" aria-label="Main navigation">
+    <aside class="side-nav" aria-label="主导航">
       <div class="brand-block">
         <div class="brand-mark" aria-hidden="true">AI</div>
         <div>
-          <h1>AI Agent Workbench</h1>
+          <h1>AI 智能体工作台</h1>
           <p>Spring AI Alibaba</p>
         </div>
       </div>
       <nav class="nav-list">
-        <button class="nav-button active" type="button" data-view="workflow">Workflow</button>
-        <button class="nav-button" type="button" data-view="chat">Chat</button>
-        <button class="nav-button" type="button" data-view="agent">Agent</button>
-        <button class="nav-button" type="button" data-view="rag">RAG</button>
-        <button class="nav-button" type="button" data-view="tools">Tools</button>
-        <button class="nav-button" type="button" data-view="runs">Runs</button>
+        <button class="nav-button active" type="button" data-view="workflow">工作流</button>
+        <button class="nav-button" type="button" data-view="chat">对话</button>
+        <button class="nav-button" type="button" data-view="agent">智能体</button>
+        <button class="nav-button" type="button" data-view="rag">知识库</button>
+        <button class="nav-button" type="button" data-view="tools">工具</button>
+        <button class="nav-button" type="button" data-view="runs">运行记录</button>
       </nav>
       <div class="runtime-panel">
-        <span class="runtime-label">Runtime</span>
-        <strong id="runtime-status">Checking</strong>
-        <div id="runtime-details" class="runtime-details">Loading stack status…</div>
+        <span class="runtime-label">运行时</span>
+        <strong id="runtime-status">检测中</strong>
+        <div id="runtime-details" class="runtime-details">正在加载栈状态…</div>
       </div>
     </aside>
 
@@ -36,24 +36,24 @@
       <section class="view-panel active" id="view-workflow" data-view-panel="workflow">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>Workflow Canvas</h2>
-            <span id="workflow-status" class="status-pill">Draft</span>
+            <h2>工作流画布</h2>
+            <span id="workflow-status" class="status-pill">草稿</span>
           </div>
           <div class="toolbar-actions">
-            <input id="definition-name" class="compact-input" type="text" value="Agent Workflow" maxlength="128" aria-label="Workflow name">
-            <select id="definition-select" class="compact-input" aria-label="Saved definitions"></select>
-            <button id="new-workflow" class="secondary-button" type="button">New</button>
-            <button id="load-definition" class="secondary-button" type="button">Load</button>
-            <button id="save-definition" class="primary-button" type="button">Save</button>
-            <button id="publish-definition" class="secondary-button" type="button">Publish</button>
-            <button id="insert-loop-template" class="secondary-button" type="button">Insert Loop</button>
-            <button id="validate-workflow" class="secondary-button" type="button">Validate</button>
-            <button id="run-workflow" class="primary-button" type="button">Run</button>
+            <input id="definition-name" class="compact-input" type="text" value="智能体工作流" maxlength="128" aria-label="工作流名称">
+            <select id="definition-select" class="compact-input" aria-label="已保存的定义"></select>
+            <button id="new-workflow" class="secondary-button" type="button">新建</button>
+            <button id="load-definition" class="secondary-button" type="button">载入</button>
+            <button id="save-definition" class="primary-button" type="button">保存</button>
+            <button id="publish-definition" class="secondary-button" type="button">发布</button>
+            <button id="insert-loop-template" class="secondary-button" type="button">插入循环</button>
+            <button id="validate-workflow" class="secondary-button" type="button">校验</button>
+            <button id="run-workflow" class="primary-button" type="button">运行</button>
           </div>
         </header>
 
         <div class="workflow-layout">
-          <aside class="node-palette" id="node-palette" aria-label="Node palette"></aside>
+          <aside class="node-palette" id="node-palette" aria-label="节点面板"></aside>
 
           <section class="canvas-region">
             <div class="workflow-canvas" id="workflow-canvas">
@@ -62,18 +62,18 @@
             </div>
             <section class="execution-panel">
               <div class="panel-header">
-                <h3>Execution</h3>
-                <button id="refresh-run-graph" class="secondary-button" type="button">Refresh</button>
+                <h3>执行</h3>
+                <button id="refresh-run-graph" class="secondary-button" type="button">刷新</button>
               </div>
-              <label class="field-label" for="workflow-input">Input JSON</label>
-              <textarea id="workflow-input" class="code-input" spellcheck="false">{"message":"What can this agent answer from the documents?"}</textarea>
+              <label class="field-label" for="workflow-input">输入 JSON</label>
+              <textarea id="workflow-input" class="code-input" spellcheck="false">{"message":"这个智能体能从文档里回答什么？"}</textarea>
               <div class="result-grid">
                 <section>
-                  <h4>Output</h4>
+                  <h4>输出</h4>
                   <pre id="run-output" class="result-box">{}</pre>
                 </section>
                 <section>
-                  <h4>Run Steps</h4>
+                  <h4>运行步骤</h4>
                   <div id="trace-steps" class="step-list"></div>
                 </section>
               </div>
@@ -82,25 +82,25 @@
 
           <aside class="inspector-panel" id="node-inspector">
             <div class="panel-header">
-              <h3>Inspector</h3>
-              <button id="delete-node" class="danger-button" type="button">Delete</button>
+              <h3>检查器</h3>
+              <button id="delete-node" class="danger-button" type="button">删除</button>
             </div>
-            <div id="inspector-empty" class="empty-state">No node selected</div>
+            <div id="inspector-empty" class="empty-state">未选择节点</div>
             <form id="inspector-form" class="inspector-form hidden"></form>
             <section class="definition-history" id="definition-history">
               <div class="panel-header">
-                <h3>Definition History</h3>
-                <button id="refresh-definition-history" class="secondary-button" type="button">Refresh</button>
+                <h3>定义历史</h3>
+                <button id="refresh-definition-history" class="secondary-button" type="button">刷新</button>
               </div>
-              <h4 class="history-subtitle">Revisions</h4>
+              <h4 class="history-subtitle">版本</h4>
               <div id="revision-list" class="history-list"></div>
-              <h4 class="history-subtitle">Runs</h4>
+              <h4 class="history-subtitle">运行</h4>
               <div id="workflow-run-list" class="history-list"></div>
             </section>
             <section class="edge-editor">
               <div class="panel-header">
-                <h3>Edges</h3>
-                <button id="add-edge" class="secondary-button" type="button">Add</button>
+                <h3>连线</h3>
+                <button id="add-edge" class="secondary-button" type="button">添加</button>
               </div>
               <div id="edge-list" class="edge-list"></div>
             </section>
@@ -111,21 +111,21 @@
       <section class="view-panel" id="view-chat" data-view-panel="chat">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>Chat</h2>
-            <span id="chat-mode-pill" class="status-pill">Sync</span>
+            <h2>对话</h2>
+            <span id="chat-mode-pill" class="status-pill">同步</span>
           </div>
           <div class="toolbar-actions">
-            <button id="send-chat" class="primary-button" type="button">Send</button>
-            <button id="stream-chat" class="secondary-button" type="button">Stream</button>
+            <button id="send-chat" class="primary-button" type="button">发送</button>
+            <button id="stream-chat" class="secondary-button" type="button">流式</button>
           </div>
         </header>
         <div class="two-column">
           <section>
-            <label class="field-label" for="chat-message">Message</label>
-            <textarea id="chat-message" class="large-input">Explain what this backend demo can do.</textarea>
+            <label class="field-label" for="chat-message">消息</label>
+            <textarea id="chat-message" class="large-input">用一句话介绍这个后端 demo 能做什么。</textarea>
           </section>
           <section>
-            <h3>Answer</h3>
+            <h3>回答</h3>
             <pre id="chat-output" class="result-box">{}</pre>
           </section>
         </div>
@@ -134,19 +134,19 @@
       <section class="view-panel" id="view-agent" data-view-panel="agent">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>Tool Agent</h2>
-            <span class="status-pill">LLM Tool Calling</span>
+            <h2>工具智能体</h2>
+            <span class="status-pill">大模型工具调用</span>
           </div>
-          <button id="send-tool-chat" class="primary-button" type="button">Run Agent</button>
+          <button id="send-tool-chat" class="primary-button" type="button">运行智能体</button>
         </header>
         <div class="two-column">
           <section>
-            <label class="field-label" for="tool-chat-message">Message</label>
-            <textarea id="tool-chat-message" class="large-input">Please calculate (12 + 8) / 5 and tell me the current time.</textarea>
-            <p class="hint-text">Uses DashScope LLM tool calling with local tools. MCP remote tools require <code>DEMO_MCP_ENABLED=true</code>.</p>
+            <label class="field-label" for="tool-chat-message">消息</label>
+            <textarea id="tool-chat-message" class="large-input">请计算 (12 + 8) / 5，并告诉我现在的时间。</textarea>
+            <p class="hint-text">使用 DashScope 大模型工具调用 + 本地工具。MCP 远程工具需设置 <code>DEMO_MCP_ENABLED=true</code>。</p>
           </section>
           <section>
-            <h3>Agent Result</h3>
+            <h3>智能体结果</h3>
             <pre id="tool-chat-output" class="result-box">{}</pre>
           </section>
         </div>
@@ -155,29 +155,29 @@
       <section class="view-panel" id="view-rag" data-view-panel="rag">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>RAG</h2>
-            <span class="status-pill">Documents</span>
+            <h2>知识库</h2>
+            <span class="status-pill">文档</span>
           </div>
           <div class="toolbar-actions">
-            <button id="refresh-documents" class="secondary-button" type="button">Refresh Docs</button>
-            <button id="save-document" class="secondary-button" type="button">Save Document</button>
-            <button id="ask-rag" class="primary-button" type="button">Ask</button>
+            <button id="refresh-documents" class="secondary-button" type="button">刷新文档</button>
+            <button id="save-document" class="secondary-button" type="button">保存文档</button>
+            <button id="ask-rag" class="primary-button" type="button">提问</button>
           </div>
         </header>
         <div id="rag-hint" class="hint-banner hidden"></div>
         <div class="two-column rag-layout">
           <section>
-            <label class="field-label" for="document-title">Title</label>
-            <input id="document-title" class="text-input" type="text" value="Workbench Notes">
-            <label class="field-label" for="document-content">Content</label>
-            <textarea id="document-content" class="large-input">Spring AI Alibaba supports agent workflows, RAG, tool calling and trace inspection in this demo.</textarea>
-            <label class="field-label" for="rag-message">Question</label>
-            <textarea id="rag-message" class="large-input">What does the demo support?</textarea>
+            <label class="field-label" for="document-title">标题</label>
+            <input id="document-title" class="text-input" type="text" value="工作台笔记">
+            <label class="field-label" for="document-content">内容</label>
+            <textarea id="document-content" class="large-input">Spring AI Alibaba 在这个 demo 中支持智能体工作流、知识库 RAG、工具调用和运行轨迹查看。</textarea>
+            <label class="field-label" for="rag-message">问题</label>
+            <textarea id="rag-message" class="large-input">这个 demo 支持哪些能力？</textarea>
           </section>
           <section>
-            <h3>Saved Documents</h3>
+            <h3>已存文档</h3>
             <div id="document-list" class="data-list compact-list"></div>
-            <h3>RAG Result</h3>
+            <h3>检索结果</h3>
             <pre id="rag-output" class="result-box">{}</pre>
           </section>
         </div>
@@ -186,18 +186,18 @@
       <section class="view-panel" id="view-tools" data-view-panel="tools">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>Tools</h2>
-            <span class="status-pill">Local + MCP</span>
+            <h2>工具</h2>
+            <span class="status-pill">本地 + MCP</span>
           </div>
-          <button id="refresh-tools" class="secondary-button" type="button">Refresh</button>
+          <button id="refresh-tools" class="secondary-button" type="button">刷新</button>
         </header>
         <div class="two-column">
           <section>
-            <h3>Tool Registry</h3>
+            <h3>工具注册表</h3>
             <div id="tool-list" class="data-list"></div>
           </section>
           <section>
-            <h3>MCP Servers</h3>
+            <h3>MCP 服务</h3>
             <div id="mcp-server-list" class="data-list"></div>
           </section>
         </div>
@@ -206,10 +206,10 @@
       <section class="view-panel" id="view-runs" data-view-panel="runs">
         <header class="workbench-toolbar">
           <div class="title-group">
-            <h2>Runs</h2>
-            <span class="status-pill">Trace</span>
+            <h2>运行记录</h2>
+            <span class="status-pill">轨迹</span>
           </div>
-          <button id="refresh-runs" class="secondary-button" type="button">Refresh</button>
+          <button id="refresh-runs" class="secondary-button" type="button">刷新</button>
         </header>
         <div id="run-list" class="data-list wide-list"></div>
       </section>

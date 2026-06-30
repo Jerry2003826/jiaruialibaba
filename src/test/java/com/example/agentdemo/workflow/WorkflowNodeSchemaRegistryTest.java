@@ -35,6 +35,7 @@ class WorkflowNodeSchemaRegistryTest {
                 .contains("{{input}}", "{{input.field}}", "{{context}}", "{{lastOutput}}",
                         "{{lastOutput.field}}", "{{nodes.nodeId.field}}", "{{toolResult}}", "{{answer}}");
         assertThat(field(llm, "prompt").defaultValue()).asString().contains("{{context}}");
+        assertThat(field(llm, "model").defaultValue()).isNull();
     }
 
     @Test

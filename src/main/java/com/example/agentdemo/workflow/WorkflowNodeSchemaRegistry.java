@@ -84,15 +84,23 @@ public class WorkflowNodeSchemaRegistry {
                 "llm",
                 "LLM",
                 "Calls AiModelService with a prompt rendered from workflow state.",
-                withExecutionControls(List.of(new WorkflowNodeConfigField(
-                        "prompt",
-                        "string",
-                        false,
-                        "Answer the workflow input using this context: {{context}}\nInput: {{input}}",
-                        "Prompt template sent to the model. Supports workflow variables.",
-                        Map.of("templateVariables", TEMPLATE_VARIABLES)))),
+                withExecutionControls(List.of(
+                        new WorkflowNodeConfigField(
+                                "prompt",
+                                "string",
+                                false,
+                                "Answer the workflow input using this context: {{context}}\nInput: {{input}}",
+                                "Prompt template sent to the model. Supports workflow variables.",
+                                Map.of("templateVariables", TEMPLATE_VARIABLES)),
+                        new WorkflowNodeConfigField(
+                                "model",
+                                "string",
+                                false,
+                                null,
+                                "Optional DashScope chat model override for this LLM node.",
+                                Map.of()))),
                 TEMPLATE_VARIABLES,
-                "A map containing prompt, answer, fallback and errorMessage.");
+                "A map containing prompt, answer, model, tokenUsage, fallback and errorMessage.");
     }
 
     private WorkflowNodeSchema toolSchema() {

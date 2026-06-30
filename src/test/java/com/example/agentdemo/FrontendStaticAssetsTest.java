@@ -40,8 +40,8 @@ class FrontendStaticAssetsTest {
     void servesWorkbenchHomePage() throws Exception {
         mockMvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("AI Agent Workbench")))
-                .andExpect(content().string(containsString("Tool Agent")))
+                .andExpect(content().string(containsString("app-shell")))
+                .andExpect(content().string(containsString("view-agent")))
                 .andExpect(content().string(containsString("runtime-details")))
                 .andExpect(content().string(containsString("insert-loop-template")))
                 .andExpect(content().string(containsString("definition-history")))
@@ -65,6 +65,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("insertLoopTemplate")))
                 .andExpect(content().string(containsString("saveCanvasPositions")))
                 .andExpect(content().string(containsString("buildCompositeContainersFromSteps")))
+                .andExpect(content().string(containsString("tokenUsageSummary")))
+                .andExpect(content().string(containsString("tokenUsage")))
                 .andExpect(content().string(containsString("loadDefinitionHistory")))
                 .andExpect(content().string(containsString("runsPage?.content")));
     }

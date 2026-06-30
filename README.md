@@ -198,6 +198,51 @@ export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
 
 应用有两种启动模式。
 
+### 0. 本机阿里全栈一键启动（推荐）
+
+如果本机 `.env` 已经填好 DashScope / 百炼、DashVector 和 PostgreSQL 配置，直接运行：
+
+```bash
+./scripts/start-local-alibaba.sh --restart
+```
+
+这会像普通开发服务器一样在当前终端前台运行；使用工作台时保持这个终端打开。
+
+脚本会：
+
+- 加载本地 `.env`（不会打印密钥）。
+- 强制使用 `dev` profile，即 `dev,alibaba-strict,postgres,workflow-graph`。
+- 检查 DashScope Chat、DashScope Embedding、DashVector、PostgreSQL 的必要配置。
+- 在本机没有持久 JWT secret 时，生成一个本地 secret 并写回被 `.gitignore` 忽略的 `.env`，避免使用内置默认值。
+- 如本机 PostgreSQL 端口未就绪且 Docker 可用，尝试启动 `docker compose` 中的 `postgres`。
+- 先执行 `./mvnw -DskipTests package`，再用 `java -jar` 启动 Spring Boot。
+
+如果你明确想后台启动，可以运行：
+
+```bash
+./scripts/start-local-alibaba.sh --restart --background
+```
+
+后台模式会把日志写入 `var/log/local-alibaba.log`，并等待 `/api/health` 确认 `strictMode=true`、`fallbackEnabled=false`、`vectorStoreConfigured=true`、`ragRetriever=DashVectorDocumentRetriever`、`workflowRuntime=graph`。
+
+启动后打开：
+
+```text
+http://localhost:8080/
+```
+
+只验证当前运行状态：
+
+```bash
+./scripts/verify-local-alibaba.sh
+```
+
+停止脚本启动的本地服务：
+
+```bash
+./scripts/start-local-alibaba.sh --stop
+```
+
 ### 1. 快速演示（默认，无需 PostgreSQL）
 
 不激活任何 profile 时使用内存 H2，Hibernate 自动建表，开箱即用：

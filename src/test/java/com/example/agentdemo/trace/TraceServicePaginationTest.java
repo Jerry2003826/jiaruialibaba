@@ -113,6 +113,32 @@ class TraceServicePaginationTest {
     }
 
     @Test
+    void toJsonPreservesTokenUsageDetailsWhileRedactingSecretTokens() throws Exception {
+        TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        String json = traceService.toJson(Map.of(
+                "tokenUsage", Map.of(
+                        "model", "qwen-plus",
+                        "promptTokens", 11,
+                        "completionTokens", 7,
+                        "totalTokens", 18,
+                        "nativeUsage", Map.of("prompt_tokens_details", Map.of("cached_tokens", 0))),
+                "accessToken", "sk-should-redact"));
+
+        com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+        assertThat(node.path("tokenUsage").path("model").asText()).isEqualTo("qwen-plus");
+        assertThat(node.path("tokenUsage").path("promptTokens").asInt()).isEqualTo(11);
+        assertThat(node.path("tokenUsage").path("completionTokens").asInt()).isEqualTo(7);
+        assertThat(node.path("tokenUsage").path("totalTokens").asInt()).isEqualTo(18);
+        com.fasterxml.jackson.databind.JsonNode promptTokenDetails =
+                node.path("tokenUsage").path("nativeUsage").path("prompt_tokens_details");
+        assertThat(promptTokenDetails.isObject()).isTrue();
+        assertThat(promptTokenDetails.path("cached_tokens").asInt()).isEqualTo(0);
+        assertThat(node.path("accessToken").asText()).isEqualTo("[REDACTED]");
+    }
+
+    @Test
     void toJsonKeepsMalformedJsonLikeTextUnchanged() throws Exception {
         TraceService traceService = new TraceService(mock(RunRepository.class), mock(RunStepRepository.class),
                 new com.fasterxml.jackson.databind.ObjectMapper());

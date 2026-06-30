@@ -29,7 +29,7 @@
   const fallbackSchemas = [
     { type: "start", displayName: "Start", configFields: [] },
     { type: "retriever", displayName: "Retriever", configFields: [{ name: "topK", type: "integer", defaultValue: 3 }] },
-    { type: "llm", displayName: "LLM", configFields: [{ name: "prompt", type: "string", defaultValue: "Answer using this context: {{context}}\nInput: {{input}}" }] },
+    { type: "llm", displayName: "LLM", configFields: [{ name: "prompt", type: "string", defaultValue: "Answer using this context: {{context}}\nInput: {{input}}" }, { name: "model", type: "string", defaultValue: "" }] },
     { type: "tool", displayName: "Tool", configFields: [{ name: "toolName", type: "string", defaultValue: "getCurrentTime" }] },
     { type: "condition", displayName: "Condition", configFields: [{ name: "left", type: "string", defaultValue: "{{input}}" }, { name: "operator", type: "string", defaultValue: "contains" }, { name: "right", type: "any", defaultValue: "" }] },
     { type: "parallel", displayName: "Parallel", configFields: [] },
@@ -153,7 +153,7 @@
       resetWorkflow();
       renderAll();
       void loadDefinitionHistory();
-      toast("New workflow ready");
+      toast("已新建工作流");
     });
     els.loadDefinition.addEventListener("click", () => {
       const selected = els.definitionSelect.value;
@@ -212,11 +212,11 @@
       const data = await requestJson(API.devToken);
       authToken = data?.token ?? null;
       if (!authToken) {
-        toast("No dev token returned; API calls may be unauthorized", true);
+        toast("未返回开发令牌，API 调用可能未授权", true);
       }
     } catch (error) {
       authToken = null;
-      toast(`Auth unavailable: ${error.message}. Sign in via your IdP to use the workbench.`, true);
+      toast(`认证不可用：${error.message}。请通过你的 IdP 登录后再使用工作台。`, true);
     }
   }
 
@@ -232,7 +232,7 @@
     try {
       const data = await requestJson(API.health);
       state.health = data;
-      const modelLabel = data.modelConfigured ? data.model : "not configured";
+      const modelLabel = data.modelConfigured ? data.model : "未配置";
       els.runtimeStatus.textContent = `${data.status} · ${modelLabel}`;
       els.runtimeDetails.textContent = [
         `workflow=${data.workflowRuntime} · publishRequired=${data.workflowRequirePublishedForRun}`,
@@ -242,7 +242,7 @@
       ].join("\n");
       updateRagHint(data);
     } catch (error) {
-      els.runtimeStatus.textContent = "Unavailable";
+      els.runtimeStatus.textContent = "不可用";
       els.runtimeDetails.textContent = error.message;
     }
   }
@@ -252,7 +252,7 @@
       return;
     }
     if (health.vectorStoreConfigured && health.indexedDocumentCount === 0) {
-      els.ragHint.textContent = "DashVector 已就绪，但当前 PostgreSQL 中没有已索引文档。请重新 Save Document，否则 RAG 检索会返回空上下文。";
+      els.ragHint.textContent = "DashVector 已就绪，但当前 PostgreSQL 中没有已索引文档。请重新点击“保存文档”，否则 RAG 检索会返回空上下文。";
       els.ragHint.classList.remove("hidden");
       return;
     }
@@ -281,7 +281,7 @@
       const definitions = await requestJson(API.definitions);
       state.savedDefinitions = Array.isArray(definitions) ? definitions : [];
       els.definitionSelect.innerHTML = "";
-      appendOption(els.definitionSelect, "", "Saved definitions");
+      appendOption(els.definitionSelect, "", "已保存的定义");
       state.savedDefinitions.forEach((definition) => {
         appendOption(els.definitionSelect, definition.definitionId, `${definition.name} v${definition.version}`);
       });
@@ -333,7 +333,7 @@
       ["end", { x: 330, y: 250 }]
     ]);
     loadCanvasPositions();
-    els.definitionName.value = "Agent Workflow";
+    els.definitionName.value = "智能体工作流";
     els.runOutput.textContent = "{}";
     els.traceSteps.innerHTML = "";
     setWorkflowStatus("Draft");
@@ -402,6 +402,20 @@
     renderEdgeEditor();
   }
 
+  const NODE_LABELS = {
+    start: "开始", retriever: "检索", llm: "大模型", tool: "工具",
+    condition: "条件", parallel: "并行", join: "汇合", loop: "循环",
+    loop_back: "循环回边", subgraph: "子图", dynamic: "动态", end: "结束"
+  };
+
+  function nodeLabel(typeOrSchema) {
+    const type = typeof typeOrSchema === "string" ? typeOrSchema : typeOrSchema.type;
+    const fallback = typeof typeOrSchema === "object" && typeOrSchema
+      ? (typeOrSchema.displayName || type)
+      : type;
+    return NODE_LABELS[type] || fallback;
+  }
+
   function renderPalette() {
     els.nodePalette.innerHTML = "";
     state.schemas.forEach((schema) => {
@@ -409,7 +423,7 @@
       button.type = "button";
       button.className = "palette-button";
       button.style.borderLeftColor = colorForType(schema.type);
-      button.innerHTML = `<span>${escapeHtml(schema.displayName || schema.type)}</span><strong>+</strong>`;
+      button.innerHTML = `<span>${escapeHtml(nodeLabel(schema))}</span><strong>+</strong>`;
       button.addEventListener("click", () => addNode(schema.type));
       els.nodePalette.appendChild(button);
     });
@@ -430,10 +444,10 @@
       element.innerHTML = `
         <div class="node-header">
           <span class="node-id">${escapeHtml(node.id)}</span>
-          <button class="node-port" type="button" aria-label="Connect ${escapeHtml(node.id)}">+</button>
+          <button class="node-port" type="button" aria-label="连接 ${escapeHtml(node.id)}">+</button>
         </div>
         <div class="node-body">
-          <div class="node-type">${escapeHtml(node.type)}</div>
+          <div class="node-type">${escapeHtml(nodeLabel(node.type))}</div>
           <div>${escapeHtml(nodeSummary(node))}</div>
         </div>
       `;
@@ -443,7 +457,7 @@
         event.stopPropagation();
         state.connectSourceId = state.connectSourceId === node.id ? null : node.id;
         renderNodes();
-        toast(state.connectSourceId ? `Connecting from ${node.id}` : "Connection cleared");
+        toast(state.connectSourceId ? `从 ${node.id} 开始连线` : "已取消连线");
       });
       els.nodeLayer.appendChild(element);
     });
@@ -485,14 +499,14 @@
     if (!node) {
       return;
     }
-    const idField = fieldShell("Node ID");
+    const idField = fieldShell("节点 ID");
     const idInput = textControl(node.id);
     idInput.addEventListener("change", () => renameNode(node.id, idInput.value.trim()));
     idField.appendChild(idInput);
     els.inspectorForm.appendChild(idField);
 
     const schema = schemaForType(node.type);
-    const typeField = fieldShell("Type");
+    const typeField = fieldShell("类型");
     const typeValue = document.createElement("input");
     typeValue.className = "text-input";
     typeValue.value = schema.displayName || node.type;
@@ -572,7 +586,7 @@
     if (state.edges.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No edges";
+      empty.textContent = "暂无连线";
       els.edgeList.appendChild(empty);
       return;
     }
@@ -587,7 +601,7 @@
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "danger-button";
-      remove.textContent = "Remove Edge";
+      remove.textContent = "删除连线";
       from.addEventListener("change", () => {
         edge.from = from.value;
         renderEdgeEditor();
@@ -669,7 +683,7 @@
     state.selectedNodeId = loopId;
     saveCanvasPositions();
     renderAll();
-    toast("Loop template inserted — run Validate to check topology");
+    toast("已插入循环模板 — 请点“校验”检查拓扑");
   }
 
   function ensureStartEndNodes() {
@@ -800,7 +814,7 @@
       outputEl: els.runOutput,
       onSuccess: async (response) => {
         setWorkflowStatus(response.valid ? "Valid" : "Invalid");
-        toast(response.valid ? "Workflow valid" : "Workflow invalid", !response.valid);
+        toast(response.valid ? "工作流校验通过" : "工作流校验未通过", !response.valid);
         if (response.valid) {
           await previewWorkflow();
         }
@@ -824,8 +838,8 @@
 
   async function saveDefinition() {
     const body = {
-      name: els.definitionName.value.trim() || "Agent Workflow",
-      description: "Saved from AI Agent Workbench",
+      name: els.definitionName.value.trim() || "智能体工作流",
+      description: "来自 AI 智能体工作台",
       workflowDefinition: buildWorkflowDefinition()
     };
     const url = state.definitionId ? `${API.definitions}/${encodeURIComponent(state.definitionId)}` : API.definitions;
@@ -841,7 +855,7 @@
         await loadDefinitions();
         els.definitionSelect.value = response.definitionId;
         await loadDefinitionHistory();
-        toast("Workflow saved");
+        toast("工作流已保存");
       },
       onError: (error) => toast(error.message, true)
     });
@@ -849,7 +863,7 @@
 
   async function publishDefinition() {
     if (!state.definitionId) {
-      toast("Save the workflow before publishing", true);
+      toast("发布前请先保存工作流", true);
       return;
     }
     await runCommand({
@@ -860,7 +874,7 @@
         setWorkflowStatus(`${response.status || "PUBLISHED"} v${response.version}`);
         await loadDefinitions();
         await loadDefinitionHistory();
-        toast("Workflow published");
+        toast("工作流已发布");
       },
       onError: (error) => toast(error.message, true)
     });
@@ -880,7 +894,7 @@
         await refreshRunTrace(response.runId);
         await loadRuns();
         await loadDefinitionHistory();
-        toast("Workflow run complete");
+        toast("工作流运行完成");
       },
       onError: (error) => {
         setWorkflowStatus("Run failed");
@@ -890,7 +904,7 @@
   }
 
   async function sendChat() {
-    els.chatModePill.textContent = "Sync";
+    els.chatModePill.textContent = "同步";
     await runCommand({
       request: () => requestJson(API.chat, {
         method: "POST",
@@ -902,7 +916,7 @@
   }
 
   async function streamChat() {
-    els.chatModePill.textContent = "Streaming";
+    els.chatModePill.textContent = "流式中";
     els.chatOutput.textContent = "";
     const answerParts = [];
     try {
@@ -929,12 +943,12 @@
           throw new Error(data?.error || data?.message || "Stream failed");
         }
       });
-      toast("Stream complete");
+      toast("流式完成");
     } catch (error) {
       els.chatOutput.textContent = formatJson({ error: error.message });
       toast(error.message, true);
     } finally {
-      els.chatModePill.textContent = "Sync";
+      els.chatModePill.textContent = "同步";
     }
   }
 
@@ -957,7 +971,7 @@
         body: { title: els.documentTitle.value, content: els.documentContent.value }
       }),
       outputEl: els.ragOutput,
-      successToast: "Document saved",
+      successToast: "文档已保存",
       onSuccess: async () => {
         await Promise.allSettled([loadDocuments(), loadHealth()]);
       }
@@ -976,7 +990,7 @@
         updateRagHint(state.health);
       }
     } catch (error) {
-      renderDataList(els.documentList, [], () => ({ title: "Unable to load documents", meta: error.message }));
+      renderDataList(els.documentList, [], () => ({ title: "无法加载文档", meta: error.message }));
     }
   }
 
@@ -1053,7 +1067,7 @@
     document.querySelectorAll(".canvas-node").forEach((element) => {
       const status = statusByNode.get(element.dataset.nodeId);
       if (status) {
-        element.title = `Status: ${status}`;
+        element.title = `状态：${status}`;
       }
     });
   }
@@ -1073,7 +1087,7 @@
         name: "MCP disabled",
         transport: "n/a",
         enabled: false,
-        hint: "Set DEMO_MCP_ENABLED=true and configure spring.ai.mcp.client.* to enable remote tools."
+        hint: "设置 DEMO_MCP_ENABLED=true 并配置 spring.ai.mcp.client.* 以启用远程工具。"
       }], (server) => ({
         title: server.name,
         meta: server.hint || `${server.transport || "stdio"} · enabled=${Boolean(server.enabled)}`
@@ -1106,18 +1120,18 @@
     if (!state.definitionId) {
       const emptyRevision = document.createElement("div");
       emptyRevision.className = "empty-state";
-      emptyRevision.textContent = "Save workflow to view history";
+      emptyRevision.textContent = "保存工作流后查看历史";
       els.revisionList.appendChild(emptyRevision);
       const emptyRuns = document.createElement("div");
       emptyRuns.className = "empty-state";
-      emptyRuns.textContent = "Save workflow to view history";
+      emptyRuns.textContent = "保存工作流后查看历史";
       els.workflowRunList.appendChild(emptyRuns);
       return;
     }
     if (!revisions || revisions.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No revisions";
+      empty.textContent = "暂无版本";
       els.revisionList.appendChild(empty);
     } else {
       revisions.forEach((revision) => {
@@ -1130,12 +1144,12 @@
         const loadButton = document.createElement("button");
         loadButton.type = "button";
         loadButton.className = "secondary-button";
-        loadButton.textContent = "Load";
+        loadButton.textContent = "载入";
         loadButton.addEventListener("click", () => loadRevisionOntoCanvas(revision));
         const rollbackButton = document.createElement("button");
         rollbackButton.type = "button";
         rollbackButton.className = "secondary-button";
-        rollbackButton.textContent = "Rollback";
+        rollbackButton.textContent = "回滚";
         rollbackButton.addEventListener("click", () => void rollbackDefinitionVersion(revision.version));
         actions.append(loadButton, rollbackButton);
         row.append(meta, actions);
@@ -1145,7 +1159,7 @@
     if (!runs || runs.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No runs for this definition";
+      empty.textContent = "该定义暂无运行记录";
       els.workflowRunList.appendChild(empty);
     } else {
       runs.forEach((run) => {
@@ -1168,7 +1182,7 @@
     setWorkflowStatus(`${revision.status || "DRAFT"} v${revision.version} (loaded)`);
     saveCanvasPositions();
     renderAll();
-    toast(`Loaded revision v${revision.version} onto canvas`);
+    toast(`已载入版本 v${revision.version} 到画布`);
   }
 
   async function rollbackDefinitionVersion(version) {
@@ -1190,7 +1204,7 @@
         await loadDefinitions();
         els.definitionSelect.value = response.definitionId;
         await loadDefinitionHistory();
-        toast(`Rolled back to v${version} as v${response.version}`);
+        toast(`已回滚到 v${version}（生成 v${response.version}）`);
       },
       onError: (error) => toast(error.message, true)
     });
@@ -1203,7 +1217,7 @@
     state.lastRunId = run.runId;
     setWorkflowStatus(`Run ${run.runId.slice(0, 8)} · ${run.status}`);
     await refreshRunTrace(run.runId);
-    toast(`Loaded run ${run.runId.slice(0, 8)}`);
+    toast(`已载入运行 ${run.runId.slice(0, 8)}`);
   }
 
   async function loadRuns() {
@@ -1215,7 +1229,7 @@
         meta: `${run.runId} · ${run.startedAt || ""}`
       }));
     } catch (error) {
-      renderDataList(els.runList, [], () => ({ title: "No runs", meta: error.message }));
+      renderDataList(els.runList, [], () => ({ title: "暂无运行记录", meta: error.message }));
     }
   }
 
@@ -1313,7 +1327,7 @@
     if (!steps || steps.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No steps";
+      empty.textContent = "暂无步骤";
       els.traceSteps.appendChild(empty);
       return;
     }
@@ -1336,13 +1350,17 @@
       return graph.nodes
         .filter((node) => (node.children || []).length > 0)
         .map((node) => {
-          const childStepIds = (node.children || []).map((child) => `workflow_node_${child.id}`);
+          const children = (node.children || []).map((child) => {
+            const stepName = `workflow_node_${child.id}`;
+            return { ...child, step: steps.find((step) => step.nodeName === stepName) || null };
+          });
+          const childStepIds = children.map((child) => `workflow_node_${child.id}`);
           const iterationLabel = node.compositeRole === "LOOP" && node.iterations != null
             ? ` · x${node.iterations} iterations`
             : "";
           return {
             title: `${node.id} (${node.type})${iterationLabel}`,
-            children: node.children || [],
+            children,
             childStepIds
           };
         });
@@ -1367,7 +1385,8 @@
         id: childId,
         status: step.status,
         stepId: step.stepId,
-        type: title.includes("(") ? title.split("(")[1].replace(")", "") : "step"
+        type: title.includes("(") ? title.split("(")[1].replace(")", "") : "step",
+        step
       });
       group.childStepIds.push(step.nodeName);
     };
@@ -1503,6 +1522,10 @@
     title.textContent = composite.title;
     group.appendChild(title);
     composite.children.forEach((child) => {
+      if (child.step) {
+        appendTraceStepItem(group, child.step, 1);
+        return;
+      }
       const item = document.createElement("div");
       item.className = "step-item step-child";
       const childTitle = document.createElement("strong");
@@ -1525,7 +1548,62 @@
     meta.className = "item-meta";
     meta.textContent = step.stepId;
     item.append(title, meta);
+    const output = parseStepOutput(step);
+    const usage = findTokenUsage(output);
+    const summary = tokenUsageSummary(usage);
+    if (summary) {
+      const usageMeta = document.createElement("div");
+      usageMeta.className = "item-meta token-usage";
+      usageMeta.textContent = summary;
+      item.appendChild(usageMeta);
+    }
+    if (output !== null && output !== undefined && output !== "") {
+      const details = document.createElement("details");
+      details.className = "trace-details";
+      const detailTitle = document.createElement("summary");
+      detailTitle.textContent = "查看详情";
+      const pre = document.createElement("pre");
+      pre.className = "trace-json";
+      pre.textContent = typeof output === "string" ? output : formatJson(output);
+      details.append(detailTitle, pre);
+      item.appendChild(details);
+    }
     container.appendChild(item);
+  }
+
+  function parseStepOutput(step) {
+    if (!step || !step.outputJson) {
+      return null;
+    }
+    try {
+      return JSON.parse(step.outputJson);
+    } catch (error) {
+      return step.outputJson;
+    }
+  }
+
+  function findTokenUsage(output) {
+    if (!output || typeof output !== "object") {
+      return null;
+    }
+    if (output.tokenUsage) {
+      return output.tokenUsage;
+    }
+    if (output.output && typeof output.output === "object" && output.output.tokenUsage) {
+      return output.output.tokenUsage;
+    }
+    return null;
+  }
+
+  function tokenUsageSummary(usage) {
+    if (!usage) {
+      return "";
+    }
+    const model = usage.model || "unknown model";
+    const prompt = usage.promptTokens ?? "-";
+    const completion = usage.completionTokens ?? "-";
+    const total = usage.totalTokens ?? "-";
+    return `tokenUsage · ${model} · prompt ${prompt} · completion ${completion} · total ${total}`;
   }
 
   function renderDataList(container, items, mapper) {
@@ -1533,7 +1611,7 @@
     if (!items || items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No data";
+      empty.textContent = "暂无数据";
       container.appendChild(empty);
       return;
     }
@@ -1578,7 +1656,7 @@
 
   function nodeSummary(node) {
     if (node.type === "llm") {
-      return String(node.config.prompt || "Prompt").slice(0, 54);
+      return String(node.config.prompt || "提示词").slice(0, 54);
     }
     if (node.type === "tool") {
       return String(node.config.toolName || "getCurrentTime");
@@ -1598,7 +1676,7 @@
     if (node.type === "dynamic") {
       return String(node.config.itemsFrom || "items").slice(0, 40);
     }
-    return schemaForType(node.type).displayName || node.type;
+    return nodeLabel(node.type);
   }
 
   function fieldShell(label) {
@@ -1697,7 +1775,7 @@
     try {
       return JSON.parse(value || "{}");
     } catch (error) {
-      toast("Invalid JSON input", true);
+      toast("JSON 输入无效", true);
       return fallback;
     }
   }
@@ -1715,7 +1793,19 @@
   }
 
   function setWorkflowStatus(value) {
-    els.workflowStatus.textContent = value;
+    const exact = {
+      DRAFT: "草稿", PUBLISHED: "已发布", Draft: "草稿",
+      Valid: "有效", Invalid: "无效", Ran: "已运行", "Run failed": "运行失败"
+    };
+    const label = exact[value] != null
+      ? exact[value]
+      : String(value)
+          .replace(/\bDRAFT\b/g, "草稿")
+          .replace(/\bPUBLISHED\b/g, "已发布")
+          .replace(/\bRun\b/g, "运行")
+          .replace(/\(loaded\)/g, "（已载入）")
+          .replace(/\(rollback\)/g, "（回滚）");
+    els.workflowStatus.textContent = label;
   }
 
   function colorForType(type) {
