@@ -3,215 +3,313 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI 智能体工作台</title>
+  <title>智能体工作台</title>
   <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="app" class="app-shell">
-    <aside class="side-nav" aria-label="主导航">
-      <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">AI</div>
-        <div>
-          <h1>AI 智能体工作台</h1>
-          <p>Spring AI Alibaba</p>
-        </div>
+    <!-- ============ 左侧精简导航栏 ============ -->
+    <aside class="rail" aria-label="主导航">
+      <div class="rail-brand">
+        <span class="rail-logo" aria-hidden="true">✦</span>
+        <span class="rail-brand-text">智能体工作台</span>
       </div>
-      <nav class="nav-list">
-        <button class="nav-button active" type="button" data-view="workflow">工作流</button>
-        <button class="nav-button" type="button" data-view="chat">对话</button>
-        <button class="nav-button" type="button" data-view="agent">智能体</button>
-        <button class="nav-button" type="button" data-view="rag">知识库</button>
-        <button class="nav-button" type="button" data-view="tools">工具</button>
-        <button class="nav-button" type="button" data-view="runs">运行记录</button>
+
+      <nav class="rail-nav">
+        <button class="rail-item active" type="button" data-view="workflow">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4M16 11v2" /></svg>
+          <span>工作流</span>
+        </button>
+        <button class="rail-item" type="button" data-view="chat">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>
+          <span>对话</span>
+        </button>
+        <button class="rail-item" type="button" data-view="library">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M5 4h10l4 4v12H5zM15 4v4h4" /></svg>
+          <span>知识库</span>
+        </button>
+        <button class="rail-item" type="button" data-view="runs">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M12 7v5l3 2M5 12a7 7 0 1 0 14 0 7 7 0 0 0-14 0z" /></svg>
+          <span>运行记录</span>
+        </button>
+        <div class="rail-divider"></div>
+        <button class="rail-item rail-item-muted" type="button" data-view="tools">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M14 6a3 3 0 0 1 4 4l-8 8-4 1 1-4z" /></svg>
+          <span>工具</span>
+        </button>
       </nav>
-      <div class="runtime-panel">
-        <span class="runtime-label">运行时</span>
-        <strong id="runtime-status">检测中</strong>
-        <div id="runtime-details" class="runtime-details">正在加载栈状态…</div>
+
+      <div class="rail-foot">
+        <button id="runtime-chip" class="runtime-chip" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="runtime-dot" id="runtime-dot"></span>
+          <span class="runtime-text" id="runtime-status">检测中…</span>
+        </button>
+        <div id="runtime-details" class="runtime-popover hidden" role="dialog" aria-label="运行时详情"></div>
       </div>
     </aside>
 
-    <main class="workspace">
-      <section class="view-panel active" id="view-workflow" data-view-panel="workflow">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>工作流画布</h2>
-            <span id="workflow-status" class="status-pill">草稿</span>
+    <!-- ============ 主舞台 ============ -->
+    <main class="stage">
+
+      <!-- ===== 工作流（主角） ===== -->
+      <section class="view view-workflow active" id="view-workflow" data-view-panel="workflow">
+        <header class="wf-topbar">
+          <div class="wf-title">
+            <input id="definition-name" class="wf-name" type="text" value="智能体工作流" maxlength="128" aria-label="工作流名称">
+            <span id="workflow-status" class="badge badge-draft">草稿</span>
           </div>
-          <div class="toolbar-actions">
-            <input id="definition-name" class="compact-input" type="text" value="智能体工作流" maxlength="128" aria-label="工作流名称">
-            <select id="definition-select" class="compact-input" aria-label="已保存的定义"></select>
-            <button id="new-workflow" class="secondary-button" type="button">新建</button>
-            <button id="load-definition" class="secondary-button" type="button">载入</button>
-            <button id="save-definition" class="primary-button" type="button">保存</button>
-            <button id="publish-definition" class="secondary-button" type="button">发布</button>
-            <button id="insert-loop-template" class="secondary-button" type="button">插入循环</button>
-            <button id="validate-workflow" class="secondary-button" type="button">校验</button>
-            <button id="run-workflow" class="primary-button" type="button">运行</button>
+          <div class="wf-switch">
+            <select id="definition-select" class="select" aria-label="已保存的工作流"></select>
+            <button id="load-definition" class="btn btn-ghost" type="button">载入</button>
+          </div>
+          <div class="wf-actions">
+            <button id="toggle-history" class="btn btn-ghost icon-btn" type="button" title="版本与运行历史" aria-label="历史">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M5 12a7 7 0 1 0 2-5M5 5v4h4"/></svg>
+            </button>
+            <button id="save-definition" class="btn" type="button">保存</button>
+            <button id="run-workflow" class="btn btn-primary" type="button">
+              <svg viewBox="0 0 24 24" class="btn-glyph" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+              运行
+            </button>
+            <div class="menu-wrap">
+              <button id="wf-more" class="btn btn-ghost icon-btn" type="button" aria-haspopup="true" aria-expanded="false" title="更多">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+              </button>
+              <div id="wf-menu" class="menu-pop hidden" role="menu">
+                <button id="new-workflow" type="button" role="menuitem">新建工作流</button>
+                <button id="validate-workflow" type="button" role="menuitem">校验拓扑</button>
+                <button id="insert-loop-template" type="button" role="menuitem">插入循环模板</button>
+                <button id="publish-definition" type="button" role="menuitem">发布当前版本</button>
+              </div>
+            </div>
           </div>
         </header>
 
-        <div class="workflow-layout">
-          <aside class="node-palette" id="node-palette" aria-label="节点面板"></aside>
+        <div class="wf-body">
+          <!-- 节点面板（可折叠） -->
+          <aside class="palette" id="palette">
+            <div class="palette-head">
+              <span>节点</span>
+              <button id="palette-collapse" class="icon-btn-sm" type="button" title="折叠" aria-label="折叠节点面板">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg>
+              </button>
+            </div>
+            <div class="palette-list" id="node-palette" aria-label="节点面板"></div>
+          </aside>
 
-          <section class="canvas-region">
-            <div class="workflow-canvas" id="workflow-canvas">
-              <svg id="edge-layer" class="edge-layer" aria-hidden="true"></svg>
+          <!-- 画布（主角，支持平移缩放） -->
+          <div class="workflow-canvas" id="workflow-canvas">
+            <div class="canvas-world" id="canvas-world">
+              <svg id="edge-layer" class="edge-layer" aria-hidden="true">
+                <defs>
+                  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0 0L10 5L0 10z" class="arrow-head" />
+                  </marker>
+                </defs>
+              </svg>
               <div id="node-layer" class="node-layer"></div>
             </div>
-            <section class="execution-panel">
-              <div class="panel-header">
-                <h3>执行</h3>
-                <button id="refresh-run-graph" class="secondary-button" type="button">刷新</button>
-              </div>
-              <label class="field-label" for="workflow-input">输入 JSON</label>
-              <textarea id="workflow-input" class="code-input" spellcheck="false">{"message":"这个智能体能从文档里回答什么？"}</textarea>
-              <div class="result-grid">
-                <section>
-                  <h4>输出</h4>
-                  <pre id="run-output" class="result-box">{}</pre>
-                </section>
-                <section>
-                  <h4>运行步骤</h4>
-                  <div id="trace-steps" class="step-list"></div>
-                </section>
-              </div>
-            </section>
-          </section>
 
-          <aside class="inspector-panel" id="node-inspector">
-            <div class="panel-header">
-              <h3>检查器</h3>
-              <button id="delete-node" class="danger-button" type="button">删除</button>
+            <div class="canvas-empty hidden" id="canvas-empty">
+              <p>空白画布</p>
+              <span>从左侧节点面板点击添加，或点「插入循环模板」</span>
+            </div>
+
+            <div class="canvas-controls">
+              <button id="zoom-out" class="zoom-btn" type="button" aria-label="缩小">−</button>
+              <button id="zoom-label" class="zoom-label" type="button" title="重置缩放">100%</button>
+              <button id="zoom-in" class="zoom-btn" type="button" aria-label="放大">+</button>
+              <span class="zoom-sep"></span>
+              <button id="zoom-fit" class="zoom-btn" type="button" aria-label="适应画布" title="适应画布">⤢</button>
+            </div>
+          </div>
+
+          <!-- 检查器（滑出式） -->
+          <aside class="inspector-panel hidden" id="node-inspector" aria-label="节点检查器">
+            <div class="inspector-head">
+              <h3 id="inspector-title">节点设置</h3>
+              <button id="inspector-close" class="icon-btn-sm" type="button" aria-label="关闭">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
             </div>
             <div id="inspector-empty" class="empty-state">未选择节点</div>
             <form id="inspector-form" class="inspector-form hidden"></form>
-            <section class="definition-history" id="definition-history">
-              <div class="panel-header">
-                <h3>定义历史</h3>
-                <button id="refresh-definition-history" class="secondary-button" type="button">刷新</button>
-              </div>
-              <h4 class="history-subtitle">版本</h4>
-              <div id="revision-list" class="history-list"></div>
-              <h4 class="history-subtitle">运行</h4>
-              <div id="workflow-run-list" class="history-list"></div>
-            </section>
-            <section class="edge-editor">
-              <div class="panel-header">
-                <h3>连线</h3>
-                <button id="add-edge" class="secondary-button" type="button">添加</button>
+            <section class="edge-section hidden" id="edge-section">
+              <div class="section-head">
+                <h4>连线</h4>
+                <button id="add-edge" class="btn btn-ghost btn-sm" type="button">+ 添加</button>
               </div>
               <div id="edge-list" class="edge-list"></div>
             </section>
+            <div class="inspector-foot">
+              <button id="delete-node" class="btn btn-danger btn-block" type="button">删除节点</button>
+            </div>
+          </aside>
+
+          <!-- 版本与历史（抽屉） -->
+          <aside class="definition-history hidden" id="definition-history" aria-label="版本与运行历史">
+            <div class="inspector-head">
+              <h3>版本与历史</h3>
+              <div>
+                <button id="refresh-definition-history" class="icon-btn-sm" type="button" title="刷新" aria-label="刷新">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2M18 4v5h-5M6 20v-5h5"/></svg>
+                </button>
+                <button id="history-close" class="icon-btn-sm" type="button" aria-label="关闭">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+              </div>
+            </div>
+            <h4 class="history-subtitle">版本</h4>
+            <div id="revision-list" class="history-list"></div>
+            <h4 class="history-subtitle">运行</h4>
+            <div id="workflow-run-list" class="history-list"></div>
+          </aside>
+        </div>
+
+        <!-- 运行抽屉（底部，友好 I/O） -->
+        <section class="run-drawer collapsed" id="run-drawer" aria-label="运行与测试">
+          <button class="run-drawer-handle" id="run-drawer-toggle" type="button" aria-expanded="false">
+            <span class="run-handle-grip"></span>
+            <span class="run-handle-title">运行与测试</span>
+            <span id="run-handle-status" class="run-handle-status"></span>
+            <svg viewBox="0 0 24 24" class="run-handle-caret" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="run-drawer-body">
+            <div class="run-input">
+              <div class="run-input-head">
+                <h4>输入</h4>
+                <div class="seg seg-sm" id="input-mode-seg">
+                  <button class="seg-btn active" type="button" data-input-mode="form">表单</button>
+                  <button class="seg-btn" type="button" data-input-mode="json">JSON</button>
+                </div>
+              </div>
+              <div id="run-input-form" class="run-input-form"></div>
+              <textarea id="workflow-input" class="code-input hidden" spellcheck="false">{"message":"这个智能体能从文档里回答什么？"}</textarea>
+              <button id="run-workflow-drawer" class="btn btn-primary btn-block" type="button">
+                <svg viewBox="0 0 24 24" class="btn-glyph" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                运行工作流
+              </button>
+            </div>
+            <div class="run-output">
+              <div class="run-output-head">
+                <h4>结果</h4>
+                <button id="refresh-run-graph" class="btn btn-ghost btn-sm" type="button">刷新轨迹</button>
+              </div>
+              <div id="run-result" class="result-card empty-result">运行后在这里查看友好结果与每一步轨迹。</div>
+              <div class="trace-wrap">
+                <div class="trace-head">运行步骤</div>
+                <div id="trace-steps" class="step-list"></div>
+              </div>
+              <details class="raw-details">
+                <summary>原始 JSON</summary>
+                <pre id="run-output" class="result-box">{}</pre>
+              </details>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ===== 对话（合并：普通对话 / 工具智能体 / 知识库问答） ===== -->
+      <section class="view view-chat" id="view-chat" data-view-panel="chat">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>对话</h2>
+            <span id="chat-mode-pill" class="badge badge-soft">就绪</span>
+          </div>
+          <div class="seg" id="chat-mode-seg">
+            <button class="seg-btn active" type="button" data-chat-mode="chat">普通对话</button>
+            <button class="seg-btn" type="button" data-chat-mode="agent">工具智能体</button>
+            <button class="seg-btn" type="button" data-chat-mode="rag">知识库问答</button>
+          </div>
+        </header>
+        <div class="chat-area">
+          <div id="chat-transcript" class="chat-transcript"></div>
+          <div class="chat-hint" id="chat-hint"></div>
+          <div class="chat-composer">
+            <textarea id="chat-message" class="chat-input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+            <div class="chat-composer-actions">
+              <button id="stream-chat" class="btn btn-ghost" type="button" title="流式输出">流式</button>
+              <button id="send-chat" class="btn btn-primary" type="button">发送</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 知识库 ===== -->
+      <section class="view view-library" id="view-library" data-view-panel="library">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>知识库</h2>
+            <span class="badge badge-soft">文档 + 检索</span>
+          </div>
+          <button id="refresh-documents" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div id="rag-hint" class="hint-banner hidden"></div>
+        <div class="library-grid">
+          <section class="card">
+            <h3 class="card-title">新增 / 编辑文档</h3>
+            <label class="field"><span>标题</span>
+              <input id="document-title" class="text-input" type="text" value="工作台笔记">
+            </label>
+            <label class="field"><span>内容</span>
+              <textarea id="document-content" class="text-area">Spring AI Alibaba 在这个 demo 中支持智能体工作流、知识库 RAG、工具调用和运行轨迹查看。</textarea>
+            </label>
+            <button id="save-document" class="btn btn-primary" type="button">保存文档</button>
+
+            <div class="quick-ask">
+              <h3 class="card-title">快速提问</h3>
+              <label class="field"><span>问题</span>
+                <textarea id="rag-message" class="text-area">这个 demo 支持哪些能力？</textarea>
+              </label>
+              <button id="ask-rag" class="btn" type="button">基于知识库提问</button>
+              <div id="rag-output" class="answer-card hidden"></div>
+            </div>
+          </section>
+          <section class="card">
+            <h3 class="card-title">已存文档</h3>
+            <div id="document-list" class="doc-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 运行记录 ===== -->
+      <section class="view view-runs" id="view-runs" data-view-panel="runs">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>运行记录</h2>
+            <span class="badge badge-soft">全部轨迹</span>
+          </div>
+          <button id="refresh-runs" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="runs-layout">
+          <div id="run-list" class="run-table"></div>
+          <aside id="run-detail" class="run-detail">
+            <div class="empty-state">选择左侧一条运行查看步骤轨迹</div>
           </aside>
         </div>
       </section>
 
-      <section class="view-panel" id="view-chat" data-view-panel="chat">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>对话</h2>
-            <span id="chat-mode-pill" class="status-pill">同步</span>
+      <!-- ===== 工具 ===== -->
+      <section class="view view-tools" id="view-tools" data-view-panel="tools">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>工具与 MCP</h2>
+            <span class="badge badge-soft">本地 + 远程</span>
           </div>
-          <div class="toolbar-actions">
-            <button id="send-chat" class="primary-button" type="button">发送</button>
-            <button id="stream-chat" class="secondary-button" type="button">流式</button>
-          </div>
+          <button id="refresh-tools" class="btn btn-ghost" type="button">刷新</button>
         </header>
-        <div class="two-column">
-          <section>
-            <label class="field-label" for="chat-message">消息</label>
-            <textarea id="chat-message" class="large-input">用一句话介绍这个后端 demo 能做什么。</textarea>
-          </section>
-          <section>
-            <h3>回答</h3>
-            <pre id="chat-output" class="result-box">{}</pre>
-          </section>
-        </div>
-      </section>
-
-      <section class="view-panel" id="view-agent" data-view-panel="agent">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>工具智能体</h2>
-            <span class="status-pill">大模型工具调用</span>
-          </div>
-          <button id="send-tool-chat" class="primary-button" type="button">运行智能体</button>
-        </header>
-        <div class="two-column">
-          <section>
-            <label class="field-label" for="tool-chat-message">消息</label>
-            <textarea id="tool-chat-message" class="large-input">请计算 (12 + 8) / 5，并告诉我现在的时间。</textarea>
-            <p class="hint-text">使用 DashScope 大模型工具调用 + 本地工具。MCP 远程工具需设置 <code>DEMO_MCP_ENABLED=true</code>。</p>
-          </section>
-          <section>
-            <h3>智能体结果</h3>
-            <pre id="tool-chat-output" class="result-box">{}</pre>
-          </section>
-        </div>
-      </section>
-
-      <section class="view-panel" id="view-rag" data-view-panel="rag">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>知识库</h2>
-            <span class="status-pill">文档</span>
-          </div>
-          <div class="toolbar-actions">
-            <button id="refresh-documents" class="secondary-button" type="button">刷新文档</button>
-            <button id="save-document" class="secondary-button" type="button">保存文档</button>
-            <button id="ask-rag" class="primary-button" type="button">提问</button>
-          </div>
-        </header>
-        <div id="rag-hint" class="hint-banner hidden"></div>
-        <div class="two-column rag-layout">
-          <section>
-            <label class="field-label" for="document-title">标题</label>
-            <input id="document-title" class="text-input" type="text" value="工作台笔记">
-            <label class="field-label" for="document-content">内容</label>
-            <textarea id="document-content" class="large-input">Spring AI Alibaba 在这个 demo 中支持智能体工作流、知识库 RAG、工具调用和运行轨迹查看。</textarea>
-            <label class="field-label" for="rag-message">问题</label>
-            <textarea id="rag-message" class="large-input">这个 demo 支持哪些能力？</textarea>
-          </section>
-          <section>
-            <h3>已存文档</h3>
-            <div id="document-list" class="data-list compact-list"></div>
-            <h3>检索结果</h3>
-            <pre id="rag-output" class="result-box">{}</pre>
-          </section>
-        </div>
-      </section>
-
-      <section class="view-panel" id="view-tools" data-view-panel="tools">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>工具</h2>
-            <span class="status-pill">本地 + MCP</span>
-          </div>
-          <button id="refresh-tools" class="secondary-button" type="button">刷新</button>
-        </header>
-        <div class="two-column">
-          <section>
-            <h3>工具注册表</h3>
+        <div class="tools-grid">
+          <section class="card">
+            <h3 class="card-title">工具注册表</h3>
             <div id="tool-list" class="data-list"></div>
           </section>
-          <section>
-            <h3>MCP 服务</h3>
+          <section class="card">
+            <h3 class="card-title">MCP 服务</h3>
             <div id="mcp-server-list" class="data-list"></div>
           </section>
         </div>
-      </section>
-
-      <section class="view-panel" id="view-runs" data-view-panel="runs">
-        <header class="workbench-toolbar">
-          <div class="title-group">
-            <h2>运行记录</h2>
-            <span class="status-pill">轨迹</span>
-          </div>
-          <button id="refresh-runs" class="secondary-button" type="button">刷新</button>
-        </header>
-        <div id="run-list" class="data-list wide-list"></div>
       </section>
     </main>
   </div>

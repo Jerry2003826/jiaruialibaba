@@ -41,7 +41,7 @@ class FrontendStaticAssetsTest {
         mockMvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("app-shell")))
-                .andExpect(content().string(containsString("view-agent")))
+                .andExpect(content().string(containsString("view-chat")))
                 .andExpect(content().string(containsString("runtime-details")))
                 .andExpect(content().string(containsString("insert-loop-template")))
                 .andExpect(content().string(containsString("definition-history")))
