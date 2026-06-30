@@ -7,6 +7,7 @@ import com.example.agentdemo.chat.dto.StreamDone;
 import com.example.agentdemo.chat.dto.StreamError;
 import com.example.agentdemo.chat.memory.ConversationMemoryService;
 import com.example.agentdemo.chat.memory.ConversationMessage;
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.SseConfig;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceRun;
@@ -15,6 +16,7 @@ import com.example.agentdemo.trace.TraceStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -57,11 +59,12 @@ public class ChatService {
                 Map.of("message", request.message(), "conversationId", conversationId, "historySize", history.size()));
         try {
             AiModelResult result = aiModelService.generate(SYSTEM_PROMPT, history, request.message());
+            String answer = requireModelAnswer(result, "chat");
             conversationMemoryService.appendUserMessage(conversationId, request.message());
-            conversationMemoryService.appendAssistantMessage(conversationId, result.answer());
-            ChatResponse response = new ChatResponse(result.answer(), conversationId, run.runId());
+            conversationMemoryService.appendAssistantMessage(conversationId, answer);
+            ChatResponse response = new ChatResponse(answer, conversationId, run.runId());
             traceService.completeStep(step.stepId(),
-                    Map.of("answer", result.answer(), "fallback", result.fallback(),
+                    Map.of("answer", answer, "fallback", result.fallback(),
                             "errorMessage", nullable(result.errorMessage())));
             traceService.markRunSucceeded(run.runId(), response);
             return response;
@@ -71,6 +74,10 @@ public class ChatService {
             traceService.markRunFailed(run.runId(), ex);
             throw ex;
         }
+    }
+
+    public long clearConversation(String conversationId) {
+        return conversationMemoryService.clearConversation(conversationId);
     }
 
     public SseEmitter stream(ChatRequest request) {
@@ -103,6 +110,10 @@ public class ChatService {
                 answer.append(chunk);
                 send(emitter, "message", new StreamChunk(run.runId(), chunk));
             });
+            if (fallback) {
+                throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                        "Alibaba LLM returned a fallback stream for chat");
+            }
             if (terminal.compareAndSet(false, true)) {
                 conversationMemoryService.appendUserMessage(conversationId, request.message());
                 conversationMemoryService.appendAssistantMessage(conversationId, answer.toString());
@@ -184,6 +195,18 @@ public class ChatService {
 
     private ChatRequest requestWithConversation(ChatRequest request, String conversationId) {
         return new ChatRequest(conversationId, request.message());
+    }
+
+    private String requireModelAnswer(AiModelResult result, String context) {
+        if (result.fallback()) {
+            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                    "Alibaba LLM returned a fallback answer for " + context + ": " + result.errorMessage());
+        }
+        if (!StringUtils.hasText(result.answer())) {
+            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                    "Alibaba LLM returned an empty answer for " + context);
+        }
+        return result.answer();
     }
 
     private String nullable(String value) {

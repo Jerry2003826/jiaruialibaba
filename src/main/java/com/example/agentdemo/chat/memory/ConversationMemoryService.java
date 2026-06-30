@@ -55,6 +55,12 @@ public class ConversationMemoryService {
         appendMessage(conversationId, ConversationRole.ASSISTANT, content);
     }
 
+    @Transactional
+    public long clearConversation(String conversationId) {
+        String resolvedConversationId = resolveConversationId(conversationId);
+        return conversationMessageRepository.deleteByConversationId(resolvedConversationId);
+    }
+
     private void appendMessage(String conversationId, ConversationRole role, String content) {
         conversationMessageRepository.save(new ConversationMessageEntity(conversationId, role, content));
         trimOldMessages(conversationId);

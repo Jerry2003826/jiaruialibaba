@@ -65,4 +65,7 @@ public record ToolExecutionLog(String toolName, Object input, Object output, boo
     public record CalculateInput(String expression) {
     }
 
+    public record OrderQueryInput(String userQuery) {
+    }
+
 }

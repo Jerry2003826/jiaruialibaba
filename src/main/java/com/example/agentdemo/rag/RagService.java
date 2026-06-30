@@ -18,6 +18,7 @@ import com.example.agentdemo.trace.TraceStep;
 import com.example.agentdemo.trace.RunType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -109,7 +110,7 @@ public class RagService {
         }
     }
 
-    private List<RetrievedContext> retrieveForChat(String runId, String message) {
+    public List<RetrievedContext> retrieveForChat(String runId, String message) {
         int topK = normalizeTopK(ragProperties.getRag().getTopK());
         return retrieveWithOptionalTrace(runId, message, topK);
     }
@@ -185,20 +186,14 @@ public class RagService {
 
     private String resolveAnswer(String question, List<RetrievedContext> contexts, AiModelResult modelResult) {
         if (!modelResult.fallback()) {
+            if (!StringUtils.hasText(modelResult.answer())) {
+                throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                        "Alibaba LLM returned an empty answer for RAG answer generation");
+            }
             return modelResult.answer();
         }
-        if (alibabaRuntimePolicy.isStrictMode()) {
-            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "Alibaba LLM is required for RAG answer generation: " + modelResult.errorMessage());
-        }
-        return fallbackAnswer(question, contexts);
-    }
-
-    private String fallbackAnswer(String question, List<RetrievedContext> contexts) {
-        if (contexts.isEmpty()) {
-            return "No local document context was retrieved for: " + question;
-        }
-        return "Retrieved " + contexts.size() + " context item(s). Top context: " + contexts.getFirst().snippet();
+        throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                "Alibaba LLM is required for RAG answer generation: " + modelResult.errorMessage());
     }
 
     private DocumentResponse toDocumentResponse(DocumentEntity document) {

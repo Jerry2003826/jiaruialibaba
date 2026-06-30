@@ -5,6 +5,7 @@ import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.chat.TokenUsage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
+import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.support.TestAlibabaPolicies;
 import com.example.agentdemo.tool.ToolDescriptor;
 import com.example.agentdemo.tool.ToolExecutionLog;
@@ -30,6 +31,27 @@ class WorkflowNodeExecutorTest {
     private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
 
     @Test
+    void retrieverNodeRendersQueryTemplateBeforeSearching() {
+        RagService ragService = mock(RagService.class);
+        RetrievedContext context = new RetrievedContext(1L, "Doc", "content", 0.9);
+        when(ragService.retrieve("hello", 3, "run-1")).thenReturn(List.of(context));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(ragService, mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Object output = executor.execute("run-1",
+                new WorkflowNode("retriever_1", "retriever", Map.of("query", "{{input.message}}", "topK", 3)),
+                state);
+
+        verify(ragService).retrieve("hello", 3, "run-1");
+        assertThat(output).isInstanceOfSatisfying(Map.class, map -> {
+            assertThat(map).containsEntry("query", "hello");
+            assertThat(map).containsEntry("retrievedContext", List.of(context));
+        });
+    }
+
+    @Test
     void toolNodeUsesToolGatewaySoRemoteToolsCanBeCalled() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_echo"));
@@ -50,13 +72,14 @@ class WorkflowNodeExecutorTest {
     }
 
     @Test
-    void throwsWhenStrictModeEnabledAndLlmReturnsFallback() {
+    void throwsWhenLlmReturnsFallback() {
         AiModelService aiModelService = mock(AiModelService.class);
         when(aiModelService.generate(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(AiModelResult.fallback("Workflow fallback answer. Prompt: test", "model unavailable"));
+                .thenReturn(AiModelResult.fallback("mock fallback payload", "model unavailable"));
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
-                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 
         assertThatThrownBy(() -> executor.execute("run-1", new WorkflowNode("llm_1", "llm", Map.of()), state))

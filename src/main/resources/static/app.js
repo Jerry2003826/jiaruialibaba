@@ -8,6 +8,8 @@
     health: "/api/health",
     devToken: "/api/auth/dev-token",
     nodeSchemas: "/api/workflows/node-schemas",
+    generateWorkflow: "/api/workflows/generate",
+    generateWorkflowStream: "/api/workflows/generate/stream",
     validateWorkflow: "/api/workflows/validate",
     previewGraph: "/api/workflows/preview-graph",
     runWorkflow: "/api/workflows/run",
@@ -24,10 +26,16 @@
     chat: "/api/chat",
     chatStream: "/api/chat/stream",
     toolChat: "/api/agent/tool-chat",
+    assistantChat: "/api/agent/assistant-chat",
+    clearConversation: (id) => `/api/chat/conversations/${encodeURIComponent(id)}`,
     saveDocument: "/api/rag/documents",
+    updateDocument: (id) => `/api/rag/documents/${encodeURIComponent(id)}`,
     listDocuments: "/api/rag/documents",
     deleteDocument: (id) => `/api/rag/documents/${encodeURIComponent(id)}`,
-    ragChat: "/api/rag/chat"
+    ragChat: "/api/rag/chat",
+    listOrders: "/api/orders",
+    saveOrderEndpoint: "/api/orders",
+    orderDetail: (id) => `/api/orders/${encodeURIComponent(id)}`
   };
 
   const fallbackSchemas = [
@@ -76,6 +84,7 @@
   };
 
   const CANVAS_POSITIONS_KEY_PREFIX = "workflow-canvas-positions:";
+  const ASSISTANT_WORKFLOW_BINDING_KEY = "assistant-workflow-binding";
   const ZOOM_MIN = 0.35;
   const ZOOM_MAX = 2;
   const DEFAULT_RUN_INPUT = '{"message":"这个智能体能从文档里回答什么？"}';
@@ -97,8 +106,16 @@
     view: { scale: 1, panX: 40, panY: 30 },
     inputMode: "form",
     chatMode: "chat",
-    chatHistories: { chat: [], agent: [], rag: [] },
-    activeRunCardId: null
+    chatHistories: { chat: [], assistant: [] },
+    activeRunCardId: null,
+    editingDocumentId: null,
+    editingOrderId: null,
+    assistantWorkflowBound: false,
+    assistantWorkflowUseCanvas: false,
+    assistantWorkflowDefinitionId: null,
+    assistantWorkflowDefinitionVersion: null,
+    assistantWorkflowDefinitionName: null,
+    assistantWorkflowDefinitionStatus: null
   };
 
   const els = {};
@@ -107,7 +124,7 @@
   const viewRoutes = {
     workflow: () => {},
     chat: () => renderChat(),
-    library: () => void loadDocuments(),
+    library: () => void loadLibraryData(),
     runs: () => void loadRuns(),
     tools: () => void loadTools()
   };
@@ -147,7 +164,7 @@
     const ids = [
       "runtime-chip", "runtime-dot", "runtime-status", "runtime-details",
       "definition-name", "workflow-status", "definition-select", "load-definition", "toggle-history",
-      "save-definition", "run-workflow", "wf-more", "wf-menu", "new-workflow", "validate-workflow",
+      "save-definition", "run-workflow", "wf-more", "wf-menu", "new-workflow", "generate-workflow", "validate-workflow",
       "insert-loop-template", "publish-definition",
       "palette", "palette-collapse", "node-palette",
       "workflow-canvas", "canvas-world", "edge-layer", "node-layer", "canvas-empty",
@@ -155,11 +172,14 @@
       "node-inspector", "inspector-title", "inspector-close", "inspector-empty", "inspector-form",
       "edge-section", "add-edge", "edge-list", "delete-node",
       "definition-history", "refresh-definition-history", "history-close", "revision-list", "workflow-run-list",
+      "workflow-generator", "generator-close", "generator-prompt", "generator-preview", "generator-apply",
       "run-drawer", "run-drawer-toggle", "run-handle-status", "input-mode-seg", "run-input-form",
       "workflow-input", "run-workflow-drawer", "refresh-run-graph", "run-result", "trace-steps", "run-output",
-      "chat-mode-pill", "chat-mode-seg", "chat-transcript", "chat-hint", "chat-message", "stream-chat", "send-chat",
-      "refresh-documents", "rag-hint", "document-title", "document-content", "save-document",
-      "rag-message", "ask-rag", "rag-output", "document-list",
+      "chat-mode-pill", "chat-mode-seg", "clear-chat", "chat-transcript", "chat-hint", "chat-message", "stream-chat", "send-chat",
+      "refresh-documents", "rag-hint", "document-title", "document-content", "save-document", "reset-document-editor",
+      "document-list", "refresh-orders", "order-id", "order-customer-name", "order-status", "order-amount",
+      "order-currency", "order-estimated-delivery", "order-paid", "order-carrier", "order-tracking-number",
+      "order-latest-event", "order-next-action", "save-order", "reset-order-editor", "order-list",
       "refresh-runs", "run-list", "run-detail",
       "refresh-tools", "tool-list", "mcp-server-list", "toast"
     ];
@@ -221,15 +241,22 @@
       if (els.wfMenu && !els.wfMenu.classList.contains("hidden")
         && !els.wfMenu.contains(event.target) && !els.wfMore.contains(event.target)) {
         els.wfMenu.classList.add("hidden");
+        els.wfMore?.setAttribute("aria-expanded", "false");
       }
     });
-    const closeMenu = () => els.wfMenu?.classList.add("hidden");
+    const closeMenu = () => {
+      els.wfMenu?.classList.add("hidden");
+      els.wfMore?.setAttribute("aria-expanded", "false");
+    };
     els.newWorkflow?.addEventListener("click", () => {
       closeMenu(); resetWorkflow(); renderAll(); void loadDefinitionHistory(); toast("已新建工作流");
     });
+    els.generateWorkflow?.addEventListener("click", () => { closeMenu(); openWorkflowGenerator(); });
     els.validateWorkflow?.addEventListener("click", () => { closeMenu(); void validateWorkflow(); });
     els.insertLoopTemplate?.addEventListener("click", () => { closeMenu(); insertLoopTemplate(); });
     els.publishDefinition?.addEventListener("click", () => { closeMenu(); void publishDefinition(); });
+    els.generatorClose?.addEventListener("click", () => closeWorkflowGenerator());
+    els.generatorApply?.addEventListener("click", () => void generateWorkflowFromPrompt());
 
     // 检查器
     els.inspectorClose?.addEventListener("click", () => closeInspector());
@@ -242,13 +269,21 @@
     els.refreshDefinitionHistory?.addEventListener("click", () => void loadDefinitionHistory());
 
     // 面板折叠
-    els.paletteCollapse?.addEventListener("click", () => els.palette.classList.toggle("collapsed"));
+    els.paletteCollapse?.addEventListener("click", togglePalette);
+  }
+
+  function togglePalette() {
+    if (!els.palette || !els.paletteCollapse) return;
+    const collapsed = els.palette.classList.toggle("collapsed");
+    els.paletteCollapse.title = collapsed ? "展开节点面板" : "折叠";
+    els.paletteCollapse.setAttribute("aria-label", collapsed ? "展开节点面板" : "折叠节点面板");
   }
 
   // ============================================================
   // 初始化数据
   // ============================================================
   async function loadInitialData() {
+    loadAssistantWorkflowBinding();
     await bootstrapAuth();
     await Promise.allSettled([loadHealth(), loadSchemas(), loadDefinitions()]);
   }
@@ -262,6 +297,67 @@
       authToken = null;
       toast(`认证不可用：${error.message}。请通过你的 IdP 登录后再使用工作台。`, true);
     }
+  }
+
+  function loadAssistantWorkflowBinding() {
+    try {
+      const raw = window.localStorage?.getItem(ASSISTANT_WORKFLOW_BINDING_KEY);
+      if (!raw) return;
+      const binding = JSON.parse(raw);
+      if (!binding?.definitionId) return;
+      state.assistantWorkflowBound = true;
+      state.assistantWorkflowUseCanvas = false;
+      state.assistantWorkflowDefinitionId = binding.definitionId;
+      state.assistantWorkflowDefinitionVersion = binding.version ?? null;
+      state.assistantWorkflowDefinitionName = binding.name || "已绑定工作流";
+      state.assistantWorkflowDefinitionStatus = binding.status || "PUBLISHED";
+    } catch {
+      window.localStorage?.removeItem(ASSISTANT_WORKFLOW_BINDING_KEY);
+    }
+  }
+
+  function bindAssistantWorkflowFromDefinition(definition, options = {}) {
+    if (!definition) return;
+    state.assistantWorkflowBound = true;
+    state.assistantWorkflowUseCanvas = options.useCanvas !== false;
+    state.assistantWorkflowDefinitionId = definition.definitionId || null;
+    state.assistantWorkflowDefinitionVersion = definition.version ?? null;
+    state.assistantWorkflowDefinitionName = definition.name || els.definitionName?.value || "当前画布工作流";
+    state.assistantWorkflowDefinitionStatus = definition.status || "DRAFT";
+    if (state.assistantWorkflowDefinitionStatus === "PUBLISHED" && state.assistantWorkflowDefinitionId) {
+      window.localStorage?.setItem(ASSISTANT_WORKFLOW_BINDING_KEY, JSON.stringify({
+        definitionId: state.assistantWorkflowDefinitionId,
+        version: state.assistantWorkflowDefinitionVersion,
+        name: state.assistantWorkflowDefinitionName,
+        status: state.assistantWorkflowDefinitionStatus
+      }));
+    }
+    renderChat();
+  }
+
+  function assistantWorkflowPayload() {
+    if (!state.assistantWorkflowBound) return {};
+    if (state.assistantWorkflowUseCanvas) {
+      if (state.definitionStatus === "PUBLISHED" && state.definitionId) {
+        return { workflowDefinitionId: state.definitionId };
+      }
+      return { workflowDefinition: buildWorkflowDefinition() };
+    }
+    if (state.assistantWorkflowDefinitionId) {
+      return { workflowDefinitionId: state.assistantWorkflowDefinitionId };
+    }
+    return {};
+  }
+
+  function assistantWorkflowLabel() {
+    if (!state.assistantWorkflowBound) return "";
+    const name = state.assistantWorkflowUseCanvas
+      ? (els.definitionName?.value || state.assistantWorkflowDefinitionName || "当前画布工作流")
+      : (state.assistantWorkflowDefinitionName || "已发布工作流");
+    const version = state.definitionStatus === "PUBLISHED" && state.definitionVersion
+      ? ` · v${state.definitionVersion}`
+      : state.assistantWorkflowDefinitionVersion ? ` · v${state.assistantWorkflowDefinitionVersion}` : "";
+    return `当前编排：${name}${version}`;
   }
 
   function authHeaders(extra = {}) {
@@ -299,15 +395,29 @@
 
   function renderRuntimeDetails(health) {
     const rows = [
-      ["工作流运行时", `${health.workflowRuntime} · 须发布=${boolCn(health.workflowRequirePublishedForRun)}`],
-      ["严格模式", `${boolCn(health.strictMode)} · 回退=${boolCn(health.fallbackEnabled)}`],
-      ["向量库", `${boolCn(health.vectorStoreConfigured)} · 检索=${health.ragRetriever}`],
+      ["工作流", `${runtimeLabel(health.workflowRuntime)} · 需发布：${boolCn(health.workflowRequirePublishedForRun)}`],
+      ["严格模式", `${boolCn(health.strictMode)} · 回退：${boolCn(health.fallbackEnabled)}`],
+      ["向量检索", `${boolCn(health.vectorStoreConfigured)} · ${retrieverLabel(health.ragRetriever)}`],
       ["已索引文档", `${health.indexedDocumentCount}`],
       ["MCP", boolCn(health.mcpEnabled)]
     ];
     els.runtimeDetails.innerHTML = rows.map(([k, v]) =>
       `<div class="rt-row"><span class="rt-key">${escapeHtml(k)}</span><span class="rt-val">${escapeHtml(String(v))}</span></div>`
     ).join("");
+  }
+
+  function runtimeLabel(value) {
+    const text = String(value || "未知");
+    if (/^graph$/i.test(text)) return "Graph";
+    if (/^simple$/i.test(text)) return "Simple";
+    return text;
+  }
+
+  function retrieverLabel(value) {
+    const text = String(value || "未配置");
+    if (/dashvector/i.test(text)) return "DashVector";
+    if (/keyword/i.test(text)) return "Keyword";
+    return text.replace(/DocumentRetriever$/i, "");
   }
 
   function boolCn(value) { return value ? "是" : "否"; }
@@ -382,6 +492,7 @@
       state.definitionStatus = definition.status;
       els.definitionName.value = definition.name;
       hydrateWorkflow(definition.workflowDefinition);
+      bindAssistantWorkflowFromDefinition(definition);
       loadCanvasPositions();
       renderAll();
       zoomToFit();
@@ -429,7 +540,7 @@
     renderDefinitionHistory([], []);
   }
 
-  function hydrateWorkflow(definition) {
+  function hydrateWorkflow(definition, options = {}) {
     state.nodes = (definition.nodes || []).map((node) => ({ id: node.id, type: node.type, config: { ...(node.config || {}) } }));
     state.edges = (definition.edges || []).map((edge) => ({ from: edge.from, to: edge.to, condition: edge.condition || "" }));
     state.positions = new Map();
@@ -437,7 +548,7 @@
       const col = index % 4, row = Math.floor(index / 4);
       state.positions.set(node.id, { x: 80 + col * 280, y: 90 + row * 170 });
     });
-    loadCanvasPositions();
+    if (options.loadSavedPositions !== false) loadCanvasPositions();
     state.selectedNodeId = null;
     closeInspector();
   }
@@ -672,12 +783,14 @@
     if (!isFinite(minX)) return;
     const rect = els.workflowCanvas.getBoundingClientRect();
     const pad = 60;
-    const drawerH = els.runDrawer && !els.runDrawer.classList.contains("collapsed") ? rect.height * 0.5 : 46;
-    const availH = rect.height - drawerH;
-    const scale = clamp(Math.min((rect.width - pad * 2) / (maxX - minX || 1), (availH - pad * 2) / (maxY - minY || 1)), ZOOM_MIN, 1.2);
+    const contentW = maxX - minX || 1;
+    const contentH = maxY - minY || 1;
+    const innerW = Math.max(1, rect.width - pad * 2);
+    const innerH = Math.max(1, rect.height - pad * 2);
+    const scale = clamp(Math.min(innerW / contentW, innerH / contentH), ZOOM_MIN, 1.2);
     state.view.scale = scale;
-    state.view.panX = pad - minX * scale + Math.max(0, (rect.width - pad * 2 - (maxX - minX) * scale) / 2);
-    state.view.panY = pad - minY * scale;
+    state.view.panX = pad - minX * scale + Math.max(0, (innerW - contentW * scale) / 2);
+    state.view.panY = pad - minY * scale + Math.max(0, (innerH - contentH * scale) / 2);
     applyCanvasTransform();
   }
 
@@ -945,6 +1058,138 @@
   }
 
   // ============================================================
+  // 自然语言生成工作流
+  // ============================================================
+  function openWorkflowGenerator() {
+    els.definitionHistory?.classList.add("hidden");
+    els.nodeInspector?.classList.add("hidden");
+    els.workflowGenerator?.classList.remove("hidden");
+    els.generatorPreview?.classList.add("hidden");
+    if (els.generatorPrompt && !els.generatorPrompt.value.trim()) {
+      els.generatorPrompt.value = "先检索知识库文档，再让大模型结合上下文回答用户问题";
+    }
+    window.setTimeout(() => els.generatorPrompt?.focus(), 0);
+  }
+
+  function closeWorkflowGenerator() {
+    els.workflowGenerator?.classList.add("hidden");
+  }
+
+  async function generateWorkflowFromPrompt() {
+    const prompt = els.generatorPrompt?.value.trim() || "";
+    if (!prompt) { toast("请先输入工作流描述", true); return; }
+    const previousText = els.generatorApply?.textContent;
+    if (els.generatorApply) {
+      els.generatorApply.disabled = true;
+      els.generatorApply.textContent = "生成中";
+    }
+    if (els.generatorPreview) {
+      els.generatorPreview.classList.remove("hidden");
+      renderGeneratorStreamingPreview("正在连接工作流生成流…", "");
+    }
+    try {
+      const response = await streamWorkflowGeneration(prompt);
+      applyGeneratedWorkflow(response);
+      renderGeneratorPreview(response);
+      toast("已生成到画布，可继续编辑或保存");
+    } catch (error) {
+      if (els.generatorPreview) els.generatorPreview.textContent = error.message;
+      toast(error.message, true);
+    } finally {
+      if (els.generatorApply) {
+        els.generatorApply.disabled = false;
+        els.generatorApply.textContent = previousText || "生成到画布";
+      }
+    }
+  }
+
+  async function streamWorkflowGeneration(prompt) {
+    const chunks = [];
+    let status = "正在连接工作流生成流…";
+    let finalResponse = null;
+    const response = await fetch(API.generateWorkflowStream, {
+      method: "POST",
+      headers: authHeaders({ Accept: "text/event-stream", "Content-Type": "application/json" }),
+      body: JSON.stringify({ prompt })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await consumeSse(response, (eventName, data) => {
+      if (eventName === "status") {
+        status = data?.message || status;
+        renderGeneratorStreamingPreview(status, chunks.join(""));
+      }
+      if (eventName === "message" && data?.delta) {
+        chunks.push(data.delta);
+        renderGeneratorStreamingPreview(status, chunks.join(""));
+      }
+      if (eventName === "done") {
+        finalResponse = data?.response;
+      }
+      if (eventName === "error") {
+        throw new Error(data?.error || data?.message || "流式生成失败");
+      }
+    });
+    if (!finalResponse) throw new Error("流式生成未返回工作流结果");
+    return finalResponse;
+  }
+
+  function renderGeneratorStreamingPreview(status, rawText) {
+    if (!els.generatorPreview) return;
+    const visibleText = rawText || "等待模型输出…";
+    els.generatorPreview.innerHTML = `
+      <div class="generator-preview-title">AI 正在编排工作流</div>
+      <div class="generator-preview-meta">${escapeHtml(status)}</div>
+      <pre class="generator-stream-output">${escapeHtml(visibleText)}</pre>
+    `;
+    els.generatorPreview.classList.remove("hidden");
+    const streamOutput = els.generatorPreview.querySelector(".generator-stream-output");
+    if (streamOutput) streamOutput.scrollTop = streamOutput.scrollHeight;
+    els.generatorPreview.scrollTop = els.generatorPreview.scrollHeight;
+  }
+
+  function applyGeneratedWorkflow(response) {
+    const definition = response?.workflowDefinition;
+    if (!definition?.nodes || !definition?.edges) throw new Error("生成结果缺少工作流定义");
+    state.definitionId = null;
+    state.definitionVersion = null;
+    state.definitionStatus = null;
+    state.lastRunId = null;
+    state.connectSourceId = null;
+    state.selectedNodeId = null;
+    if (els.definitionSelect) els.definitionSelect.value = "";
+    if (els.definitionName) els.definitionName.value = response.name || "自然语言生成工作流";
+    hydrateWorkflow(definition, { loadSavedPositions: false });
+    if (els.workflowInput) els.workflowInput.value = DEFAULT_RUN_INPUT;
+    if (els.runOutput) els.runOutput.textContent = "{}";
+    if (els.runResult) {
+      els.runResult.className = "result-card empty-result";
+      els.runResult.textContent = "生成后可直接运行，结果和每一步轨迹会显示在这里。";
+    }
+    if (els.traceSteps) els.traceSteps.innerHTML = "";
+    if (state.inputMode === "form") renderRunInputForm();
+    els.definitionHistory?.classList.add("hidden");
+    setWorkflowStatus("生成草稿");
+    bindAssistantWorkflowFromDefinition({ name: response.name || "自然语言生成工作流", status: "DRAFT" });
+    renderDefinitionHistory([], []);
+    renderAll();
+    zoomToFit();
+    saveCanvasPositions();
+  }
+
+  function renderGeneratorPreview(response) {
+    if (!els.generatorPreview) return;
+    const nodes = response?.workflowDefinition?.nodes || [];
+    const edges = response?.workflowDefinition?.edges || [];
+    const notes = Array.isArray(response?.notes) ? response.notes : [];
+    els.generatorPreview.innerHTML = `
+      <div class="generator-preview-title">${escapeHtml(response?.name || "已生成工作流")}</div>
+      <div class="generator-preview-meta">${nodes.length} 个节点 · ${edges.length} 条连线</div>
+      ${notes.length ? `<ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
+    `;
+    els.generatorPreview.classList.remove("hidden");
+  }
+
+  // ============================================================
   // 校验 / 预览 / 保存 / 发布 / 运行
   // ============================================================
   async function validateWorkflow() {
@@ -972,6 +1217,7 @@
         state.definitionId = response.definitionId;
         state.definitionVersion = response.version;
         state.definitionStatus = response.status;
+        bindAssistantWorkflowFromDefinition(response);
         setWorkflowStatus(`${response.status || "DRAFT"} v${response.version}`);
         saveCanvasPositions();
         await loadDefinitions();
@@ -990,6 +1236,7 @@
       onSuccess: async (response) => {
         state.definitionVersion = response.version;
         state.definitionStatus = response.status;
+        bindAssistantWorkflowFromDefinition(response);
         setWorkflowStatus(`${response.status || "PUBLISHED"} v${response.version}`);
         await loadDefinitions();
         await loadDefinitionHistory();
@@ -1114,7 +1361,9 @@
       const row = document.createElement("div");
       row.className = "history-row";
       const meta = document.createElement("div");
-      meta.innerHTML = `<strong>v${revision.version}</strong> <span class="history-row-meta">${escapeHtml(statusCn(revision.status))} · ${escapeHtml(revision.updatedAt || revision.createdAt || "")}</span>`;
+      meta.className = "history-row-main";
+      meta.innerHTML = `<div class="history-row-title"><strong>v${revision.version}</strong><span>${escapeHtml(statusCn(revision.status))}</span></div>
+        <div class="history-row-meta">${escapeHtml(revision.updatedAt || revision.createdAt || "")}</div>`;
       const actions = document.createElement("div");
       actions.className = "history-row-actions";
       const loadButton = document.createElement("button");
@@ -1269,7 +1518,7 @@
   }
 
   // ============================================================
-  // 对话（合并：普通对话 / 工具智能体 / 知识库问答）
+  // 对话（普通对话 / 智能问答）
   // ============================================================
   function bindChat() {
     els.chatModeSeg?.querySelectorAll("[data-chat-mode]").forEach((button) => {
@@ -1280,6 +1529,7 @@
         renderChat();
       });
     });
+    els.clearChat?.addEventListener("click", () => void clearChatHistory());
     els.sendChat?.addEventListener("click", () => void sendChatMessage(false));
     els.streamChat?.addEventListener("click", () => void sendChatMessage(true));
     els.chatMessage?.addEventListener("keydown", (event) => {
@@ -1293,13 +1543,13 @@
 
   const CHAT_HINTS = {
     chat: "与大模型直接对话。可点「流式」逐字输出。",
-    agent: "大模型自动调用本地工具（计算、时间等）。MCP 远程工具需 DEMO_MCP_ENABLED=true。",
-    rag: "基于知识库文档检索后作答，答案会附引用来源。"
+    assistant: "自动结合知识库检索和工具调用，回答会附工具结果与引用来源。"
   };
 
   function renderChat() {
     if (!els.chatTranscript) return;
-    els.chatHint.textContent = CHAT_HINTS[state.chatMode] || "";
+    const workflowLabel = state.chatMode === "assistant" ? assistantWorkflowLabel() : "";
+    els.chatHint.textContent = [CHAT_HINTS[state.chatMode] || "", workflowLabel].filter(Boolean).join(" · ");
     const history = state.chatHistories[state.chatMode] || [];
     els.chatTranscript.innerHTML = "";
     if (history.length === 0) {
@@ -1313,7 +1563,31 @@
     els.chatTranscript.scrollTop = els.chatTranscript.scrollHeight;
   }
 
-  function modeName(mode) { return { chat: "普通对话", agent: "工具智能体对话", rag: "知识库问答" }[mode] || "对话"; }
+  function modeName(mode) { return { chat: "普通对话", assistant: "智能问答" }[mode] || "对话"; }
+
+  function conversationIdForMode(mode = state.chatMode) {
+    return mode === "assistant" ? "workbench-assistant" : "workbench";
+  }
+
+  async function clearChatHistory() {
+    const mode = state.chatMode;
+    const conversationId = conversationIdForMode(mode);
+    if (els.clearChat) els.clearChat.disabled = true;
+    try {
+      await requestJson(API.clearConversation(conversationId), { method: "DELETE" });
+      state.chatHistories[mode] = [];
+      els.chatModePill.textContent = "已清空";
+      renderChat();
+      toast(`${modeName(mode)}记录已清空`);
+    } catch (error) {
+      toast(`清空失败：${error.message}`, true);
+    } finally {
+      if (els.clearChat) els.clearChat.disabled = false;
+      window.setTimeout(() => {
+        if (els.chatModePill?.textContent === "已清空") els.chatModePill.textContent = "就绪";
+      }, 1200);
+    }
+  }
 
   function buildBubble(message) {
     const row = document.createElement("div");
@@ -1374,27 +1648,32 @@
   }
 
   function chatRequestForMode(message) {
-    if (state.chatMode === "agent") return requestJson(API.toolChat, { method: "POST", body: { conversationId: "workbench-agent", message } });
-    if (state.chatMode === "rag") return requestJson(API.ragChat, { method: "POST", body: { conversationId: "workbench-rag", message } });
-    return requestJson(API.chat, { method: "POST", body: { conversationId: "workbench", message } });
+    const conversationId = conversationIdForMode();
+    if (state.chatMode === "assistant") return requestJson(API.assistantChat, {
+      method: "POST",
+      body: { conversationId, message, ...assistantWorkflowPayload() }
+    });
+    return requestJson(API.chat, { method: "POST", body: { conversationId, message } });
   }
 
   function extrasForMode(response) {
-    if (state.chatMode === "agent" && Array.isArray(response.toolCalls)) {
-      return response.toolCalls.map((call) => ({
+    if (state.chatMode !== "assistant") return [];
+    const extras = [];
+    if (Array.isArray(response.toolCalls)) {
+      extras.push(...response.toolCalls.map((call) => ({
         cls: call.succeeded ? "tool-ok" : "tool-err",
         title: `🔧 ${call.toolName || "tool"} · ${call.succeeded ? "成功" : "失败"}`,
         sub: `${call.provider || "local"}${call.remote ? " · 远程" : ""} · ${call.durationMs ?? 0}ms${call.errorMessage ? " · " + call.errorMessage : ""}`
-      }));
+      })));
     }
-    if (state.chatMode === "rag" && Array.isArray(response.retrievedContext)) {
-      return response.retrievedContext.map((ctx) => ({
+    if (Array.isArray(response.retrievedContext)) {
+      extras.push(...response.retrievedContext.map((ctx) => ({
         cls: "",
         title: `📎 ${ctx.title || "文档 " + ctx.documentId}`,
         sub: `相关度 ${typeof ctx.score === "number" ? ctx.score.toFixed(3) : ctx.score} · ${truncate(ctx.snippet || "", 80)}`
-      }));
+      })));
     }
-    return [];
+    return extras;
   }
 
   async function streamChatInto(assistant, message) {
@@ -1403,7 +1682,7 @@
     const response = await fetch(API.chatStream, {
       method: "POST",
       headers: authHeaders({ Accept: "text/event-stream", "Content-Type": "application/json" }),
-      body: JSON.stringify({ conversationId: "workbench", message })
+      body: JSON.stringify({ conversationId: conversationIdForMode("chat"), message })
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     await consumeSse(response, (eventName, data) => {
@@ -1423,16 +1702,54 @@
   // ============================================================
   function bindLibrary() {
     els.saveDocument?.addEventListener("click", () => void saveDocument());
-    els.refreshDocuments?.addEventListener("click", () => void loadDocuments());
-    els.askRag?.addEventListener("click", () => void askRag());
+    els.resetDocumentEditor?.addEventListener("click", resetDocumentEditor);
+    els.refreshDocuments?.addEventListener("click", () => void loadLibraryData());
+    els.refreshOrders?.addEventListener("click", () => void loadOrders());
+    els.saveOrder?.addEventListener("click", () => void saveOrder());
+    els.resetOrderEditor?.addEventListener("click", resetOrderEditor);
+  }
+
+  async function loadLibraryData() {
+    await Promise.allSettled([loadDocuments(), loadOrders()]);
   }
 
   async function saveDocument() {
+    const editingId = state.editingDocumentId;
     await runCommand({
-      request: () => requestJson(API.saveDocument, { method: "POST", body: { title: els.documentTitle.value, content: els.documentContent.value } }),
-      successToast: "文档已保存",
-      onSuccess: async () => { await Promise.allSettled([loadDocuments(), loadHealth()]); }
+      request: () => requestJson(editingId ? API.updateDocument(editingId) : API.saveDocument, {
+        method: editingId ? "PUT" : "POST",
+        body: { title: els.documentTitle.value, content: els.documentContent.value }
+      }),
+      successToast: editingId ? "文档已更新" : "文档已保存",
+      onSuccess: async () => {
+        resetDocumentEditor();
+        await Promise.allSettled([loadDocuments(), loadHealth()]);
+      }
     });
+  }
+
+  function resetDocumentEditor() {
+    state.editingDocumentId = null;
+    if (els.documentTitle) els.documentTitle.value = "工作台笔记";
+    if (els.documentContent) els.documentContent.value = "Spring AI Alibaba 在这个 demo 中支持智能体工作流、知识库 RAG、工具调用和运行轨迹查看。";
+    if (els.saveDocument) els.saveDocument.textContent = "保存文档";
+    els.resetDocumentEditor?.classList.add("hidden");
+    highlightEditingDocument();
+  }
+
+  async function editDocument(id) {
+    try {
+      const detail = await requestJson(`${API.listDocuments}/${encodeURIComponent(id)}`);
+      state.editingDocumentId = detail.id;
+      if (els.documentTitle) els.documentTitle.value = detail.title || "";
+      if (els.documentContent) els.documentContent.value = detail.content || "";
+      if (els.saveDocument) els.saveDocument.textContent = "更新文档";
+      els.resetDocumentEditor?.classList.remove("hidden");
+      highlightEditingDocument();
+      els.documentTitle?.focus();
+    } catch (error) {
+      toast(error.message, true);
+    }
   }
 
   async function loadDocuments() {
@@ -1446,13 +1763,23 @@
         item.className = "doc-item";
         item.innerHTML = `<div><div class="doc-title">${escapeHtml(document_.title || "文档 " + document_.id)}</div>
           <div class="doc-meta">#${document_.id} · ${escapeHtml(statusCn(document_.indexStatus) || "未知")} · ${document_.contentLength || 0} 字 · ${escapeHtml(document_.createdAt || "")}</div></div>`;
+        item.dataset.documentId = String(document_.id);
+        item.addEventListener("click", () => void editDocument(document_.id));
+        const actions = document.createElement("div");
+        actions.className = "doc-actions";
+        const edit = document.createElement("button");
+        edit.className = "icon-btn-sm"; edit.title = "编辑"; edit.setAttribute("aria-label", "编辑");
+        edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 6a3 3 0 0 1 4 4l-8 8-4 1 1-4z"/><path d="M12 8l4 4"/></svg>';
+        edit.addEventListener("click", (event) => { event.stopPropagation(); void editDocument(document_.id); });
         const del = document.createElement("button");
         del.className = "icon-btn-sm"; del.title = "删除"; del.setAttribute("aria-label", "删除");
         del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
-        del.addEventListener("click", () => void deleteDocument(document_.id));
-        item.appendChild(del);
+        del.addEventListener("click", (event) => { event.stopPropagation(); void deleteDocument(document_.id); });
+        actions.append(edit, del);
+        item.appendChild(actions);
         els.documentList.appendChild(item);
       });
+      highlightEditingDocument();
       if (state.health) updateRagHint(state.health);
     } catch (error) {
       els.documentList.innerHTML = "";
@@ -1465,33 +1792,141 @@
     try {
       await requestJson(API.deleteDocument(id), { method: "DELETE" });
       toast("文档已删除");
+      if (state.editingDocumentId === id) resetDocumentEditor();
       await Promise.allSettled([loadDocuments(), loadHealth()]);
     } catch (error) { toast(error.message, true); }
   }
 
-  async function askRag() {
-    const message = els.ragMessage.value.trim();
-    if (!message) return;
-    els.ragOutput.classList.remove("hidden");
-    els.ragOutput.textContent = "检索中…";
-    try {
-      const response = await requestJson(API.ragChat, { method: "POST", body: { conversationId: "workbench-rag", message } });
-      els.ragOutput.innerHTML = "";
-      const answer = document.createElement("div");
-      answer.textContent = response.answer || "（无回答）";
-      els.ragOutput.appendChild(answer);
-      if (Array.isArray(response.retrievedContext) && response.retrievedContext.length) {
-        const extras = document.createElement("div");
-        extras.className = "bubble-extras";
-        response.retrievedContext.forEach((ctx) => extras.appendChild(buildExtraChip({
-          title: `📎 ${ctx.title || "文档 " + ctx.documentId}`,
-          sub: `相关度 ${typeof ctx.score === "number" ? ctx.score.toFixed(3) : ctx.score} · ${truncate(ctx.snippet || "", 80)}`
-        })));
-        els.ragOutput.appendChild(extras);
+  function highlightEditingDocument() {
+    els.documentList?.querySelectorAll(".doc-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.documentId === String(state.editingDocumentId));
+    });
+  }
+
+  async function saveOrder() {
+    const editingId = state.editingOrderId;
+    const payload = orderPayloadFromForm();
+    await runCommand({
+      request: () => requestJson(editingId ? API.orderDetail(editingId) : API.saveOrderEndpoint, {
+        method: editingId ? "PUT" : "POST",
+        body: payload
+      }),
+      successToast: editingId ? "订单已更新" : "订单已保存",
+      onSuccess: async () => {
+        resetOrderEditor();
+        await loadOrders();
       }
+    });
+  }
+
+  function orderPayloadFromForm() {
+    return {
+      orderId: (els.orderId?.value || "").trim(),
+      customerName: nullableText(els.orderCustomerName?.value),
+      status: (els.orderStatus?.value || "").trim(),
+      paid: Boolean(els.orderPaid?.checked),
+      amount: Number(els.orderAmount?.value || 0),
+      currency: (els.orderCurrency?.value || "CNY").trim(),
+      carrier: nullableText(els.orderCarrier?.value),
+      trackingNumber: nullableText(els.orderTrackingNumber?.value),
+      estimatedDelivery: nullableText(els.orderEstimatedDelivery?.value),
+      latestEvent: nullableText(els.orderLatestEvent?.value),
+      nextAction: nullableText(els.orderNextAction?.value)
+    };
+  }
+
+  function resetOrderEditor() {
+    state.editingOrderId = null;
+    if (els.orderId) { els.orderId.value = ""; els.orderId.disabled = false; }
+    if (els.orderCustomerName) els.orderCustomerName.value = "";
+    if (els.orderStatus) els.orderStatus.value = "SHIPPED";
+    if (els.orderPaid) els.orderPaid.checked = true;
+    if (els.orderAmount) els.orderAmount.value = "";
+    if (els.orderCurrency) els.orderCurrency.value = "CNY";
+    if (els.orderEstimatedDelivery) els.orderEstimatedDelivery.value = "";
+    if (els.orderCarrier) els.orderCarrier.value = "";
+    if (els.orderTrackingNumber) els.orderTrackingNumber.value = "";
+    if (els.orderLatestEvent) els.orderLatestEvent.value = "";
+    if (els.orderNextAction) els.orderNextAction.value = "";
+    if (els.saveOrder) els.saveOrder.textContent = "保存订单";
+    els.resetOrderEditor?.classList.add("hidden");
+    highlightEditingOrder();
+  }
+
+  async function editOrder(orderId) {
+    try {
+      const order = await requestJson(API.orderDetail(orderId));
+      state.editingOrderId = order.orderId;
+      if (els.orderId) { els.orderId.value = order.orderId || ""; els.orderId.disabled = true; }
+      if (els.orderCustomerName) els.orderCustomerName.value = order.customerName || "";
+      if (els.orderStatus) els.orderStatus.value = order.status || "";
+      if (els.orderPaid) els.orderPaid.checked = Boolean(order.paid);
+      if (els.orderAmount) els.orderAmount.value = order.amount ?? "";
+      if (els.orderCurrency) els.orderCurrency.value = order.currency || "CNY";
+      if (els.orderEstimatedDelivery) els.orderEstimatedDelivery.value = order.estimatedDelivery || "";
+      if (els.orderCarrier) els.orderCarrier.value = order.carrier || "";
+      if (els.orderTrackingNumber) els.orderTrackingNumber.value = order.trackingNumber || "";
+      if (els.orderLatestEvent) els.orderLatestEvent.value = order.latestEvent || "";
+      if (els.orderNextAction) els.orderNextAction.value = order.nextAction || "";
+      if (els.saveOrder) els.saveOrder.textContent = "更新订单";
+      els.resetOrderEditor?.classList.remove("hidden");
+      highlightEditingOrder();
+      els.orderCustomerName?.focus();
     } catch (error) {
-      els.ragOutput.textContent = `出错了：${error.message}`;
+      toast(error.message, true);
     }
+  }
+
+  async function loadOrders() {
+    if (!els.orderList) return;
+    try {
+      const page = await requestJson(`${API.listOrders}?page=0&size=50`);
+      const orders = page?.content || [];
+      els.orderList.innerHTML = "";
+      if (orders.length === 0) { els.orderList.appendChild(emptyDiv("暂无订单数据")); return; }
+      orders.forEach((order) => {
+        const item = document.createElement("div");
+        item.className = "doc-item order-item";
+        item.dataset.orderId = String(order.orderId);
+        item.innerHTML = `<div><div class="doc-title">${escapeHtml(order.orderId || "")} · ${escapeHtml(order.customerName || "未命名客户")}</div>
+          <div class="doc-meta">${escapeHtml(order.status || "UNKNOWN")} · ${escapeHtml(order.carrier || "未配置承运商")} · ${escapeHtml(order.trackingNumber || "无运单号")}</div>
+          <div class="order-status-line"><span>${order.paid ? "已支付" : "未支付"}</span><span>${escapeHtml(order.amount ?? "")} ${escapeHtml(order.currency || "")}</span><span>${escapeHtml(order.estimatedDelivery || "未设置送达日")}</span></div></div>`;
+        item.addEventListener("click", () => void editOrder(order.orderId));
+        const actions = document.createElement("div");
+        actions.className = "doc-actions";
+        const edit = document.createElement("button");
+        edit.className = "icon-btn-sm"; edit.title = "编辑"; edit.setAttribute("aria-label", "编辑订单");
+        edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 6a3 3 0 0 1 4 4l-8 8-4 1 1-4z"/><path d="M12 8l4 4"/></svg>';
+        edit.addEventListener("click", (event) => { event.stopPropagation(); void editOrder(order.orderId); });
+        const del = document.createElement("button");
+        del.className = "icon-btn-sm"; del.title = "删除"; del.setAttribute("aria-label", "删除订单");
+        del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+        del.addEventListener("click", (event) => { event.stopPropagation(); void deleteOrder(order.orderId); });
+        actions.append(edit, del);
+        item.appendChild(actions);
+        els.orderList.appendChild(item);
+      });
+      highlightEditingOrder();
+    } catch (error) {
+      els.orderList.innerHTML = "";
+      els.orderList.appendChild(emptyDiv(`无法加载订单：${error.message}`));
+    }
+  }
+
+  async function deleteOrder(orderId) {
+    if (!window.confirm("删除该订单？")) return;
+    try {
+      await requestJson(API.orderDetail(orderId), { method: "DELETE" });
+      toast("订单已删除");
+      if (state.editingOrderId === orderId) resetOrderEditor();
+      await loadOrders();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  function highlightEditingOrder() {
+    els.orderList?.querySelectorAll(".order-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.orderId === String(state.editingOrderId));
+    });
   }
 
   // ============================================================
@@ -2032,6 +2467,10 @@
   function formatJson(value) { return JSON.stringify(value ?? {}, null, 2); }
   function short(value) { return value ? String(value).slice(0, 8) : ""; }
   function truncate(value, n) { const s = String(value || ""); return s.length > n ? s.slice(0, n) + "…" : s; }
+  function nullableText(value) {
+    const text = String(value ?? "").trim();
+    return text ? text : null;
+  }
 
   // 在响应对象中递归寻找首个可读文本（answer/text/content/...）
   function deepFindText(value, depth = 0) {

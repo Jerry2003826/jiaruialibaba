@@ -1,7 +1,5 @@
 package com.example.agentdemo.chat;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.chat.memory.ConversationRole;
 import com.example.agentdemo.common.BusinessException;
@@ -28,8 +26,6 @@ import java.util.function.Consumer;
 
 @Service
 public class AiModelService {
-
-    private static final Logger log = LoggerFactory.getLogger(AiModelService.class);
 
     private final ObjectProvider<ChatClient> chatClientProvider;
     private final Environment environment;
@@ -70,12 +66,12 @@ public class AiModelService {
     private AiModelResult generate(String systemPrompt, List<ConversationMessage> history, String userMessage,
             String modelOverride) {
         if (!isModelConfigured()) {
-            return handleUnavailableLlm("AI_DASHSCOPE_API_KEY is not configured", userMessage);
+            throw unavailableLlmException("AI_DASHSCOPE_API_KEY is not configured");
         }
 
         ChatClient chatClient = chatClientProvider.getIfAvailable();
         if (chatClient == null) {
-            return handleUnavailableLlm("ChatClient bean is not available", userMessage);
+            throw unavailableLlmException("ChatClient bean is not available");
         }
 
         try {
@@ -92,12 +88,8 @@ public class AiModelService {
                     extractTokenUsage(response, requestedModel));
         }
         catch (Exception ex) {
-            if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
-                throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                        "DashScope chat call failed: " + ex.getMessage(), ex);
-            }
-            log.warn("DashScope chat call failed, using fallback answer", ex);
-            return legacyFallback(userMessage, ex.getMessage());
+            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                    "DashScope chat call failed: " + ex.getMessage(), ex);
         }
     }
 
@@ -156,75 +148,25 @@ public class AiModelService {
                     }
                 }
                 catch (Exception ex) {
-                    if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
-                        throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                                "DashScope streaming call failed: " + ex.getMessage(), ex);
-                    }
-                    log.warn("DashScope streaming call failed, using fake streaming fallback", ex);
+                    throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                            "DashScope streaming call failed: " + ex.getMessage(), ex);
                 }
             }
-            else if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
+            else {
                 throw unavailableLlmException("ChatClient bean is not available");
             }
         }
-        else if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
+        else {
             throw unavailableLlmException("AI_DASHSCOPE_API_KEY is not configured");
         }
 
-        if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
-            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "DashScope streaming returned no content");
-        }
-        AiModelResult fallback = legacyFallback(userMessage, "Streaming model is unavailable");
-        fakeStream(fallback.answer(), onChunk);
-        return true;
-    }
-
-    private AiModelResult handleUnavailableLlm(String reason, String userMessage) {
-        if (!alibabaRuntimePolicy.isLegacyFallbackAllowed()) {
-            throw unavailableLlmException(reason);
-        }
-        return legacyFallback(userMessage, reason);
+        throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                "DashScope streaming returned no content");
     }
 
     private BusinessException unavailableLlmException(String reason) {
         return new BusinessException("ALIBABA_LLM_NOT_CONFIGURED",
                 "Alibaba LLM is required but unavailable: " + reason);
-    }
-
-    private AiModelResult legacyFallback(String userMessage, String reason) {
-        String answer = "AI model fallback response. Reason: " + reason
-                + ". User message: " + userMessage;
-        return AiModelResult.fallback(answer, reason);
-    }
-
-    private void fakeStream(String answer, Consumer<String> onChunk) {
-        for (String chunk : chunks(answer)) {
-            onChunk.accept(chunk);
-            try {
-                Thread.sleep(35);
-            }
-            catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Fake streaming interrupted", ex);
-            }
-        }
-    }
-
-    private List<String> chunks(String answer) {
-        List<String> chunks = new ArrayList<>();
-        if (answer.contains(" ")) {
-            String[] words = answer.split(" ");
-            for (int i = 0; i < words.length; i++) {
-                chunks.add(words[i] + (i == words.length - 1 ? "" : " "));
-            }
-            return chunks;
-        }
-        int size = 12;
-        for (int i = 0; i < answer.length(); i += size) {
-            chunks.add(answer.substring(i, Math.min(i + size, answer.length())));
-        }
-        return chunks;
     }
 
     private List<Message> toSpringMessages(List<ConversationMessage> history, String userMessage) {

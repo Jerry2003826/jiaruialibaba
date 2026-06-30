@@ -1,5 +1,6 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.support.TestToolServices;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.rag.RagService;
@@ -48,7 +49,7 @@ class GraphWorkflowRuntimeTest {
         RagService ragService = mock(RagService.class);
         AiModelService aiModelService = mock(AiModelService.class);
         ToolGatewayService toolGatewayService = new ToolGatewayService(
-                List.of(new LocalToolProvider(new ToolService())));
+                List.of(new LocalToolProvider(TestToolServices.toolService())));
         TraceService traceService = mock(TraceService.class);
         when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
@@ -81,7 +82,7 @@ class GraphWorkflowRuntimeTest {
         when(traceService.startTraceStep(eq("run-branch"), any(), any()))
                 .thenAnswer(invocation -> stepForRun("run-branch", invocation.getArgument(1)));
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService()))),
                         variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         GraphWorkflowRuntime runtime = graphRuntime(nodeExecutor, traceService);
 
@@ -144,7 +145,7 @@ class GraphWorkflowRuntimeTest {
         when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService()))),
                         variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         GraphWorkflowRuntime runtime = graphRuntime(nodeExecutor, traceService);
 
@@ -282,7 +283,7 @@ class GraphWorkflowRuntimeTest {
         when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
-                        new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                        new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService()))),
                         variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(), mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         GraphWorkflowRuntime runtime = graphRuntime(nodeExecutor, traceService);
 
@@ -320,7 +321,7 @@ class GraphWorkflowRuntimeTest {
         when(traceService.startTraceStep(eq("run-false"), any(), any()))
                 .thenAnswer(invocation -> stepForRun("run-false", invocation.getArgument(1)));
         WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
-                new ToolGatewayService(List.of(new LocalToolProvider(new ToolService()))),
+                new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService()))),
                 variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
                 mock(com.example.agentdemo.workflow.WorkflowInlineExecutionService.class));
         GraphWorkflowRuntime runtime = graphRuntime(nodeExecutor, traceService);

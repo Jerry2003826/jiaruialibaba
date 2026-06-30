@@ -6,12 +6,16 @@ import com.example.agentdemo.chat.dto.HealthResponse;
 import com.example.agentdemo.common.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -38,6 +42,12 @@ public class ChatController {
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@Valid @RequestBody ChatRequest request) {
         return chatService.stream(request);
+    }
+
+    @DeleteMapping("/chat/conversations/{conversationId}")
+    public ApiResponse<Map<String, Object>> clearConversation(@PathVariable String conversationId) {
+        long deletedMessages = chatService.clearConversation(conversationId);
+        return ApiResponse.ok(Map.of("conversationId", conversationId, "deletedMessages", deletedMessages));
     }
 
 }

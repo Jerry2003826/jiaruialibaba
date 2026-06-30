@@ -91,7 +91,7 @@ public class WorkflowNodeExecutor {
     }
 
     private Object executeRetriever(String runId, WorkflowNode node, WorkflowExecutionState state) {
-        String query = configString(node, "query", state.primaryInput());
+        String query = variableResolver.renderString(configString(node, "query", state.primaryInput()), state);
         int topK = configInt(node, "topK", 3);
         List<RetrievedContext> contexts = ragService.retrieve(query, topK, runId);
         state.setRetrievedContext(contexts);
@@ -249,13 +249,14 @@ public class WorkflowNodeExecutor {
 
     private String resolveAnswer(String prompt, WorkflowExecutionState state, AiModelResult result) {
         if (!result.fallback()) {
+            if (!StringUtils.hasText(result.answer())) {
+                throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                        "Alibaba LLM returned an empty answer for workflow LLM nodes");
+            }
             return result.answer();
         }
-        if (alibabaRuntimePolicy.isStrictMode()) {
-            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "Alibaba LLM is required for workflow LLM nodes: " + result.errorMessage());
-        }
-        return fallbackAnswer(prompt, state);
+        throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
+                "Alibaba LLM is required for workflow LLM nodes: " + result.errorMessage());
     }
 
     private String outputModel(String configuredModel, AiModelResult result) {
@@ -266,13 +267,6 @@ public class WorkflowNodeExecutor {
             return configuredModel;
         }
         return aiModelService.modelName();
-    }
-
-    private String fallbackAnswer(String prompt, WorkflowExecutionState state) {
-        if (StringUtils.hasText(state.contextText())) {
-            return "Workflow fallback answer. Context: " + state.contextText();
-        }
-        return "Workflow fallback answer. Prompt: " + prompt;
     }
 
     private String configString(WorkflowNode node, String key, String defaultValue) {

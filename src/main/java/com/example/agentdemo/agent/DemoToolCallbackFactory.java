@@ -12,6 +12,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +35,7 @@ public class DemoToolCallbackFactory {
         List<ToolCallback> callbacks = new ArrayList<>();
         callbacks.add(wrap(buildGetCurrentTimeCallback(), runId, traceService, toolCalls));
         callbacks.add(wrap(buildCalculateCallback(), runId, traceService, toolCalls));
+        callbacks.add(wrap(buildQueryOrderCallback(), runId, traceService, toolCalls));
         toolGatewayService.listExecutableTools().stream()
                 .filter(ToolDescriptor::remote)
                 .map(descriptor -> new GatewayBackedToolCallback(descriptor, toolGatewayService, objectMapper))
@@ -59,6 +61,31 @@ public class DemoToolCallbackFactory {
                 .description("Calculate a safe arithmetic expression with +, -, *, / and parentheses.")
                 .inputType(CalculateRequest.class)
                 .build();
+    }
+
+    private ToolCallback buildQueryOrderCallback() {
+        return FunctionToolCallback.builder("queryOrderAPI", (OrderQueryRequest request) ->
+                        execute("queryOrderAPI", orderArguments(request)))
+                .description("Demo customer-service order lookup API.")
+                .inputType(OrderQueryRequest.class)
+                .build();
+    }
+
+    private Map<String, Object> orderArguments(OrderQueryRequest request) {
+        if (request == null) {
+            return Map.of();
+        }
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        putIfPresent(arguments, "user_query", request.userQuery());
+        putIfPresent(arguments, "query", request.query());
+        putIfPresent(arguments, "orderId", request.orderId());
+        return arguments;
+    }
+
+    private void putIfPresent(Map<String, Object> arguments, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            arguments.put(key, value);
+        }
     }
 
     private String execute(String toolName, Map<String, Object> arguments) {
@@ -92,6 +119,9 @@ public class DemoToolCallbackFactory {
     }
 
     public record CalculateRequest(String expression) {
+    }
+
+    public record OrderQueryRequest(String userQuery, String query, String orderId) {
     }
 
 }

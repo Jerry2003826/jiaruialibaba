@@ -11,6 +11,8 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
 
     long countByConversationId(String conversationId);
 
+    long deleteByConversationId(String conversationId);
+
     void deleteByIdIn(Collection<Long> ids);
 
 }

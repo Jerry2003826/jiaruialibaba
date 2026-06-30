@@ -1,6 +1,7 @@
 package com.example.agentdemo.tool;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.order.OrderLookupService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import java.math.MathContext;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Service
@@ -17,6 +19,12 @@ public class ToolService {
 
     private static final Pattern SAFE_EXPRESSION = Pattern.compile("[0-9+\\-*/().\\s]+");
     private static final MathContext MATH_CONTEXT = MathContext.DECIMAL64;
+
+    private final OrderLookupService orderLookupService;
+
+    public ToolService(OrderLookupService orderLookupService) {
+        this.orderLookupService = orderLookupService;
+    }
 
     @Tool(name = "getCurrentTime", description = "Return current server time in ISO-8601 format.")
     public String getCurrentTime() {
@@ -33,6 +41,12 @@ public class ToolService {
         }
         BigDecimal result = new Parser(expression).parse();
         return result.stripTrailingZeros().toPlainString();
+    }
+
+    @Tool(name = "queryOrderAPI", description = "Demo customer-service order lookup API.")
+    public Map<String, Object> queryOrderAPI(
+            @ToolParam(description = "User order query text or order id") String userQuery) {
+        return orderLookupService.lookup(userQuery);
     }
 
     public ToolExecutionLog executeGetCurrentTime() {
@@ -57,6 +71,20 @@ public class ToolService {
         }
         catch (RuntimeException ex) {
             return new ToolExecutionLog("calculate", input, null, false, ex.getMessage(), startedAt, Instant.now());
+        }
+    }
+
+    public ToolExecutionLog executeQueryOrderAPI(String userQuery) {
+        Instant startedAt = Instant.now();
+        ToolExecutionLog.OrderQueryInput input = new ToolExecutionLog.OrderQueryInput(
+                userQuery == null ? "" : userQuery);
+        try {
+            Map<String, Object> output = queryOrderAPI(userQuery);
+            return new ToolExecutionLog("queryOrderAPI", input, output, true, null, startedAt, Instant.now());
+        }
+        catch (RuntimeException ex) {
+            return new ToolExecutionLog("queryOrderAPI", input, null, false, ex.getMessage(), startedAt,
+                    Instant.now());
         }
     }
 

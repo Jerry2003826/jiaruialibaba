@@ -1,5 +1,6 @@
 package com.example.agentdemo.tool;
 
+import com.example.agentdemo.support.TestToolServices;
 import com.example.agentdemo.common.ApiResponse;
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +12,7 @@ class ToolControllerTest {
 
     @Test
     void listsRegisteredTools() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
         ToolController controller = new ToolController(gateway, emptyRegistry(gateway));
 
         ApiResponse<List<ToolDescriptor>> response = controller.listTools();
@@ -19,7 +20,7 @@ class ToolControllerTest {
         assertThat(response.success()).isTrue();
         assertThat(response.data())
                 .extracting(ToolDescriptor::name)
-                .contains("getCurrentTime", "calculate");
+                .contains("getCurrentTime", "calculate", "queryOrderAPI");
     }
 
     @Test

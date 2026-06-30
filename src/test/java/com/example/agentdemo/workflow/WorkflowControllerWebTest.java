@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -93,6 +94,65 @@ class WorkflowControllerWebTest {
         verify(workflowRunGraphService).getRunGraph("run-1");
     }
 
+    @Test
+    void generateRouteReturnsWorkflowDefinition() throws Exception {
+        WorkflowGenerationService generationService = mock(WorkflowGenerationService.class);
+        WorkflowGenerationResponse expected = new WorkflowGenerationResponse("知识库问答工作流", "generated",
+                new WorkflowDefinition(
+                        List.of(
+                                new WorkflowNode("start", "start", Map.of()),
+                                new WorkflowNode("retriever_1", "retriever", Map.of("topK", 3)),
+                                new WorkflowNode("llm_1", "llm", Map.of("prompt", "Context: {{context}}")),
+                                new WorkflowNode("end", "end", Map.of())),
+                        List.of(
+                                new WorkflowEdge("start", "retriever_1"),
+                                new WorkflowEdge("retriever_1", "llm_1"),
+                                new WorkflowEdge("llm_1", "end"))),
+                List.of("ok"));
+        when(generationService.generate(any(WorkflowGenerationRequest.class))).thenReturn(expected);
+        MockMvc mockMvc = mockMvc(mock(WorkflowService.class), mock(WorkflowGraphPreviewService.class),
+                mock(WorkflowRunGraphService.class), generationService);
+
+        mockMvc.perform(post("/api/workflows/generate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("prompt", "先检索知识库再回答"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.name").value("知识库问答工作流"))
+                .andExpect(jsonPath("$.data.workflowDefinition.nodes[1].type").value("retriever"))
+                .andExpect(jsonPath("$.data.workflowDefinition.edges[0].to").value("retriever_1"));
+
+        verify(generationService).generate(any(WorkflowGenerationRequest.class));
+    }
+
+    @Test
+    void generateRouteAcceptsLongPromptDescription() throws Exception {
+        WorkflowGenerationService generationService = mock(WorkflowGenerationService.class);
+        WorkflowGenerationResponse expected = new WorkflowGenerationResponse("长提示词工作流", "generated",
+                new WorkflowDefinition(
+                        List.of(
+                                new WorkflowNode("start", "start", Map.of()),
+                                new WorkflowNode("llm_1", "llm", Map.of("prompt", "Answer {{input}}")),
+                                new WorkflowNode("end", "end", Map.of())),
+                        List.of(
+                                new WorkflowEdge("start", "llm_1"),
+                                new WorkflowEdge("llm_1", "end"))),
+                List.of("ok"));
+        when(generationService.generate(any(WorkflowGenerationRequest.class))).thenReturn(expected);
+        MockMvc mockMvc = mockMvc(mock(WorkflowService.class), mock(WorkflowGraphPreviewService.class),
+                mock(WorkflowRunGraphService.class), generationService);
+        String longPrompt = "请根据这个很长的描述生成知识库问答工作流。" + "补充上下文".repeat(260);
+
+        mockMvc.perform(post("/api/workflows/generate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("prompt", longPrompt))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.workflowDefinition.nodes[1].type").value("llm"));
+
+        verify(generationService).generate(argThat(request -> request.prompt().equals(longPrompt)));
+    }
+
     private MockMvc mockMvc(WorkflowGraphPreviewService previewService) {
         return mockMvc(mock(WorkflowService.class), previewService, mock(WorkflowRunGraphService.class));
     }
@@ -103,8 +163,13 @@ class WorkflowControllerWebTest {
 
     private MockMvc mockMvc(WorkflowService workflowService, WorkflowGraphPreviewService previewService,
             WorkflowRunGraphService workflowRunGraphService) {
+        return mockMvc(workflowService, previewService, workflowRunGraphService, new WorkflowGenerationService());
+    }
+
+    private MockMvc mockMvc(WorkflowService workflowService, WorkflowGraphPreviewService previewService,
+            WorkflowRunGraphService workflowRunGraphService, WorkflowGenerationService generationService) {
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
-                new WorkflowNodeSchemaRegistry(), previewService, workflowRunGraphService);
+                new WorkflowNodeSchemaRegistry(), previewService, workflowRunGraphService, generationService);
         return MockMvcBuilders.standaloneSetup(controller).build();
     }
 

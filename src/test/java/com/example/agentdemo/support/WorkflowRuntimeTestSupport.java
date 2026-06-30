@@ -66,7 +66,7 @@ public final class WorkflowRuntimeTestSupport {
 
     public static ToolGatewayService localToolGateway() {
         return new ToolGatewayService(List.of(new com.example.agentdemo.tool.LocalToolProvider(
-                new com.example.agentdemo.tool.ToolService())));
+                TestToolServices.toolService())));
     }
 
     @SuppressWarnings("unchecked")

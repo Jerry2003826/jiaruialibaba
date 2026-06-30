@@ -1,5 +1,6 @@
 package com.example.agentdemo.agent;
 
+import com.example.agentdemo.support.TestToolServices;
 import com.example.agentdemo.tool.LocalToolProvider;
 import com.example.agentdemo.tool.McpToolProvider;
 import com.example.agentdemo.tool.ToolDescriptor;
@@ -34,7 +35,7 @@ class DemoToolCallbackFactoryTest {
 
     @Test
     void buildsLocalTracedToolCallbacks() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
         DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), emptyMcpProvider());
         TraceService traceService = mock(TraceService.class);
         when(traceService.startTraceStep(eq("run-1"), eq("tool_calculate"), any()))
@@ -43,9 +44,10 @@ class DemoToolCallbackFactoryTest {
 
         List<ToolCallback> callbacks = factory.tracedToolCallbacks("run-1", traceService, toolCalls);
 
-        assertThat(callbacks).hasSize(2);
+        assertThat(callbacks).hasSize(3);
         assertThat(callbacks).allMatch(TracingToolCallback.class::isInstance);
-        assertThat(callbackNames(callbacks)).containsExactlyInAnyOrder("getCurrentTime", "calculate");
+        assertThat(callbackNames(callbacks)).containsExactlyInAnyOrder("getCurrentTime", "calculate",
+                "queryOrderAPI");
 
         ToolCallback calculate = callbacks.stream()
                 .filter(callback -> "calculate".equals(callback.getToolDefinition().name()))
@@ -63,7 +65,7 @@ class DemoToolCallbackFactoryTest {
     void exposesOnlyMcpToolCallbacksAllowedByGatewayPolicy() {
         McpToolProvider mcpProvider = rawMcpProvider();
         ToolGatewayService gateway = new ToolGatewayService(
-                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                List.of(new LocalToolProvider(TestToolServices.toolService()), new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_echo"));
         DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
         TraceService traceService = mock(TraceService.class);
@@ -78,7 +80,7 @@ class DemoToolCallbackFactoryTest {
     void hidesMcpToolCallbacksDeniedByGatewayPolicy() {
         McpToolProvider mcpProvider = rawMcpProvider();
         ToolGatewayService gateway = new ToolGatewayService(
-                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                List.of(new LocalToolProvider(TestToolServices.toolService()), new RemoteEchoProvider()),
                 new ToolExecutionPolicy());
         DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
         TraceService traceService = mock(TraceService.class);
@@ -94,7 +96,7 @@ class DemoToolCallbackFactoryTest {
     void mcpToolCallbackExecutionReentersGatewayValidation() {
         McpToolProvider mcpProvider = rawMcpProvider();
         ToolGatewayService gateway = new ToolGatewayService(
-                List.of(new LocalToolProvider(new ToolService()), new RemoteEchoProvider()),
+                List.of(new LocalToolProvider(TestToolServices.toolService()), new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_echo"));
         DemoToolCallbackFactory factory = new DemoToolCallbackFactory(gateway, new ObjectMapper(), mcpProvider(mcpProvider));
         TraceService traceService = mock(TraceService.class);

@@ -23,7 +23,7 @@ class WorkflowControllerTest {
     void listsWorkflowNodeSchemas() {
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class),
                 mock(WorkflowDefinitionService.class), new WorkflowNodeSchemaRegistry(),
-                mock(WorkflowGraphPreviewService.class), mock(WorkflowRunGraphService.class));
+                mock(WorkflowGraphPreviewService.class), mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<List<WorkflowNodeSchema>> response = controller.listNodeSchemas();
 
@@ -43,7 +43,7 @@ class WorkflowControllerTest {
         when(workflowService.validate(request)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowValidationResponse> response = controller.validate(request);
 
@@ -65,7 +65,7 @@ class WorkflowControllerTest {
         when(previewService.preview(request)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class),
                 mock(WorkflowDefinitionService.class), new WorkflowNodeSchemaRegistry(), previewService,
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowGraphPreviewResponse> response = controller.previewGraph(request);
 
@@ -83,7 +83,7 @@ class WorkflowControllerTest {
         when(definitionService.save(request)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.saveDefinition(request);
 
@@ -99,7 +99,7 @@ class WorkflowControllerTest {
         when(definitionService.list()).thenReturn(List.of(expected));
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<List<WorkflowDefinitionResponse>> response = controller.listDefinitions();
 
@@ -115,7 +115,7 @@ class WorkflowControllerTest {
         when(definitionService.get("wf-1")).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.getDefinition("wf-1");
 
@@ -133,7 +133,7 @@ class WorkflowControllerTest {
         when(definitionService.update("wf-1", request)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.updateDefinition("wf-1", request);
 
@@ -149,7 +149,7 @@ class WorkflowControllerTest {
         when(definitionService.publish("wf-1")).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.publishDefinition("wf-1");
 
@@ -165,7 +165,7 @@ class WorkflowControllerTest {
         when(definitionService.listRevisions("wf-1")).thenReturn(List.of(expected));
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<List<WorkflowDefinitionRevisionResponse>> response = controller.listDefinitionRevisions("wf-1");
 
@@ -181,7 +181,7 @@ class WorkflowControllerTest {
         when(definitionService.rollback("wf-1", 1)).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowDefinitionResponse> response = controller.rollbackDefinition("wf-1", 1);
 
@@ -194,7 +194,7 @@ class WorkflowControllerTest {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class), definitionService,
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<Void> response = controller.deleteDefinition("wf-1");
 
@@ -213,7 +213,7 @@ class WorkflowControllerTest {
         when(workflowService.listRuns("wf-1", 2, RunStatus.SUCCEEDED, 1, 5)).thenReturn(page);
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowRunPageResponse> response = controller.listRuns("wf-1", 2, RunStatus.SUCCEEDED, 1, 5);
 
@@ -236,7 +236,7 @@ class WorkflowControllerTest {
         when(workflowService.getRunDetail("run-1")).thenReturn(expected);
         WorkflowController controller = new WorkflowController(workflowService, mock(WorkflowDefinitionService.class),
                 new WorkflowNodeSchemaRegistry(), mock(WorkflowGraphPreviewService.class),
-                mock(WorkflowRunGraphService.class));
+                mock(WorkflowRunGraphService.class), new WorkflowGenerationService());
 
         ApiResponse<WorkflowRunDetailResponse> response = controller.getRunDetail("run-1");
 
@@ -259,7 +259,7 @@ class WorkflowControllerTest {
         when(workflowRunGraphService.getRunGraph("run-1")).thenReturn(expected);
         WorkflowController controller = new WorkflowController(mock(WorkflowService.class),
                 mock(WorkflowDefinitionService.class), new WorkflowNodeSchemaRegistry(),
-                mock(WorkflowGraphPreviewService.class), workflowRunGraphService);
+                mock(WorkflowGraphPreviewService.class), workflowRunGraphService, new WorkflowGenerationService());
 
         ApiResponse<WorkflowRunGraphResponse> response = controller.getRunGraph("run-1");
 

@@ -85,6 +85,17 @@ class PostgresFlywayMigrationIntegrationTest {
                         + "where table_name = 'vector_outbox_events' and column_name = 'lease_expires_at'",
                 Integer.class);
         assertThat(leaseColumns).isEqualTo(1);
+
+        Integer demoOrderRows = jdbcTemplate.queryForObject(
+                "select count(*) from demo_orders where order_id in ('20260630001', '20260630002', '20260630003')",
+                Integer.class);
+        assertThat(demoOrderRows).isEqualTo(3);
+
+        Integer customerNameColumns = jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.columns "
+                        + "where table_name = 'demo_orders' and column_name = 'customer_name'",
+                Integer.class);
+        assertThat(customerNameColumns).isEqualTo(1);
     }
 
 }

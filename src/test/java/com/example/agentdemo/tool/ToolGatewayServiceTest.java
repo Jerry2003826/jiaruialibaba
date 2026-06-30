@@ -1,5 +1,6 @@
 package com.example.agentdemo.tool;
 
+import com.example.agentdemo.support.TestToolServices;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -15,7 +16,7 @@ class ToolGatewayServiceTest {
 
     @Test
     void executesLocalToolByName() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
 
         ToolExecutionLog log = gateway.execute("calculate", Map.of("expression", "(12 + 8) / 5"));
 
@@ -26,8 +27,24 @@ class ToolGatewayServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void executesDemoOrderLookupTool() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
+
+        ToolExecutionLog log = gateway.execute("queryOrderAPI", Map.of("user_query", "order 20260630001"));
+
+        assertThat(log.succeeded()).isTrue();
+        assertThat(log.toolName()).isEqualTo("queryOrderAPI");
+        assertThat(log.input()).isInstanceOf(ToolExecutionLog.OrderQueryInput.class);
+        assertThat((Map<String, Object>) log.output())
+                .containsEntry("orderId", "20260630001")
+                .containsEntry("status", "SHIPPED")
+                .containsEntry("source", "database:demo_orders");
+    }
+
+    @Test
     void returnsFailedLogForUnknownTool() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
 
         ToolExecutionLog log = gateway.execute("missingTool", Map.of());
 

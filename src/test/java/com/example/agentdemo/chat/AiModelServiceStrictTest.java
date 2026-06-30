@@ -39,6 +39,22 @@ class AiModelServiceStrictTest {
     }
 
     @Test
+    void throwsWhenLegacyFallbackPolicyAllowsButApiKeyMissing() {
+        MockEnvironment environment = new MockEnvironment();
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        when(chatClientProvider.getIfAvailable()).thenReturn(null);
+
+        AiModelService service = new AiModelService(chatClientProvider, environment,
+                TestAlibabaPolicies.legacyFallbackAllowed());
+
+        assertThatThrownBy(() -> service.generate("system", "hello"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_NOT_CONFIGURED");
+    }
+
+    @Test
     void throwsWhenStrictModeEnabledAndStreamingUnavailable() {
         MockEnvironment environment = new MockEnvironment();
         environment.setProperty("spring.ai.dashscope.api-key", "sk-test");
@@ -96,6 +112,29 @@ class AiModelServiceStrictTest {
 
         AiModelService service = new AiModelService(chatClientProvider, environment,
                 TestAlibabaPolicies.fallbackDisabled());
+
+        assertThatThrownBy(() -> service.generate("system", "hello"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+    }
+
+    @Test
+    void throwsWhenLegacyFallbackPolicyAllowsButRuntimeCallFails() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("spring.ai.dashscope.api-key", "sk-test");
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        when(chatClientProvider.getIfAvailable()).thenReturn(chatClient);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(org.mockito.ArgumentMatchers.anyString())).thenReturn(requestSpec);
+        when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+        when(requestSpec.call()).thenThrow(new IllegalStateException("upstream unavailable"));
+
+        AiModelService service = new AiModelService(chatClientProvider, environment,
+                TestAlibabaPolicies.legacyFallbackAllowed());
 
         assertThatThrownBy(() -> service.generate("system", "hello"))
                 .isInstanceOf(BusinessException.class)

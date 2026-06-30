@@ -1,11 +1,18 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.chat.AiModelResult;
+import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.chat.memory.ConversationMemoryService;
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.rag.dto.RagChatRequest;
 import com.example.agentdemo.rag.dto.RetrievedContext;
+import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,6 +94,35 @@ class RagServiceTest {
         assertThatThrownBy(() -> service.retrieve("question", 3))
                 .isSameAs(primaryFailure);
         verify(keywordRetriever, never()).retrieve(any(), anyInt());
+    }
+
+    @Test
+    void chatRejectsModelFallbackAnswer() {
+        DocumentRetriever primaryRetriever = mock(DocumentRetriever.class);
+        KeywordDocumentRetriever keywordRetriever = mock(KeywordDocumentRetriever.class);
+        AiModelService aiModelService = mock(AiModelService.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagProperties ragProperties = new RagProperties();
+
+        when(conversationMemoryService.resolveConversationId(null)).thenReturn("conv-1");
+        when(conversationMemoryService.loadRecentMessages("conv-1")).thenReturn(List.of());
+        when(traceService.startRun(any(), any())).thenReturn(new TraceRun("run-1", Instant.now()));
+        when(traceService.startTraceStep(any(), any(), any()))
+                .thenReturn(step("retrieve-step", "rag_retrieve"), step("generate-step", "rag_generate_answer"));
+        when(primaryRetriever.name()).thenReturn("KeywordDocumentRetriever");
+        when(primaryRetriever.retrieve("question", 3)).thenReturn(List.of());
+        when(aiModelService.generate(any(), any(), any()))
+                .thenReturn(AiModelResult.fallback("mock fallback payload", "model unavailable"));
+
+        RagService service = new RagService(null, primaryRetriever, keywordRetriever, null, aiModelService,
+                conversationMemoryService, traceService, ragProperties,
+                com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed());
+
+        assertThatThrownBy(() -> service.chat(new RagChatRequest(null, "question")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
     }
 
     private static TraceStep step(String stepId, String nodeName) {

@@ -19,4 +19,6 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
 
     List<DocumentEntity> findByIdInAndIndexStatus(Collection<Long> ids, DocumentIndexStatus indexStatus);
 
+    boolean existsByTitleAndIndexStatusNot(String title, DocumentIndexStatus indexStatus);
+
 }

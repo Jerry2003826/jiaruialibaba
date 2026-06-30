@@ -67,6 +67,12 @@ public class DocumentEntity {
         return content;
     }
 
+    public void update(String title, String content) {
+        this.title = title;
+        this.content = content;
+        this.indexStatus = DocumentIndexStatus.PENDING;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

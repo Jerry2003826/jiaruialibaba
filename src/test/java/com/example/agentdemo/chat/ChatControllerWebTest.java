@@ -10,7 +10,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -36,6 +38,24 @@ class ChatControllerWebTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.answer").value("hello"))
                 .andExpect(jsonPath("$.data.conversationId").value("conv-1"));
+    }
+
+    @Test
+    void clearConversationRouteDeletesConversationMessages() throws Exception {
+        ChatService chatService = mock(ChatService.class);
+        AlibabaHealthService alibabaHealthService = mock(AlibabaHealthService.class);
+        when(chatService.clearConversation("workbench-assistant")).thenReturn(4L);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new ChatController(chatService, alibabaHealthService))
+                .setControllerAdvice(new com.example.agentdemo.common.GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(delete("/api/chat/conversations/workbench-assistant"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.conversationId").value("workbench-assistant"))
+                .andExpect(jsonPath("$.data.deletedMessages").value(4));
+
+        verify(chatService).clearConversation("workbench-assistant");
     }
 
 }

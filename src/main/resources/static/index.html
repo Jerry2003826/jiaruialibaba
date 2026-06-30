@@ -79,6 +79,7 @@
               </button>
               <div id="wf-menu" class="menu-pop hidden" role="menu">
                 <button id="new-workflow" type="button" role="menuitem">新建工作流</button>
+                <button id="generate-workflow" type="button" role="menuitem">自然语言生成</button>
                 <button id="validate-workflow" type="button" role="menuitem">校验拓扑</button>
                 <button id="insert-loop-template" type="button" role="menuitem">插入循环模板</button>
                 <button id="publish-definition" type="button" role="menuitem">发布当前版本</button>
@@ -134,15 +135,17 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
               </button>
             </div>
-            <div id="inspector-empty" class="empty-state">未选择节点</div>
-            <form id="inspector-form" class="inspector-form hidden"></form>
-            <section class="edge-section hidden" id="edge-section">
-              <div class="section-head">
-                <h4>连线</h4>
-                <button id="add-edge" class="btn btn-ghost btn-sm" type="button">+ 添加</button>
-              </div>
-              <div id="edge-list" class="edge-list"></div>
-            </section>
+            <div class="inspector-body">
+              <div id="inspector-empty" class="empty-state">未选择节点</div>
+              <form id="inspector-form" class="inspector-form hidden"></form>
+              <section class="edge-section hidden" id="edge-section">
+                <div class="section-head">
+                  <h4>连线</h4>
+                  <button id="add-edge" class="btn btn-ghost btn-sm" type="button">+ 添加</button>
+                </div>
+                <div id="edge-list" class="edge-list"></div>
+              </section>
+            </div>
             <div class="inspector-foot">
               <button id="delete-node" class="btn btn-danger btn-block" type="button">删除节点</button>
             </div>
@@ -165,6 +168,26 @@
             <div id="revision-list" class="history-list"></div>
             <h4 class="history-subtitle">运行</h4>
             <div id="workflow-run-list" class="history-list"></div>
+          </aside>
+
+          <!-- 自然语言生成工作流（热更新当前画布草稿） -->
+          <aside class="workflow-generator hidden" id="workflow-generator" aria-label="自然语言生成工作流">
+            <div class="inspector-head">
+              <h3>自然语言生成</h3>
+              <button id="generator-close" class="icon-btn-sm" type="button" aria-label="关闭">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <div class="generator-body">
+              <label class="config-field">
+                <span class="field-label">描述工作流</span>
+                <textarea id="generator-prompt" class="text-area generator-prompt" spellcheck="false">先检索知识库文档，再让大模型结合上下文回答用户问题</textarea>
+              </label>
+              <div id="generator-preview" class="generator-preview hidden"></div>
+              <div class="generator-actions">
+                <button id="generator-apply" class="btn btn-primary" type="button">生成到画布</button>
+              </div>
+            </div>
           </aside>
         </div>
 
@@ -211,17 +234,19 @@
         </section>
       </section>
 
-      <!-- ===== 对话（合并：普通对话 / 工具智能体 / 知识库问答） ===== -->
+      <!-- ===== 对话（普通对话 / 智能问答） ===== -->
       <section class="view view-chat" id="view-chat" data-view-panel="chat">
         <header class="view-head">
           <div class="view-head-left">
             <h2>对话</h2>
             <span id="chat-mode-pill" class="badge badge-soft">就绪</span>
           </div>
-          <div class="seg" id="chat-mode-seg">
-            <button class="seg-btn active" type="button" data-chat-mode="chat">普通对话</button>
-            <button class="seg-btn" type="button" data-chat-mode="agent">工具智能体</button>
-            <button class="seg-btn" type="button" data-chat-mode="rag">知识库问答</button>
+          <div class="view-head-actions">
+            <div class="seg" id="chat-mode-seg">
+              <button class="seg-btn active" type="button" data-chat-mode="chat">普通对话</button>
+              <button class="seg-btn" type="button" data-chat-mode="assistant">智能问答</button>
+            </div>
+            <button id="clear-chat" class="btn btn-ghost btn-sm" type="button">清空</button>
           </div>
         </header>
         <div class="chat-area">
@@ -256,20 +281,71 @@
             <label class="field"><span>内容</span>
               <textarea id="document-content" class="text-area">Spring AI Alibaba 在这个 demo 中支持智能体工作流、知识库 RAG、工具调用和运行轨迹查看。</textarea>
             </label>
-            <button id="save-document" class="btn btn-primary" type="button">保存文档</button>
-
-            <div class="quick-ask">
-              <h3 class="card-title">快速提问</h3>
-              <label class="field"><span>问题</span>
-                <textarea id="rag-message" class="text-area">这个 demo 支持哪些能力？</textarea>
-              </label>
-              <button id="ask-rag" class="btn" type="button">基于知识库提问</button>
-              <div id="rag-output" class="answer-card hidden"></div>
+            <div class="form-actions">
+              <button id="save-document" class="btn btn-primary" type="button">保存文档</button>
+              <button id="reset-document-editor" class="btn btn-ghost hidden" type="button">新建文档</button>
             </div>
           </section>
           <section class="card">
             <h3 class="card-title">已存文档</h3>
             <div id="document-list" class="doc-list"></div>
+          </section>
+          <section class="card card-wide">
+            <div class="card-title-row">
+              <h3 class="card-title">客户订单数据</h3>
+              <button id="refresh-orders" class="btn btn-ghost btn-sm" type="button">刷新订单</button>
+            </div>
+            <div class="order-editor-grid">
+              <div class="order-form">
+                <div class="field-row">
+                  <label class="field"><span>订单号</span>
+                    <input id="order-id" class="text-input" type="text" inputmode="numeric" placeholder="20260630001">
+                  </label>
+                  <label class="field"><span>客户</span>
+                    <input id="order-customer-name" class="text-input" type="text" placeholder="Alice Chen">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field"><span>状态</span>
+                    <input id="order-status" class="text-input" type="text" placeholder="SHIPPED">
+                  </label>
+                  <label class="field"><span>金额</span>
+                    <input id="order-amount" class="text-input" type="number" min="0" step="0.01" placeholder="299.00">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field"><span>币种</span>
+                    <input id="order-currency" class="text-input" type="text" value="CNY">
+                  </label>
+                  <label class="field"><span>预计送达</span>
+                    <input id="order-estimated-delivery" class="text-input" type="date">
+                  </label>
+                </div>
+                <label class="field checkbox-field">
+                  <input id="order-paid" type="checkbox" checked>
+                  <span>已支付</span>
+                </label>
+                <div class="field-row">
+                  <label class="field"><span>承运商</span>
+                    <input id="order-carrier" class="text-input" type="text" placeholder="SF Express">
+                  </label>
+                  <label class="field"><span>运单号</span>
+                    <input id="order-tracking-number" class="text-input" type="text" placeholder="SF20260630001">
+                  </label>
+                </div>
+                <label class="field"><span>最新物流 / 状态</span>
+                  <textarea id="order-latest-event" class="text-area text-area-sm" placeholder="包裹已离开上海中转中心"></textarea>
+                </label>
+                <label class="field"><span>客服下一步建议</span>
+                  <textarea id="order-next-action" class="text-area text-area-sm" placeholder="请客服基于当前订单状态给出下一步建议。"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button id="save-order" class="btn btn-primary" type="button">保存订单</button>
+                  <button id="reset-order-editor" class="btn btn-ghost hidden" type="button">新建订单</button>
+                </div>
+              </div>
+              <div id="order-list" class="doc-list order-list"></div>
+            </div>
           </section>
         </div>
       </section>

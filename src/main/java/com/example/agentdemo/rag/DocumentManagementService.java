@@ -2,6 +2,8 @@ package com.example.agentdemo.rag;
 
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
+import com.example.agentdemo.rag.dto.DocumentRequest;
+import com.example.agentdemo.rag.dto.DocumentResponse;
 import com.example.agentdemo.rag.dto.DocumentDetailResponse;
 import com.example.agentdemo.rag.dto.DocumentPageResponse;
 import com.example.agentdemo.rag.dto.DocumentSummaryResponse;
@@ -27,29 +29,34 @@ public class DocumentManagementService {
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
     private final VectorOutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final DocumentIndexingService documentIndexingService;
 
     @Autowired
     public DocumentManagementService(DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository, VectorStoreGateway vectorStoreGateway,
             AlibabaRuntimePolicy alibabaRuntimePolicy, VectorOutboxEventRepository outboxEventRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, DocumentIndexingService documentIndexingService) {
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.vectorStoreGateway = vectorStoreGateway;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
         this.outboxEventRepository = outboxEventRepository;
         this.objectMapper = objectMapper;
+        this.documentIndexingService = documentIndexingService;
+    }
+
+    public DocumentManagementService(DocumentRepository documentRepository,
+            DocumentChunkRepository documentChunkRepository, VectorStoreGateway vectorStoreGateway,
+            AlibabaRuntimePolicy alibabaRuntimePolicy, DocumentIndexingService documentIndexingService) {
+        this(documentRepository, documentChunkRepository, vectorStoreGateway, alibabaRuntimePolicy, null,
+                new ObjectMapper(), documentIndexingService);
     }
 
     public DocumentManagementService(DocumentRepository documentRepository,
             DocumentChunkRepository documentChunkRepository, VectorStoreGateway vectorStoreGateway,
             AlibabaRuntimePolicy alibabaRuntimePolicy) {
-        this.documentRepository = documentRepository;
-        this.documentChunkRepository = documentChunkRepository;
-        this.vectorStoreGateway = vectorStoreGateway;
-        this.alibabaRuntimePolicy = alibabaRuntimePolicy;
-        this.outboxEventRepository = null;
-        this.objectMapper = new ObjectMapper();
+        this(documentRepository, documentChunkRepository, vectorStoreGateway, alibabaRuntimePolicy, null,
+                new ObjectMapper(), null);
     }
 
     @Transactional(readOnly = true)
@@ -68,6 +75,25 @@ public class DocumentManagementService {
     @Transactional(readOnly = true)
     public DocumentDetailResponse getDocument(Long documentId) {
         return toDetail(findDocument(documentId));
+    }
+
+    @Transactional
+    public DocumentResponse updateDocument(Long documentId, DocumentRequest request) {
+        DocumentEntity document = findDocument(documentId);
+        List<DocumentChunkEntity> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
+        List<String> vectorIds = chunks.stream().map(DocumentChunkEntity::getVectorId).toList();
+        cancelPendingUpserts(documentId);
+        documentChunkRepository.deleteByDocumentId(documentId);
+        enqueueVectorDelete(documentId, vectorIds);
+        document.update(request.title(), request.content());
+        DocumentEntity saved = documentRepository.save(document);
+        if (documentIndexingService == null) {
+            saved.markReady();
+        }
+        else {
+            documentIndexingService.index(saved);
+        }
+        return toResponse(saved);
     }
 
     @Transactional
@@ -151,6 +177,11 @@ public class DocumentManagementService {
 
     private DocumentSummaryResponse toSummary(DocumentEntity document) {
         return new DocumentSummaryResponse(document.getId(), document.getTitle(), document.getContent().length(),
+                document.getIndexStatus(), document.getCreatedAt());
+    }
+
+    private DocumentResponse toResponse(DocumentEntity document) {
+        return new DocumentResponse(document.getId(), document.getTitle(), document.getContent().length(),
                 document.getIndexStatus(), document.getCreatedAt());
     }
 

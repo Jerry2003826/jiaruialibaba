@@ -13,6 +13,7 @@ public class LocalToolProvider implements ToolProvider {
 
     private static final String GET_CURRENT_TIME = "getCurrentTime";
     private static final String CALCULATE = "calculate";
+    private static final String QUERY_ORDER_API = "queryOrderAPI";
 
     private final ToolService toolService;
 
@@ -27,7 +28,7 @@ public class LocalToolProvider implements ToolProvider {
 
     @Override
     public boolean supports(String toolName) {
-        return GET_CURRENT_TIME.equals(toolName) || CALCULATE.equals(toolName);
+        return GET_CURRENT_TIME.equals(toolName) || CALCULATE.equals(toolName) || QUERY_ORDER_API.equals(toolName);
     }
 
     @Override
@@ -35,6 +36,8 @@ public class LocalToolProvider implements ToolProvider {
         return switch (toolName) {
             case GET_CURRENT_TIME -> toolService.executeGetCurrentTime();
             case CALCULATE -> toolService.executeCalculate(stringArgument(arguments, "expression"));
+            case QUERY_ORDER_API -> toolService.executeQueryOrderAPI(
+                    stringArgument(arguments, "user_query", "query", "orderId"));
             default -> ToolGatewayService.toolNotFound(toolName, arguments);
         };
     }
@@ -45,14 +48,24 @@ public class LocalToolProvider implements ToolProvider {
                 new ToolDescriptor(GET_CURRENT_TIME, "Return current server time in ISO-8601 format.",
                         providerName(), false),
                 new ToolDescriptor(CALCULATE, "Calculate a safe arithmetic expression with +, -, *, / and parentheses.",
+                        providerName(), false),
+                new ToolDescriptor(QUERY_ORDER_API, "Demo customer-service order lookup API.",
                         providerName(), false)
         );
     }
 
-    private String stringArgument(Map<String, Object> arguments, String key) {
-        Object value = arguments == null ? null : arguments.get(key);
-        String text = value == null ? "" : String.valueOf(value);
-        return StringUtils.hasText(text) ? text : "";
+    private String stringArgument(Map<String, Object> arguments, String... keys) {
+        if (arguments == null || arguments.isEmpty()) {
+            return "";
+        }
+        for (String key : keys) {
+            Object value = arguments.get(key);
+            String text = value == null ? "" : String.valueOf(value);
+            if (StringUtils.hasText(text)) {
+                return text;
+            }
+        }
+        return "";
     }
 
 }

@@ -1,5 +1,6 @@
 package com.example.agentdemo.agent;
 
+import com.example.agentdemo.agent.dto.AssistantChatResponse;
 import com.example.agentdemo.agent.dto.ToolChatRequest;
 import com.example.agentdemo.agent.dto.ToolChatResponse;
 import com.example.agentdemo.common.ApiResponse;
@@ -22,6 +23,11 @@ public class ToolCallingAgentController {
     @PostMapping("/tool-chat")
     public ApiResponse<ToolChatResponse> toolChat(@Valid @RequestBody ToolChatRequest request) {
         return ApiResponse.ok(toolCallingAgentService.toolChat(request));
+    }
+
+    @PostMapping("/assistant-chat")
+    public ApiResponse<AssistantChatResponse> assistantChat(@Valid @RequestBody ToolChatRequest request) {
+        return ApiResponse.ok(toolCallingAgentService.assistantChat(request));
     }
 
 }

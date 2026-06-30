@@ -1,5 +1,6 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.support.TestToolServices;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
@@ -46,7 +47,7 @@ class SimpleWorkflowRuntimeTest {
 
     @Test
     void runsOnlyMatchingConditionBranch() {
-        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(new ToolService())));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
         TraceService traceService = mock(TraceService.class);
         when(traceService.startTraceStep(eq("run-1"), any(), any()))
                 .thenAnswer(invocation -> step(invocation.getArgument(1)));

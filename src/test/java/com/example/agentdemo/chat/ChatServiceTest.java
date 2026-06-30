@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -81,6 +82,47 @@ class ChatServiceTest {
         verify(conversationMemoryService).appendUserMessage("generated-conv", "hi");
         verify(conversationMemoryService).appendAssistantMessage("generated-conv", "streamed");
         verify(traceService).markRunSucceeded(eq("run-1"), eq(new ChatResponse("streamed", "generated-conv", "run-1")));
+    }
+
+    @Test
+    void chatRejectsModelFallbackAnswers() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        Executor executor = Runnable::run;
+        SseConfig.SseProperties sseProperties = new SseConfig.SseProperties(120_000L);
+
+        when(conversationMemoryService.resolveConversationId("conv-1")).thenReturn("conv-1");
+        when(conversationMemoryService.loadRecentMessages("conv-1")).thenReturn(List.of());
+        when(traceService.startRun(any(), any())).thenReturn(new TraceRun("run-1", Instant.now()));
+        when(traceService.startTraceStep(anyString(), anyString(), any()))
+                .thenReturn(new TraceStep("step-1", "run-1", "dashscope_chat"));
+        when(aiModelService.generate(anyString(), any(), anyString()))
+                .thenReturn(AiModelResult.fallback("mock fallback payload", "model unavailable"));
+
+        ChatService chatService = new ChatService(aiModelService, conversationMemoryService, traceService, executor,
+                sseProperties);
+
+        assertThatThrownBy(() -> chatService.chat(new ChatRequest("conv-1", "hi")))
+                .isInstanceOf(com.example.agentdemo.common.BusinessException.class)
+                .extracting(ex -> ((com.example.agentdemo.common.BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+    }
+
+    @Test
+    void clearConversationDelegatesToConversationMemory() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        Executor executor = Runnable::run;
+        SseConfig.SseProperties sseProperties = new SseConfig.SseProperties(120_000L);
+        when(conversationMemoryService.clearConversation("workbench-assistant")).thenReturn(6L);
+
+        ChatService chatService = new ChatService(aiModelService, conversationMemoryService, traceService, executor,
+                sseProperties);
+
+        assertThat(chatService.clearConversation("workbench-assistant")).isEqualTo(6L);
+        verify(conversationMemoryService).clearConversation("workbench-assistant");
     }
 
 }
