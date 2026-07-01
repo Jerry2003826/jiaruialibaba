@@ -33,6 +33,16 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
 
     Optional<DocumentEntity> findByIdAndOwnerId(Long id, String ownerId);
 
+    Optional<DocumentEntity> findByIdAndKbIdAndOwnerId(Long id, String kbId, String ownerId);
+
+    Page<DocumentEntity> findByOwnerIdAndKbIdAndIndexStatusNotOrderByCreatedAtDesc(String ownerId, String kbId,
+            DocumentIndexStatus indexStatus, Pageable pageable);
+
+    Page<DocumentEntity> findByOwnerIdAndKbIdAndIndexStatusNotIn(String ownerId, String kbId,
+            Collection<DocumentIndexStatus> indexStatuses, Pageable pageable);
+
+    long countByOwnerIdAndKbId(String ownerId, String kbId);
+
     boolean existsByTitleAndIndexStatusNot(String title, DocumentIndexStatus indexStatus);
 
     boolean existsByOwnerIdAndTitleAndIndexStatusNot(String ownerId, String title, DocumentIndexStatus indexStatus);

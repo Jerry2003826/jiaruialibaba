@@ -22,6 +22,7 @@
         <spring-ai.version>1.1.2</spring-ai.version>
         <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
         <spring-ai-alibaba-extensions.version>1.1.2.2</spring-ai-alibaba-extensions.version>
+        <tika.version>2.9.2</tika.version>
     </properties>
 
     <dependencyManagement>
@@ -59,6 +60,16 @@
             <groupId>com.aliyun</groupId>
             <artifactId>dashvector-java-sdk</artifactId>
             <version>1.0.18</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>${tika.version}</version>
         </dependency>
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>

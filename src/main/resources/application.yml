@@ -55,6 +55,11 @@ spring:
   # Hibernate ddl-auto, so Flyway is disabled by default and turned on only under postgres.
   flyway:
     enabled: false
+  servlet:
+    multipart:
+      # Knowledge-base file uploads. Keep in sync with demo.knowledge.max-file-bytes.
+      max-file-size: ${DEMO_KNOWLEDGE_MAX_FILE_SIZE:10MB}
+      max-request-size: ${DEMO_KNOWLEDGE_MAX_REQUEST_SIZE:12MB}
 
 # Actuator: /actuator/health and /healthz are public liveness/readiness probes that only expose
 # UP/DOWN (show-details=never / show-components=never keeps model, vector store and configuration
