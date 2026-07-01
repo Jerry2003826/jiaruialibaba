@@ -56,7 +56,8 @@ public class KnowledgeBaseService {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseService.class);
     private static final Pattern TOKEN_SPLITTER = Pattern.compile("[^\\p{IsHan}\\p{Alnum}]+");
     private static final int SCAN_PAGE_SIZE = 200;
-    private static final int MAX_SCANNED = 5_000;
+    private static final int DEFAULT_CHUNK_PREVIEW_PAGE = 0;
+    private static final int DEFAULT_CHUNK_PREVIEW_SIZE = 20;
     private static final List<DocumentIndexStatus> NON_RETRIEVABLE = List.of(
             DocumentIndexStatus.DELETING, DocumentIndexStatus.DELETED);
 
@@ -200,6 +201,25 @@ public class KnowledgeBaseService {
 
     @Transactional(readOnly = true)
     public ChunkPreviewResponse previewChunks(String kbId, Long documentId) {
+        return previewChunks(kbId, documentId, DEFAULT_CHUNK_PREVIEW_PAGE, DEFAULT_CHUNK_PREVIEW_SIZE);
+    }
+
+    @Transactional(readOnly = true)
+    public ChunkPreviewResponse previewChunks(String kbId, Long documentId, Integer page, Integer size) {
+        ChunkPreviewResponse preview = buildChunkPreview(kbId, documentId);
+        int resolvedPage = page == null ? DEFAULT_CHUNK_PREVIEW_PAGE : page;
+        int resolvedSize = size == null ? DEFAULT_CHUNK_PREVIEW_SIZE : size;
+        validatePage(resolvedPage, resolvedSize);
+        long rawFromIndex = (long) resolvedPage * resolvedSize;
+        int fromIndex = (int) Math.min(rawFromIndex, preview.totalChunks());
+        long rawToIndex = rawFromIndex + resolvedSize;
+        int toIndex = (int) Math.min(rawToIndex, preview.totalChunks());
+        int totalPages = preview.totalChunks() == 0 ? 0 : (preview.totalChunks() + resolvedSize - 1) / resolvedSize;
+        return new ChunkPreviewResponse(preview.documentId(), preview.chunkSize(), preview.chunkOverlap(), resolvedPage,
+                resolvedSize, preview.totalChunks(), totalPages, preview.chunks().subList(fromIndex, toIndex));
+    }
+
+    private ChunkPreviewResponse buildChunkPreview(String kbId, Long documentId) {
         DocumentEntity document = findDocument(kbId, documentId);
         int chunkSize = retrievalConfig(findKb(kbId)).chunkSizeOr(ragProperties.getRag().getChunkSize());
         int chunkOverlap = retrievalConfig(findKb(kbId)).chunkOverlapOr(ragProperties.getRag().getChunkOverlap());
@@ -208,7 +228,9 @@ public class KnowledgeBaseService {
         for (int i = 0; i < chunks.size(); i++) {
             preview.add(new ChunkPreviewResponse.Chunk(i, chunks.get(i).length(), chunks.get(i)));
         }
-        return new ChunkPreviewResponse(documentId, chunkSize, chunkOverlap, preview);
+        int totalChunks = preview.size();
+        return new ChunkPreviewResponse(documentId, chunkSize, chunkOverlap, 0, totalChunks, totalChunks,
+                totalChunks == 0 ? 0 : 1, preview);
     }
 
     @Transactional(readOnly = true)
@@ -247,12 +269,13 @@ public class KnowledgeBaseService {
         List<Citation> scored = new ArrayList<>();
         int pageNumber = 0;
         int scanned = 0;
+        int maxScannedDocuments = Math.max(1, knowledgeProperties.getMaxScannedDocuments());
         Page<DocumentEntity> page;
         do {
             page = documentRepository.findByOwnerIdAndKbIdAndIndexStatusNotIn(ownerId, kbId, NON_RETRIEVABLE,
                     PageRequest.of(pageNumber++, SCAN_PAGE_SIZE, Sort.by("id").ascending()));
             for (DocumentEntity document : page.getContent()) {
-                if (scanned++ >= MAX_SCANNED) {
+                if (scanned++ >= maxScannedDocuments) {
                     break;
                 }
                 double score = score(document, terms);
@@ -262,7 +285,7 @@ public class KnowledgeBaseService {
                 }
             }
         }
-        while (page.hasNext() && scanned < MAX_SCANNED);
+        while (page.hasNext() && scanned < maxScannedDocuments);
         scored.sort(Comparator.comparingDouble(Citation::score).reversed()
                 .thenComparing(Citation::documentId));
         return scored.size() <= topK ? scored : scored.subList(0, topK);

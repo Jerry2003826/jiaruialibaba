@@ -80,8 +80,10 @@ public class KnowledgeBaseController {
 
     @GetMapping("/{kbId}/documents/{documentId}/chunks")
     public ApiResponse<ChunkPreviewResponse> previewChunks(@PathVariable String kbId,
-            @PathVariable Long documentId) {
-        return ApiResponse.ok(knowledgeBaseService.previewChunks(kbId, documentId));
+            @PathVariable Long documentId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return ApiResponse.ok(knowledgeBaseService.previewChunks(kbId, documentId, page, size));
     }
 
     @DeleteMapping("/{kbId}/documents/{documentId}")

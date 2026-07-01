@@ -2,6 +2,7 @@ package com.example.agentdemo.knowledge;
 
 import com.example.agentdemo.AgentBackendDemoApplication;
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.knowledge.dto.ChunkPreviewResponse;
 import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
 import com.example.agentdemo.knowledge.dto.KnowledgeDocumentResponse;
@@ -37,7 +38,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "demo.dashvector.endpoint=",
         "demo.dashvector.api-key=",
         "demo.rag.retriever=keyword",
-        "demo.knowledge.max-content-chars=32"
+        "demo.knowledge.max-content-chars=32",
+        "demo.knowledge.max-scanned-documents=2"
 })
 class KnowledgeBaseIntegrationTest {
 
@@ -106,6 +108,68 @@ class KnowledgeBaseIntegrationTest {
 
         assertThat(knowledgeBaseService.search(kbA, "returns", null).citations()).hasSize(1);
         assertThat(knowledgeBaseService.search(kbB, "returns", null).citations()).isEmpty();
+    }
+
+    @Test
+    void searchStopsAfterConfiguredDocumentScanBudget() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Budgeted Search", null, null)).kbId();
+        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 1", "alpha policy"));
+        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 2", "beta policy"));
+        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 3", "needle policy"));
+
+        KnowledgeSearchResponse result = knowledgeBaseService.search(kbId, "needle", 5);
+
+        assertThat(result.citations()).isEmpty();
+    }
+
+    @Test
+    void previewChunksSupportsPaginationGuardrail() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Chunk Preview", null, new RetrievalConfig(4, 0, null))).kbId();
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Chunked", "abcdefghij"));
+
+        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), 1, 2);
+
+        assertThat(preview.page()).isEqualTo(1);
+        assertThat(preview.size()).isEqualTo(2);
+        assertThat(preview.totalChunks()).isEqualTo(3);
+        assertThat(preview.totalPages()).isEqualTo(2);
+        assertThat(preview.chunks()).extracting(ChunkPreviewResponse.Chunk::chunkIndex).containsExactly(2);
+        assertThat(preview.chunks()).extracting(ChunkPreviewResponse.Chunk::content).containsExactly("ij");
+    }
+
+    @Test
+    void chunkPreviewUsesDefaultPageAndSize() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Chunk Preview Defaults", null, new RetrievalConfig(4, 0, null))).kbId();
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Chunked", "abcdefghij"));
+
+        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), null, null);
+
+        assertThat(preview.page()).isEqualTo(0);
+        assertThat(preview.size()).isEqualTo(20);
+        assertThat(preview.totalChunks()).isEqualTo(3);
+        assertThat(preview.totalPages()).isEqualTo(1);
+        assertThat(preview.chunks()).extracting(ChunkPreviewResponse.Chunk::chunkIndex).containsExactly(0, 1, 2);
+    }
+
+    @Test
+    void chunkPreviewReturnsEmptyPageInsteadOfOverflowingForHugePageNumber() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Chunk Preview Huge Page", null, new RetrievalConfig(4, 0, null))).kbId();
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Chunked", "abcdefghij"));
+
+        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), Integer.MAX_VALUE, 2);
+
+        assertThat(preview.page()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(preview.size()).isEqualTo(2);
+        assertThat(preview.totalChunks()).isEqualTo(3);
+        assertThat(preview.totalPages()).isEqualTo(2);
+        assertThat(preview.chunks()).isEmpty();
     }
 
     @Test

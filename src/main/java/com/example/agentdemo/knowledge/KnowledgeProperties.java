@@ -19,6 +19,9 @@ public class KnowledgeProperties {
     /** Maximum extracted text length in characters (default 500k). */
     private int maxContentChars = 500_000;
 
+    /** Maximum number of documents scanned during keyword-first retrieval. */
+    private int maxScannedDocuments = 5_000;
+
     /** Allowlist for file MIME types accepted by KB ingestion. */
     private List<String> allowedMimeTypes = new ArrayList<>(List.of(
             "text/plain",
@@ -45,6 +48,14 @@ public class KnowledgeProperties {
 
     public void setMaxContentChars(int maxContentChars) {
         this.maxContentChars = maxContentChars;
+    }
+
+    public int getMaxScannedDocuments() {
+        return maxScannedDocuments;
+    }
+
+    public void setMaxScannedDocuments(int maxScannedDocuments) {
+        this.maxScannedDocuments = maxScannedDocuments;
     }
 
     public List<String> getAllowedMimeTypes() {
