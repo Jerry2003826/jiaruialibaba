@@ -13,4 +13,15 @@ class OrderIdExtractorTest {
                 .containsExactly("20260630001", "20260630002");
     }
 
+    @Test
+    void doesNotTreatDigitsAdjacentToDecimalPointAsOrderId() {
+        assertThat(OrderIdExtractor.extractFirst("订单金额 12345678.90 元")).isEmpty();
+        assertThat(OrderIdExtractor.extractAll("应付 12345678.90，实付 87654321.00")).isEmpty();
+    }
+
+    @Test
+    void stillExtractsStandaloneOrderId() {
+        assertThat(OrderIdExtractor.extractFirst("订单号 20260630001 帮我查物流")).contains("20260630001");
+    }
+
 }

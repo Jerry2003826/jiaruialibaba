@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -67,11 +68,11 @@ class ChatServiceTest {
         when(traceService.startRun(eq(RunType.CHAT), any())).thenReturn(new TraceRun("run-1", Instant.now()));
         when(traceService.startTraceStep(anyString(), anyString(), any()))
                 .thenReturn(new TraceStep("step-1", "run-1", "dashscope_stream_chat"));
-        when(aiModelService.stream(anyString(), any(), anyString(), any())).thenAnswer(invocation -> {
+        doAnswer(invocation -> {
             java.util.function.Consumer<String> onChunk = invocation.getArgument(3);
             onChunk.accept("streamed");
-            return false;
-        });
+            return null;
+        }).when(aiModelService).stream(anyString(), any(), anyString(), any());
 
         ChatService chatService = new ChatService(aiModelService, conversationMemoryService, traceService, executor,
                 sseProperties);

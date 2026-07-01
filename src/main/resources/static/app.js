@@ -25,14 +25,12 @@
     mcpServers: "/api/tools/mcp/servers",
     chat: "/api/chat",
     chatStream: "/api/chat/stream",
-    toolChat: "/api/agent/tool-chat",
     assistantChat: "/api/agent/assistant-chat",
     clearConversation: (id) => `/api/chat/conversations/${encodeURIComponent(id)}`,
     saveDocument: "/api/rag/documents",
     updateDocument: (id) => `/api/rag/documents/${encodeURIComponent(id)}`,
     listDocuments: "/api/rag/documents",
     deleteDocument: (id) => `/api/rag/documents/${encodeURIComponent(id)}`,
-    ragChat: "/api/rag/chat",
     listOrders: "/api/orders",
     saveOrderEndpoint: "/api/orders",
     orderDetail: (id) => `/api/orders/${encodeURIComponent(id)}`
@@ -1805,6 +1803,12 @@
 
   async function saveOrder() {
     const editingId = state.editingOrderId;
+    const rawAmount = (els.orderAmount?.value || "").trim();
+    if (rawAmount === "" || !Number.isFinite(Number(rawAmount))) {
+      toast("请输入有效的订单金额（数字）", true);
+      els.orderAmount?.focus();
+      return;
+    }
     const payload = orderPayloadFromForm();
     await runCommand({
       request: () => requestJson(editingId ? API.orderDetail(editingId) : API.saveOrderEndpoint, {
@@ -1825,7 +1829,7 @@
       customerName: nullableText(els.orderCustomerName?.value),
       status: (els.orderStatus?.value || "").trim(),
       paid: Boolean(els.orderPaid?.checked),
-      amount: Number(els.orderAmount?.value || 0),
+      amount: Number((els.orderAmount?.value ?? "").trim()),
       currency: (els.orderCurrency?.value || "CNY").trim(),
       carrier: nullableText(els.orderCarrier?.value),
       trackingNumber: nullableText(els.orderTrackingNumber?.value),
@@ -2054,8 +2058,14 @@
         else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
       });
       if (dataLines.length === 0) return;
-      try { onEvent(eventName, JSON.parse(dataLines.join("\n"))); }
-      catch (error) { onEvent(eventName, { message: dataLines.join("\n") }); }
+      const raw = dataLines.join("\n");
+      // Only the JSON parse may fall back to a raw payload. The onEvent handler must run exactly
+      // once and outside this try, otherwise a handler that throws (e.g. on an "error" event) gets
+      // caught here and re-dispatched with the raw JSON string instead of surfacing cleanly.
+      let payload;
+      try { payload = JSON.parse(raw); }
+      catch (error) { payload = { message: raw }; }
+      onEvent(eventName, payload);
     });
     return remainder;
   }

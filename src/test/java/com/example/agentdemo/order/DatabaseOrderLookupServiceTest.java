@@ -55,6 +55,27 @@ class DatabaseOrderLookupServiceTest {
                 .containsEntry("userQuery", "订单 20260630002");
     }
 
+    @Test
+    void normalisesAmountTrailingZeros() {
+        when(repository.findById("20260630001")).thenReturn(Optional.of(order()));
+
+        Map<String, Object> output = service.lookup("Order id: 20260630001");
+
+        assertThat(output.get("amount")).isEqualTo("299");
+    }
+
+    @Test
+    void toleratesNullAmount() {
+        DemoOrderEntity order = new DemoOrderEntity("20260630003", "Mina Zhang", "PROCESSING", false, null,
+                "CNY", null, null, null, "Order created", "Ask for payment");
+        when(repository.findById("20260630003")).thenReturn(Optional.of(order));
+
+        Map<String, Object> output = service.lookup("Order id: 20260630003");
+
+        assertThat(output).containsEntry("found", true);
+        assertThat(output.get("amount")).isNull();
+    }
+
     private DemoOrderEntity order() {
         return new DemoOrderEntity(
                 "20260630001",

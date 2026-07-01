@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,8 +64,7 @@ class WorkflowGenerationServiceTest {
         WorkflowGenerationService aiService = new WorkflowGenerationService(aiModelService, new ObjectMapper(),
                 new WorkflowCompiler(new WorkflowNodeSchemaRegistry()));
         when(aiModelService.modelName()).thenReturn("qwen3.7-max");
-        when(aiModelService.stream(contains("工作流编排器"), contains("用户需求"), any()))
-                .thenAnswer(invocation -> {
+        doAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
                     java.util.function.Consumer<String> onChunk = invocation.getArgument(2);
                     onChunk.accept("""
@@ -87,8 +87,8 @@ class WorkflowGenerationServiceTest {
                               "notes": ["流式输出"]
                             }
                             """);
-                    return false;
-                });
+                    return null;
+                }).when(aiModelService).stream(contains("工作流编排器"), contains("用户需求"), any());
         List<String> events = new ArrayList<>();
         List<String> deltas = new ArrayList<>();
 

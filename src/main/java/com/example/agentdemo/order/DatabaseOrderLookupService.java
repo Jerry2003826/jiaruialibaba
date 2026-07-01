@@ -49,7 +49,8 @@ public class DatabaseOrderLookupService implements OrderLookupService {
         }
         output.put("status", order.getStatus());
         output.put("paid", order.isPaid());
-        output.put("amount", order.getAmount().stripTrailingZeros().toPlainString());
+        output.put("amount", order.getAmount() == null ? null
+                : order.getAmount().stripTrailingZeros().toPlainString());
         output.put("currency", order.getCurrency());
         output.put("carrier", order.getCarrier());
         output.put("trackingNumber", order.getTrackingNumber());

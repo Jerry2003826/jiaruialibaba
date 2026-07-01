@@ -154,14 +154,10 @@ public class WorkflowGenerationService {
 
     private String streamModel(String userMessage, String attempt, BiConsumer<String, Map<String, Object>> stream) {
         StringBuilder answer = new StringBuilder();
-        boolean fallback = aiModelService.stream(SYSTEM_PROMPT, userMessage, chunk -> {
+        aiModelService.stream(SYSTEM_PROMPT, userMessage, chunk -> {
             answer.append(chunk);
             stream.accept("message", Map.of("attempt", attempt, "delta", chunk));
         });
-        if (fallback) {
-            throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "Alibaba LLM returned a fallback stream for workflow generation");
-        }
         if (answer.isEmpty()) {
             throw new IllegalArgumentException("模型没有返回内容");
         }

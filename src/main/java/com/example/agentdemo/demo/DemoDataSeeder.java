@@ -13,7 +13,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -93,12 +94,14 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final DemoOrderRepository demoOrderRepository;
     private final DocumentRepository documentRepository;
     private final RagService ragService;
+    private final TransactionTemplate transactionTemplate;
 
     public DemoDataSeeder(DemoOrderRepository demoOrderRepository, DocumentRepository documentRepository,
-            RagService ragService) {
+            RagService ragService, PlatformTransactionManager transactionManager) {
         this.demoOrderRepository = demoOrderRepository;
         this.documentRepository = documentRepository;
         this.ragService = ragService;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -107,13 +110,14 @@ public class DemoDataSeeder implements ApplicationRunner {
         seedKnowledgeDocuments();
     }
 
-    @Transactional
     void seedOrders() {
-        for (DemoOrderSeed seed : ORDER_SEEDS) {
-            if (!demoOrderRepository.existsById(seed.orderId())) {
-                demoOrderRepository.save(seed.toEntity());
+        transactionTemplate.executeWithoutResult(status -> {
+            for (DemoOrderSeed seed : ORDER_SEEDS) {
+                if (!demoOrderRepository.existsById(seed.orderId())) {
+                    demoOrderRepository.save(seed.toEntity());
+                }
             }
-        }
+        });
     }
 
     void seedKnowledgeDocuments() {

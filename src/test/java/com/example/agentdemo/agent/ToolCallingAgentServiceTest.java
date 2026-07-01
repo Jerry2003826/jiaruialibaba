@@ -6,6 +6,7 @@ import com.example.agentdemo.agent.dto.ToolChatResponse;
 import com.example.agentdemo.agent.dto.AssistantChatResponse;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.chat.memory.ConversationMemoryService;
 import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.chat.memory.ConversationRole;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -187,6 +189,173 @@ class ToolCallingAgentServiceTest {
                 .containsExactly(
                         "Order id: 20260630001\nUser message: 就是我刚才提到的两个订单",
                         "Order id: 20260630002\nUser message: 就是我刚才提到的两个订单");
+    }
+
+    @Test
+    void assistantWorkflowChatRejectsNonTextWorkflowOutputInsteadOfDumpingRawMap() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+
+        stubConversation(conversationMemoryService);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("found", true, "orderId", "20260630001", "source", "database:demo_orders"),
+                "workflow-run-1",
+                List.of(new WorkflowStepSummary("tool_1", "tool", "SUCCEEDED", Map.of("found", true))),
+                "workflow-1",
+                3));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        assertThatThrownBy(() -> service.assistantChat(new ToolChatRequest("conv-1", "我要退货", "workflow-1", null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("textual answer");
+        verify(conversationMemoryService, never()).appendAssistantMessage(anyString(), anyString());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void assistantWorkflowInputToleratesNullHistoryContent() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.ASSISTANT, null));
+
+        stubConversation(conversationMemoryService, history);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("answer", "ok"), "workflow-run-null", List.of(), "workflow-1", 1));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        AssistantChatResponse response = service.assistantChat(
+                new ToolChatRequest("conv-1", "你好", "workflow-1", null));
+
+        assertThat(response.answer()).isEqualTo("ok");
+        ArgumentCaptor<WorkflowRunRequest> requestCaptor = ArgumentCaptor.forClass(WorkflowRunRequest.class);
+        verify(workflowService).run(requestCaptor.capture());
+        List<Map<String, Object>> historyInput = (List<Map<String, Object>>) requestCaptor.getValue().input()
+                .get("history");
+        assertThat(historyInput).singleElement()
+                .satisfies(entry -> assertThat(entry.get("content")).isEqualTo(""));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void doesNotTreatUnrelated其它AsAReferenceToAHistoricalOrder() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "查订单 20260630001"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "订单 20260630001 已发货。"));
+
+        stubConversation(conversationMemoryService, history);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("answer", "好的"), "workflow-run-qita", List.of(), "workflow-1", 1));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        service.assistantChat(new ToolChatRequest("conv-1", "其它退货问题应该怎么处理？", "workflow-1", null));
+
+        ArgumentCaptor<WorkflowRunRequest> requestCaptor = ArgumentCaptor.forClass(WorkflowRunRequest.class);
+        verify(workflowService).run(requestCaptor.capture());
+        Map<String, Object> workflowInput = requestCaptor.getValue().input();
+        assertThat((List<String>) workflowInput.get("referencedOrderIds")).isEmpty();
+        assertThat(workflowInput.get("orderLookupReady")).isEqualTo(false);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void bareEnglishWordOrdersDoesNotExpandToEveryCachedOrder() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "查 20260630001"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "订单 20260630001 已发货。"),
+                new ConversationMessage(ConversationRole.USER, "查 20260630002"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "订单 20260630002 待审核。"));
+
+        stubConversation(conversationMemoryService, history);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("answer", "好的"), "workflow-run-orders", List.of(), "workflow-1", 1));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        service.assistantChat(new ToolChatRequest("conv-1", "刚才那个 orders 现在怎么样", "workflow-1", null));
+
+        ArgumentCaptor<WorkflowRunRequest> requestCaptor = ArgumentCaptor.forClass(WorkflowRunRequest.class);
+        verify(workflowService).run(requestCaptor.capture());
+        Map<String, Object> workflowInput = requestCaptor.getValue().input();
+        assertThat((List<String>) workflowInput.get("referencedOrderIds")).containsExactly("20260630002");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void recentOrderIdsRecoverWhenAPreviouslyMissingOrderIsLaterConfirmed() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "帮我查订单 20260630001 的物流"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "未能查询到订单 20260630001，请稍后再试。"),
+                new ConversationMessage(ConversationRole.USER, "再查一次 20260630001"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "订单 20260630001 已发货，运单号 SF20260630001。"));
+
+        stubConversation(conversationMemoryService, history);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("answer", "好的"), "workflow-run-recover", List.of(), "workflow-1", 1));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        service.assistantChat(new ToolChatRequest("conv-1", "刚才那个订单怎么样了", "workflow-1", null));
+
+        ArgumentCaptor<WorkflowRunRequest> requestCaptor = ArgumentCaptor.forClass(WorkflowRunRequest.class);
+        verify(workflowService).run(requestCaptor.capture());
+        Map<String, Object> workflowInput = requestCaptor.getValue().input();
+        assertThat((List<String>) workflowInput.get("recentOrderIds")).containsExactly("20260630001");
+        assertThat((List<String>) workflowInput.get("referencedOrderIds")).containsExactly("20260630001");
     }
 
     @Test
@@ -507,6 +676,77 @@ class ToolCallingAgentServiceTest {
         assertThat(response.toolCalls()).hasSize(1);
         assertThat(response.toolCalls().getFirst().toolName()).isEqualTo("queryOrderAPI");
         assertThat(response.answer()).isEqualTo("已查询到订单");
+        assertThat(response.retrievedContext()).isEmpty();
+        verify(ragService, never()).retrieveForChat(anyString(), anyString());
+    }
+
+    @Test
+    void assistantChatResolvesOrderIdAfterClarificationPhrasedWithoutTheWord订单号() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        // The clarification the assistant produced is in the user's language and never contains "订单号".
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "I want to return my order"),
+                new ConversationMessage(ConversationRole.ASSISTANT,
+                        "Sure, could you share your complete order id so I can look it up?"));
+
+        when(aiModelService.isModelConfigured()).thenReturn(false);
+        when(chatClientProvider.getIfAvailable()).thenReturn(null);
+        stubConversation(conversationMemoryService, history);
+        when(traceService.startRun(any(), any())).thenReturn(new TraceRun("run-1", Instant.now()));
+        when(traceService.startTraceStep(anyString(), anyString(), any()))
+                .thenReturn(new TraceStep("step-1", "run-1", "agent_plan"),
+                        new TraceStep("step-2", "run-1", "tool_queryOrderAPI"),
+                        new TraceStep("step-3", "run-1", "assistant_final_answer"));
+        when(aiModelService.generate(anyString(), any(), anyString())).thenReturn(AiModelResult.ok("订单已发货"));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.legacyFallbackAllowed(), ragService);
+
+        AssistantChatResponse response = service.assistantChat(new ToolChatRequest(null, "20260630001"));
+
+        assertThat(response.toolCalls()).hasSize(1);
+        assertThat(response.toolCalls().getFirst().toolName()).isEqualTo("queryOrderAPI");
+        assertThat(response.answer()).isEqualTo("订单已发货");
+    }
+
+    @Test
+    void doesNotReuseAnOrderIdThatWasAlreadyReportedUnavailable() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "帮我查订单 99999999 的物流"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "未能查询到订单 99999999，请核对订单号。"));
+
+        when(aiModelService.isModelConfigured()).thenReturn(false);
+        when(chatClientProvider.getIfAvailable()).thenReturn(null);
+        stubConversation(conversationMemoryService, history);
+        when(traceService.startRun(any(), any())).thenReturn(new TraceRun("run-1", Instant.now()));
+        when(traceService.startTraceStep(eq("run-1"), eq("agent_order_number_clarification"), any()))
+                .thenReturn(new TraceStep("step-1", "run-1", "agent_order_number_clarification"));
+        when(aiModelService.generate(anyString(), any(), anyString()))
+                .thenReturn(AiModelResult.ok("请提供有效的完整订单号，我再帮您查询物流。"));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.legacyFallbackAllowed(), ragService);
+
+        AssistantChatResponse response = service.assistantChat(new ToolChatRequest(null, "那帮我看下物流"));
+
+        assertThat(response.toolCalls()).isEmpty();
         assertThat(response.retrievedContext()).isEmpty();
         verify(ragService, never()).retrieveForChat(anyString(), anyString());
     }

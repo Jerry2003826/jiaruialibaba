@@ -10,6 +10,7 @@ import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.chat.memory.ConversationMemoryService;
 import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.chat.memory.ConversationRole;
+import com.example.agentdemo.chat.memory.SpringMessageConverter;
 import com.example.agentdemo.order.OrderIdExtractor;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
@@ -23,9 +24,6 @@ import com.example.agentdemo.workflow.WorkflowRunRequest;
 import com.example.agentdemo.workflow.WorkflowRunResponse;
 import com.example.agentdemo.workflow.WorkflowService;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -235,9 +233,12 @@ public class ToolCallingAgentService {
         input.put("message", message);
         input.put("conversationId", conversationId);
         input.put("history", history.stream()
-                .map(item -> Map.of(
-                        "role", item.role().name(),
-                        "content", item.content()))
+                .map(item -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("role", item.role().name());
+                    entry.put("content", item.content() == null ? "" : item.content());
+                    return entry;
+                })
                 .toList());
         input.put("currentOrderIds", currentOrderIds);
         input.put("recentOrderIds", recentOrderIds);
@@ -265,9 +266,10 @@ public class ToolCallingAgentService {
             }
             else if (mentionsConcreteOrder(message.content())) {
                 for (String orderId : extractedOrderIds) {
-                    if (!invalidOrderIds.contains(orderId)) {
-                        orderIds.add(orderId);
-                    }
+                    // The latest mention wins: a later concrete confirmation clears an earlier
+                    // "not found" verdict for the same order id.
+                    invalidOrderIds.remove(orderId);
+                    orderIds.add(orderId);
                 }
             }
         }
@@ -344,8 +346,7 @@ public class ToolCallingAgentService {
                 || lower.contains("那个订单")
                 || lower.contains("这单")
                 || lower.contains("那单")
-                || lower.contains("它们")
-                || lower.contains("它");
+                || lower.contains("它们");
     }
 
     private boolean referencesTwoOrders(String message) {
@@ -368,7 +369,9 @@ public class ToolCallingAgentService {
                 || lower.contains("这几个订单")
                 || lower.contains("那些订单")
                 || lower.contains("它们")
-                || lower.contains("orders");
+                || lower.contains("these orders")
+                || lower.contains("those orders")
+                || lower.contains("all orders");
     }
 
     private List<String> lastOrderIds(List<String> orderIds, int count) {
@@ -399,7 +402,8 @@ public class ToolCallingAgentService {
                 }
             }
         }
-        return String.valueOf(output == null ? "" : output);
+        throw new BusinessException("ASSISTANT_WORKFLOW_NO_ANSWER",
+                "Workflow-backed assistant chat did not produce a textual answer");
     }
 
     private List<ToolExecutionLog> workflowToolCalls(Object output) {
@@ -453,7 +457,8 @@ public class ToolCallingAgentService {
             List<ToolCallback> toolCallbacks = toolCallbacksFor(request.message(), runId, toolCalls);
             String answer = chatClient.prompt()
                     .system(TOOL_SYSTEM_PROMPT)
-                    .messages(toSpringMessages(historyForModel(request.message(), history), request.message()))
+                    .messages(SpringMessageConverter.toSpringMessages(
+                            historyForModel(request.message(), history), request.message()))
                     .toolCallbacks(toolCallbacks.toArray(ToolCallback[]::new))
                     .call()
                     .content();
@@ -479,7 +484,8 @@ public class ToolCallingAgentService {
             List<ToolCallback> toolCallbacks = toolCallbacksFor(request.message(), runId, toolCalls);
             String answer = chatClient.prompt()
                     .system(ASSISTANT_SYSTEM_PROMPT)
-                    .messages(toSpringMessages(historyForModel(request.message(), history),
+                    .messages(SpringMessageConverter.toSpringMessages(
+                            historyForModel(request.message(), history),
                             assistantUserMessage(request.message(), contexts)))
                     .toolCallbacks(toolCallbacks.toArray(ToolCallback[]::new))
                     .call()
@@ -588,20 +594,6 @@ public class ToolCallingAgentService {
             }
             throw ex;
         }
-    }
-
-    private List<Message> toSpringMessages(List<ConversationMessage> history, String userMessage) {
-        List<Message> messages = new ArrayList<>();
-        for (ConversationMessage message : history) {
-            if (message.role() == ConversationRole.USER) {
-                messages.add(new UserMessage(message.content()));
-            }
-            else {
-                messages.add(new AssistantMessage(message.content()));
-            }
-        }
-        messages.add(new UserMessage(userMessage));
-        return messages;
     }
 
     private String assistantUserMessage(String message, List<RetrievedContext> contexts) {
@@ -777,19 +769,42 @@ public class ToolCallingAgentService {
             return false;
         }
         ConversationMessage last = history.getLast();
-        return last.role() == ConversationRole.ASSISTANT
-                && last.content() != null
-                && last.content().contains("订单号");
+        if (last.role() != ConversationRole.ASSISTANT) {
+            return false;
+        }
+        // Fast path: the assistant explicitly mentioned the Chinese term for order number.
+        if (last.content() != null && last.content().contains("订单号")) {
+            return true;
+        }
+        // Language-agnostic path: the assistant's last turn answered the user message right before
+        // it. If on that turn the user expressed an order/after-sales intent without a valid order
+        // id (and it was not a generic policy question), we asked for the order id -- regardless of
+        // how the LLM phrased the request (English, "请提供单号", etc.).
+        return previousUserTurnRequestedOrderId(history);
+    }
+
+    private boolean previousUserTurnRequestedOrderId(List<ConversationMessage> history) {
+        int userIndex = history.size() - 2;
+        if (userIndex < 0) {
+            return false;
+        }
+        ConversationMessage previousUser = history.get(userIndex);
+        if (previousUser.role() != ConversationRole.USER) {
+            return false;
+        }
+        String content = previousUser.content();
+        return containsOrderIntent(content)
+                && OrderIdExtractor.extractFirst(content).isEmpty()
+                && !isGenericOrderPolicyQuestion(content);
     }
 
     private Optional<String> latestOrderId(List<ConversationMessage> history) {
-        for (int i = history.size() - 1; i >= 0; i--) {
-            Optional<String> orderId = OrderIdExtractor.extractFirst(history.get(i).content());
-            if (orderId.isPresent()) {
-                return orderId;
-            }
+        // Reuse the validity rules so we never re-bind an order id that was reported unavailable.
+        List<String> validOrderIds = recentValidOrderIds(history);
+        if (validOrderIds.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(validOrderIds.getLast());
     }
 
     private List<ToolPlan> plan(String message, List<ConversationMessage> history, String runId) {

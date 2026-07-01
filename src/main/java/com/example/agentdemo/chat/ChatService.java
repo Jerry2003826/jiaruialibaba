@@ -106,19 +106,15 @@ public class ChatService {
                     Map.of("message", request.message(), "conversationId", conversationId, "historySize",
                             history.size()));
             stepRef.set(step);
-            boolean fallback = aiModelService.stream(SYSTEM_PROMPT, history, request.message(), chunk -> {
+            aiModelService.stream(SYSTEM_PROMPT, history, request.message(), chunk -> {
                 answer.append(chunk);
                 send(emitter, "message", new StreamChunk(run.runId(), chunk));
             });
-            if (fallback) {
-                throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                        "Alibaba LLM returned a fallback stream for chat");
-            }
             if (terminal.compareAndSet(false, true)) {
                 conversationMemoryService.appendUserMessage(conversationId, request.message());
                 conversationMemoryService.appendAssistantMessage(conversationId, answer.toString());
                 traceService.completeStep(step.stepId(),
-                        Map.of("answer", answer.toString(), "fallback", fallback));
+                        Map.of("answer", answer.toString()));
                 stepRef.set(null);
                 traceService.markRunSucceeded(run.runId(),
                         new ChatResponse(answer.toString(), conversationId, run.runId()));
