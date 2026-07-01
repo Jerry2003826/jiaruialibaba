@@ -16,6 +16,8 @@ import com.example.agentdemo.chat.memory.ConversationMemoryService;
 import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.SseConfig;
+import com.example.agentdemo.knowledge.Citation;
+import com.example.agentdemo.knowledge.KnowledgeBaseService;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.RunContext;
 import com.example.agentdemo.trace.RunType;
@@ -35,6 +37,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -68,6 +71,7 @@ public class AppRuntimeService {
     private final ConversationMemoryService conversationMemoryService;
     private final TraceService traceService;
     private final UsageRecordingService usageRecordingService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
     private final ObjectMapper objectMapper;
@@ -76,8 +80,8 @@ public class AppRuntimeService {
             AppProperties appProperties, WorkflowService workflowService,
             ToolCallingAgentService toolCallingAgentService, AiModelService aiModelService,
             ConversationMemoryService conversationMemoryService, TraceService traceService,
-            UsageRecordingService usageRecordingService, Executor sseExecutor,
-            SseConfig.SseProperties sseProperties, ObjectMapper objectMapper) {
+            UsageRecordingService usageRecordingService, KnowledgeBaseService knowledgeBaseService,
+            Executor sseExecutor, SseConfig.SseProperties sseProperties, ObjectMapper objectMapper) {
         this.appRepository = appRepository;
         this.appRevisionRepository = appRevisionRepository;
         this.appProperties = appProperties;
@@ -87,6 +91,7 @@ public class AppRuntimeService {
         this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
         this.usageRecordingService = usageRecordingService;
+        this.knowledgeBaseService = knowledgeBaseService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
         this.objectMapper = objectMapper;
@@ -139,14 +144,16 @@ public class AppRuntimeService {
         TraceStep step = traceService.startTraceStep(run.runId(), "app_chat",
                 Map.of("appId", appId, "conversationId", conversationId, "historySize", history.size()));
         try {
-            AiModelResult result = aiModelService.generate(systemPrompt(config), history, request.message(),
+            List<Citation> citations = retrieveKnowledge(config, request.message(), run.runId());
+            String userMessage = augmentWithCitations(request.message(), citations);
+            AiModelResult result = aiModelService.generate(systemPrompt(config), history, userMessage,
                     config.model());
             String answer = requireAnswer(result);
             usageRecordingService.record(run.runId(), appId, result.tokenUsage());
             conversationMemoryService.appendUserMessage(conversationId, request.message());
             conversationMemoryService.appendAssistantMessage(conversationId, answer);
-            AppChatResponse response = new AppChatResponse(answer, conversationId, run.runId(), appId);
-            traceService.completeStep(step.stepId(), Map.of("answer", answer));
+            AppChatResponse response = new AppChatResponse(answer, conversationId, run.runId(), appId, citations);
+            traceService.completeStep(step.stepId(), Map.of("answer", answer, "citationCount", citations.size()));
             traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
@@ -239,10 +246,13 @@ public class AppRuntimeService {
         List<ConversationMessage> history = historyFor(config, conversationId);
         StringBuilder answer = new StringBuilder();
         try {
+            List<Citation> citations = retrieveKnowledge(config, request.message(), run.runId());
+            String userMessage = augmentWithCitations(request.message(), citations);
             TraceStep step = traceService.startTraceStep(run.runId(), "app_stream_chat",
-                    Map.of("conversationId", conversationId, "historySize", history.size()));
+                    Map.of("conversationId", conversationId, "historySize", history.size(),
+                            "citationCount", citations.size()));
             stepRef.set(step);
-            aiModelService.stream(systemPrompt(config), history, request.message(), chunk -> {
+            aiModelService.stream(systemPrompt(config), history, userMessage, chunk -> {
                 answer.append(chunk);
                 send(emitter, "message", new StreamChunk(run.runId(), chunk));
             });
@@ -307,6 +317,43 @@ public class AppRuntimeService {
             return history.subList(history.size() - max, history.size());
         }
         return history;
+    }
+
+    /**
+     * Retrieves context from the app's bound knowledge bases (if any). A failing/missing KB is
+     * skipped rather than breaking the chat. Runs within a traced step.
+     */
+    private List<Citation> retrieveKnowledge(AppConfig config, String message, String runId) {
+        List<String> kbIds = config.knowledgeBaseIdsOrEmpty();
+        if (kbIds.isEmpty()) {
+            return List.of();
+        }
+        TraceStep step = traceService.startTraceStep(runId, "app_knowledge_retrieve",
+                Map.of("knowledgeBaseIds", kbIds, "query", message));
+        List<Citation> citations = new ArrayList<>();
+        for (String kbId : kbIds) {
+            try {
+                citations.addAll(knowledgeBaseService.search(kbId, message, null).citations());
+            }
+            catch (RuntimeException ex) {
+                log.warn("App knowledge retrieval failed for kb {}", kbId, ex);
+            }
+        }
+        citations.sort((a, b) -> Double.compare(b.score(), a.score()));
+        List<Citation> top = citations.size() > 8 ? citations.subList(0, 8) : citations;
+        traceService.completeStep(step.stepId(), Map.of("citationCount", top.size()));
+        return List.copyOf(top);
+    }
+
+    private String augmentWithCitations(String message, List<Citation> citations) {
+        if (citations.isEmpty()) {
+            return message;
+        }
+        StringBuilder context = new StringBuilder("Retrieved knowledge base context:\n");
+        for (Citation citation : citations) {
+            context.append("- ").append(citation.title()).append(": ").append(citation.snippet()).append("\n");
+        }
+        return context.append("\nQuestion:\n").append(message).toString();
     }
 
     private String systemPrompt(AppConfig config) {

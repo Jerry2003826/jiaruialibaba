@@ -20,7 +20,8 @@
 | RAG（DashVector + 关键词兜底） | 已支持 | 文档保存/检索/问答，outbox exactly-once |
 | 知识库产品层 / 文件 ingestion（PDF/docx…） | 已支持 | Knowledge Base 模型、Tika 解析（txt/md/html/pdf/docx/pptx/csv）、按 KB 检索 + citations、reindex/chunk 预览 |
 | Tool / MCP 管理 | 已支持 | catalog（可执行状态）、控制台 dry-run（tool.execute，脱敏 trace） |
-| Dify-like 前端产品台 | 部分支持 | 已加 Apps（含 API Access）、Settings；Knowledge/Workflow 画布沿用现有工作台，实时事件/画布联动为渐进增强 |
+| KB ↔ App 绑定（CHAT 默认检索源） | 已支持 | CHAT app `config.knowledgeBaseIds` 绑定 KB，chat 自动检索并返回 citations |
+| Dify-like 前端产品台 | 部分支持 | 已加 Apps（含 API Access、KB 绑定）、Settings；Knowledge/Workflow 画布沿用现有工作台，实时事件/画布联动为渐进增强 |
 | 多租户 / workspace / RBAC | 不支持 | 按设计保持单租户（owner 隔离） |
 | 计费 / 插件市场 / 多 provider 市场 | 不支持 | 保留 provider 抽象口 |
 
@@ -1030,7 +1031,18 @@ curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/search \
   -d '{"query":"退货 多少天","topK":5}'
 ```
 
-> KB↔App 绑定说明：当前 WORKFLOW app 通过在工作流中放置 `retriever` 节点进行检索；把某个 KB 作为 CHAT/AGENT app 的默认检索源属于后续增强（provider 抽象口已预留）。检索管理需 `rag.write`/`rag.read`，检索需 `rag.query`。
+> KB↔App 绑定：CHAT app 可在 `config.knowledgeBaseIds`（前端「创建应用」表单亦可填）绑定一个或多个 KB，chat 时会先按 KB 检索、把上下文注入提示词，并在响应 `citations` 返回引用（documentId/title/chunkIndex/snippet/score）。WORKFLOW app 通过工作流中的 `retriever` 节点检索。检索管理需 `rag.write`/`rag.read`，检索需 `rag.query`。
+
+```bash
+# 创建绑定了知识库的 CHAT app
+curl -X POST http://localhost:8080/api/apps \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"文档助手","type":"CHAT","config":{"systemPrompt":"基于知识库回答","knowledgeBaseIds":["kb-xxxx"]}}'
+# 发布后 chat，响应含 citations
+curl -X POST http://localhost:8080/api/apps/app-xxxx/chat \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"message":"退货政策是几天？"}'
+```
 
 ## PostgreSQL
 

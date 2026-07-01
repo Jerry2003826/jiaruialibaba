@@ -206,7 +206,7 @@
       "refresh-runs", "run-list", "run-detail",
       "refresh-tools", "tool-list", "mcp-server-list", "toast",
       "refresh-apps", "create-app-name", "create-app-type", "create-app-workflow-id",
-      "create-app-system-prompt", "create-app-model", "create-app", "apps-list",
+      "create-app-system-prompt", "create-app-model", "create-app-kb-ids", "create-app", "apps-list",
       "app-detail", "app-detail-title", "app-detail-status", "app-run-input", "app-run",
       "app-run-result", "create-api-key", "api-key-reveal", "app-api-keys", "app-curl",
       "refresh-settings", "settings-runtime", "settings-mcp", "settings-security"
@@ -2394,9 +2394,11 @@
     if (type === "WORKFLOW") {
       body.workflowDefinitionId = (els.createAppWorkflowId?.value || "").trim();
     } else {
+      const kbIds = (els.createAppKbIds?.value || "").split(",").map((s) => s.trim()).filter(Boolean);
       body.config = {
         systemPrompt: (els.createAppSystemPrompt?.value || "").trim() || null,
-        model: (els.createAppModel?.value || "").trim() || null
+        model: (els.createAppModel?.value || "").trim() || null,
+        knowledgeBaseIds: kbIds.length ? kbIds : null
       };
     }
     try {

@@ -11,6 +11,10 @@ import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.chat.TokenUsage;
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.knowledge.KnowledgeBaseService;
+import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
+import com.example.agentdemo.knowledge.dto.TextDocumentRequest;
+import org.mockito.ArgumentCaptor;
 import com.example.agentdemo.trace.RunEntity;
 import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.usage.UsageRecordingService;
@@ -66,6 +70,9 @@ class AppLifecycleIntegrationTest {
 
     @Autowired
     private UsageRecordingService usageRecordingService;
+
+    @Autowired
+    private KnowledgeBaseService knowledgeBaseService;
 
     @MockBean
     private AiModelService aiModelService;
@@ -182,6 +189,27 @@ class AppLifecycleIntegrationTest {
         assertThat(usage.completionTokens()).isEqualTo(8);
         assertThat(usage.model()).isEqualTo("qwen-max");
         assertThat(usage.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void chatAppWithBoundKnowledgeBaseRetrievesCitationsAndAugmentsPrompt() {
+        Mockito.when(aiModelService.generate(Mockito.anyString(), Mockito.anyList(), Mockito.anyString(),
+                Mockito.any())).thenReturn(AiModelResult.ok("done", null));
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
+        knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Returns", "Our returns policy allows refunds within 30 days."));
+        AppResponse app = appService.publish(appService.create(new CreateAppRequest("KB Chat", null, AppType.CHAT,
+                new AppConfig("You help", null, true, null, List.of(kbId)), null, null)).appId());
+
+        AppChatResponse response = appRuntimeService.chat(app.appId(),
+                new AppChatRequest(null, "returns refund policy"));
+
+        assertThat(response.citations()).isNotEmpty();
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(aiModelService).generate(Mockito.anyString(), Mockito.anyList(), prompt.capture(),
+                Mockito.any());
+        assertThat(prompt.getValue()).contains("Retrieved knowledge base context", "returns policy");
     }
 
     private String publishedWorkflow() {
