@@ -22,6 +22,7 @@ import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
+import com.example.agentdemo.usage.UsageRecordingService;
 import com.example.agentdemo.workflow.WorkflowRunRequest;
 import com.example.agentdemo.workflow.WorkflowRunResponse;
 import com.example.agentdemo.workflow.WorkflowService;
@@ -66,6 +67,7 @@ public class AppRuntimeService {
     private final AiModelService aiModelService;
     private final ConversationMemoryService conversationMemoryService;
     private final TraceService traceService;
+    private final UsageRecordingService usageRecordingService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
     private final ObjectMapper objectMapper;
@@ -73,7 +75,8 @@ public class AppRuntimeService {
     public AppRuntimeService(AppRepository appRepository, AppRevisionRepository appRevisionRepository,
             AppProperties appProperties, WorkflowService workflowService,
             ToolCallingAgentService toolCallingAgentService, AiModelService aiModelService,
-            ConversationMemoryService conversationMemoryService, TraceService traceService, Executor sseExecutor,
+            ConversationMemoryService conversationMemoryService, TraceService traceService,
+            UsageRecordingService usageRecordingService, Executor sseExecutor,
             SseConfig.SseProperties sseProperties, ObjectMapper objectMapper) {
         this.appRepository = appRepository;
         this.appRevisionRepository = appRevisionRepository;
@@ -83,6 +86,7 @@ public class AppRuntimeService {
         this.aiModelService = aiModelService;
         this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
+        this.usageRecordingService = usageRecordingService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
         this.objectMapper = objectMapper;
@@ -138,6 +142,7 @@ public class AppRuntimeService {
             AiModelResult result = aiModelService.generate(systemPrompt(config), history, request.message(),
                     config.model());
             String answer = requireAnswer(result);
+            usageRecordingService.record(run.runId(), appId, result.tokenUsage());
             conversationMemoryService.appendUserMessage(conversationId, request.message());
             conversationMemoryService.appendAssistantMessage(conversationId, answer);
             AppChatResponse response = new AppChatResponse(answer, conversationId, run.runId(), appId);

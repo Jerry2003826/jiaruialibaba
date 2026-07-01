@@ -24,7 +24,8 @@ class RunControllerWebTest {
                 List.of(new RunResponse("run-1", RunType.CHAT, RunStatus.SUCCEEDED, "{}", "{}", null,
                         Instant.parse("2026-06-25T00:00:00Z"), Instant.parse("2026-06-25T00:00:01Z"))),
                 0, 20, 1, 1));
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new RunController(traceService))
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
+                        new RunController(traceService, mock(com.example.agentdemo.usage.UsageRecordingService.class)))
                 .setControllerAdvice(new com.example.agentdemo.common.GlobalExceptionHandler())
                 .build();
 

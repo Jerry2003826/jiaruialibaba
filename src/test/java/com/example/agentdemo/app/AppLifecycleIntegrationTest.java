@@ -9,9 +9,12 @@ import com.example.agentdemo.app.dto.CreateAppRequest;
 import com.example.agentdemo.app.dto.UpdateAppRequest;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.chat.TokenUsage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.trace.RunEntity;
 import com.example.agentdemo.trace.RunRepository;
+import com.example.agentdemo.usage.UsageRecordingService;
+import com.example.agentdemo.usage.UsageSummaryResponse;
 import com.example.agentdemo.workflow.WorkflowDefinition;
 import com.example.agentdemo.workflow.WorkflowDefinitionResponse;
 import com.example.agentdemo.workflow.WorkflowDefinitionSaveRequest;
@@ -60,6 +63,9 @@ class AppLifecycleIntegrationTest {
 
     @Autowired
     private RunRepository runRepository;
+
+    @Autowired
+    private UsageRecordingService usageRecordingService;
 
     @MockBean
     private AiModelService aiModelService;
@@ -156,9 +162,10 @@ class AppLifecycleIntegrationTest {
     }
 
     @Test
-    void chatAppUsesConfiguredSystemPromptAndModel() {
+    void chatAppUsesConfiguredSystemPromptAndModelAndRecordsUsage() {
         Mockito.when(aiModelService.generate(Mockito.eq("You are a pirate"), Mockito.anyList(), Mockito.anyString(),
-                Mockito.eq("qwen-max"))).thenReturn(AiModelResult.ok("Arr!", null));
+                        Mockito.eq("qwen-max")))
+                .thenReturn(AiModelResult.ok("Arr!", new TokenUsage("dashscope", "qwen-max", 12, 8, 20, null)));
         AppResponse app = appService.publish(appService.create(new CreateAppRequest("Pirate", null, AppType.CHAT,
                 new AppConfig("You are a pirate", "qwen-max", true, null), null, null)).appId());
 
@@ -168,6 +175,13 @@ class AppLifecycleIntegrationTest {
         assertThat(response.appId()).isEqualTo(app.appId());
         RunEntity run = runRepository.findById(response.runId()).orElseThrow();
         assertThat(run.getAppId()).isEqualTo(app.appId());
+
+        UsageSummaryResponse usage = usageRecordingService.summarize(response.runId());
+        assertThat(usage.totalTokens()).isEqualTo(20);
+        assertThat(usage.promptTokens()).isEqualTo(12);
+        assertThat(usage.completionTokens()).isEqualTo(8);
+        assertThat(usage.model()).isEqualTo("qwen-max");
+        assertThat(usage.calls()).isEqualTo(1);
     }
 
     private String publishedWorkflow() {

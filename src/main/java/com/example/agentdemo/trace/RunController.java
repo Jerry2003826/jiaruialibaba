@@ -4,6 +4,8 @@ import com.example.agentdemo.common.ApiResponse;
 import com.example.agentdemo.trace.dto.RunPageResponse;
 import com.example.agentdemo.trace.dto.RunResponse;
 import com.example.agentdemo.trace.dto.RunStepResponse;
+import com.example.agentdemo.usage.UsageRecordingService;
+import com.example.agentdemo.usage.UsageSummaryResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,9 +19,11 @@ import java.util.List;
 public class RunController {
 
     private final TraceService traceService;
+    private final UsageRecordingService usageRecordingService;
 
-    public RunController(TraceService traceService) {
+    public RunController(TraceService traceService, UsageRecordingService usageRecordingService) {
         this.traceService = traceService;
+        this.usageRecordingService = usageRecordingService;
     }
 
     @GetMapping
@@ -39,6 +43,12 @@ public class RunController {
     @GetMapping("/{runId}/steps")
     public ApiResponse<List<RunStepResponse>> listSteps(@PathVariable String runId) {
         return ApiResponse.ok(traceService.listSteps(runId));
+    }
+
+    @GetMapping("/{runId}/usage")
+    public ApiResponse<UsageSummaryResponse> usage(@PathVariable String runId) {
+        traceService.getRun(runId);
+        return ApiResponse.ok(usageRecordingService.summarize(runId));
     }
 
 }
