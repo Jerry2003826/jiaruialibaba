@@ -2,6 +2,7 @@ package com.example.agentdemo.config;
 
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -24,6 +25,8 @@ import java.util.List;
 @Component
 @Profile("prod")
 @Order(Ordered.HIGHEST_PRECEDENCE)
+@ConditionalOnProperty(prefix = "demo.production-validation", name = "enabled", havingValue = "true",
+        matchIfMissing = true)
 public class ProductionStartupValidator implements ApplicationRunner {
 
     private final Environment environment;
