@@ -10,10 +10,13 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,8 +31,9 @@ class AppApiKeyAuthenticationFilterTest {
     @Test
     void firstUseUpdatesLastUsedAt() throws Exception {
         AppApiKeyRepository repository = Mockito.mock(AppApiKeyRepository.class);
+        Instant now = Instant.parse("2026-07-01T10:00:00Z");
         AppApiKeyAuthenticationFilter filter = new AppApiKeyAuthenticationFilter(repository, new ObjectMapper(),
-                new AppProperties());
+                appProperties(), fixedClock(now));
         String plaintext = "app_test_first";
         AppApiKeyEntity key = activeKey("app-1", plaintext);
         when(repository.findByKeyHashAndStatus(ApiKeySecrets.hash(plaintext), AppApiKeyStatus.ACTIVE))
@@ -38,38 +42,43 @@ class AppApiKeyAuthenticationFilterTest {
         filter.doFilter(request("app-1", plaintext), new MockHttpServletResponse(), new MockFilterChain());
 
         verify(repository).save(key);
+        assertThat(key.getLastUsedAt()).isEqualTo(now);
     }
 
     @Test
     void repeatedUseWithinSixtySecondsDoesNotSaveAgain() throws Exception {
         AppApiKeyRepository repository = Mockito.mock(AppApiKeyRepository.class);
+        Instant now = Instant.parse("2026-07-01T10:00:00Z");
         AppApiKeyAuthenticationFilter filter = new AppApiKeyAuthenticationFilter(repository, new ObjectMapper(),
-                new AppProperties());
+                appProperties(), fixedClock(now));
         String plaintext = "app_test_recent";
         AppApiKeyEntity key = activeKey("app-1", plaintext);
-        key.markUsed(Instant.now());
+        key.markUsed(now.minusSeconds(59));
         when(repository.findByKeyHashAndStatus(ApiKeySecrets.hash(plaintext), AppApiKeyStatus.ACTIVE))
                 .thenReturn(Optional.of(key));
 
         filter.doFilter(request("app-1", plaintext), new MockHttpServletResponse(), new MockFilterChain());
 
         verify(repository, never()).save(any(AppApiKeyEntity.class));
+        assertThat(key.getLastUsedAt()).isEqualTo(now.minusSeconds(59));
     }
 
     @Test
     void useAfterThrottleWindowSavesAgain() throws Exception {
         AppApiKeyRepository repository = Mockito.mock(AppApiKeyRepository.class);
+        Instant now = Instant.parse("2026-07-01T10:00:00Z");
         AppApiKeyAuthenticationFilter filter = new AppApiKeyAuthenticationFilter(repository, new ObjectMapper(),
-                new AppProperties());
+                appProperties(), fixedClock(now));
         String plaintext = "app_test_stale";
         AppApiKeyEntity key = activeKey("app-1", plaintext);
-        key.markUsed(Instant.now().minusSeconds(61));
+        key.markUsed(now.minusSeconds(60));
         when(repository.findByKeyHashAndStatus(ApiKeySecrets.hash(plaintext), AppApiKeyStatus.ACTIVE))
                 .thenReturn(Optional.of(key));
 
         filter.doFilter(request("app-1", plaintext), new MockHttpServletResponse(), new MockFilterChain());
 
         verify(repository).save(key);
+        assertThat(key.getLastUsedAt()).isEqualTo(now);
     }
 
     private MockHttpServletRequest request(String appId, String plaintextKey) {
@@ -80,5 +89,15 @@ class AppApiKeyAuthenticationFilterTest {
 
     private AppApiKeyEntity activeKey(String appId, String plaintextKey) {
         return new AppApiKeyEntity("ak_test", appId, ApiKeySecrets.hash(plaintextKey), "runtime", "app.run");
+    }
+
+    private AppProperties appProperties() {
+        AppProperties properties = new AppProperties();
+        properties.getApiKey().setLastUsedUpdateIntervalSeconds(60);
+        return properties;
+    }
+
+    private Clock fixedClock(Instant instant) {
+        return Clock.fixed(instant, ZoneOffset.UTC);
     }
 }

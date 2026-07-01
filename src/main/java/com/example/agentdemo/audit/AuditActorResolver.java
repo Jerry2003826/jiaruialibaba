@@ -59,16 +59,22 @@ public class AuditActorResolver {
         if (request == null) {
             return null;
         }
+        String remoteAddr = sanitizeForwardedCandidate(request.getRemoteAddr());
         if (auditProperties.isTrustForwardedHeaders()) {
             String forwarded = request.getHeader("X-Forwarded-For");
             if (StringUtils.hasText(forwarded)) {
-                String first = forwarded.split(",")[0].trim();
-                if (StringUtils.hasText(first)) {
-                    return truncate(first, MAX_IP_LENGTH);
+                // Trusted proxies overwrite X-Forwarded-For with $remote_addr. If a legacy proxy appends
+                // $remote_addr to a client-supplied list, the safest recoverable value is the last non-blank one.
+                String[] parts = forwarded.split(",");
+                for (int i = parts.length - 1; i >= 0; i--) {
+                    String candidate = sanitizeForwardedCandidate(parts[i]);
+                    if (candidate != null) {
+                        return candidate;
+                    }
                 }
             }
         }
-        return truncate(request.getRemoteAddr(), MAX_IP_LENGTH);
+        return remoteAddr;
     }
 
     private String header(HttpServletRequest request, String name) {
@@ -80,6 +86,20 @@ public class AuditActorResolver {
             return null;
         }
         return value.length() <= max ? value : value.substring(0, max);
+    }
+
+    private String sanitizeForwardedCandidate(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+            return null;
+        }
+        String cleaned = value.trim();
+        if (!StringUtils.hasText(cleaned) || cleaned.length() > MAX_IP_LENGTH) {
+            return null;
+        }
+        return cleaned;
     }
 
 }

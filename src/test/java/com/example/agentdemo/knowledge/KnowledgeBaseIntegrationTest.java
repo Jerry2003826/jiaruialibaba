@@ -36,7 +36,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.datasource.url=jdbc:h2:mem:agent_backend_kb_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
         "demo.dashvector.endpoint=",
         "demo.dashvector.api-key=",
-        "demo.rag.retriever=keyword"
+        "demo.rag.retriever=keyword",
+        "demo.knowledge.max-content-chars=32"
 })
 class KnowledgeBaseIntegrationTest {
 
@@ -57,7 +58,7 @@ class KnowledgeBaseIntegrationTest {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
         KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
-                new TextDocumentRequest("Returns", "Our returns policy allows refunds within 30 days."));
+                new TextDocumentRequest("Returns", "returns refund in 30 days"));
         // Keyword-only deployment marks documents READY immediately (no vector store).
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
         assertThat(doc.sourceType()).isEqualTo("TEXT");
@@ -67,6 +68,33 @@ class KnowledgeBaseIntegrationTest {
         assertThat(result.citations().get(0).documentId()).isEqualTo(doc.documentId());
         assertThat(result.citations().get(0).title()).isEqualTo("Returns");
         assertThat(result.citations().get(0).score()).isGreaterThan(0);
+    }
+
+    @Test
+    void textIngestionRejectsContentOverConfiguredLimit() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
+
+        assertThatThrownBy(() -> knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Too Large", "x".repeat(33))))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException error = (BusinessException) ex;
+                    assertThat(error.getCode()).isEqualTo("DOCUMENT_CONTENT_TOO_LARGE");
+                    assertThat(error.getMessage()).contains("32");
+                });
+    }
+
+    @Test
+    void textIngestionAcceptsConfiguredBoundaryLength() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Boundary", "x".repeat(32)));
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(doc.contentLength()).isEqualTo(32);
     }
 
     @Test
