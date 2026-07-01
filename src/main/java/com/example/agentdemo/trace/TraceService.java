@@ -105,6 +105,17 @@ public class TraceService {
     }
 
     @Transactional
+    public void markRunCanceled(String runId) {
+        RunEntity run = findRunForMutation(runId);
+        if (run.getStatus() != RunStatus.RUNNING) {
+            return;
+        }
+        run.setStatus(RunStatus.CANCELED);
+        run.setEndedAt(Instant.now());
+        runRepository.save(run);
+    }
+
+    @Transactional
     public void markRunFailed(String runId, Throwable error) {
         RunEntity run = findRunForMutation(runId);
         run.setErrorMessage(error.getMessage());

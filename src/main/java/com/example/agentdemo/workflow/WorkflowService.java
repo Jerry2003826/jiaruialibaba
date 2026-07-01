@@ -70,6 +70,10 @@ public class WorkflowService {
             traceService.markRunSucceeded(run.runId(), response);
             return response;
         }
+        catch (WorkflowCanceledException ex) {
+            traceService.markRunCanceled(run.runId());
+            throw ex;
+        }
         catch (RuntimeException ex) {
             traceService.markRunFailed(run.runId(), ex);
             throw ex;
@@ -77,6 +81,20 @@ public class WorkflowService {
         finally {
             workflowRunBudgetRegistry.close(run.runId());
         }
+    }
+
+    /**
+     * Requests best-effort cancellation of a run. A still-{@code RUNNING} run is flagged so the
+     * runtime aborts at its next node boundary and marks the run {@code CANCELED}; a run that has
+     * already reached a terminal state is returned unchanged (idempotent).
+     */
+    public WorkflowRunCancelResponse cancelRun(String runId) {
+        RunResponse run = traceService.getRun(runId);
+        if (run.status() != RunStatus.RUNNING) {
+            return new WorkflowRunCancelResponse(runId, run.status(), false);
+        }
+        boolean requested = workflowRunBudgetRegistry.cancel(runId);
+        return new WorkflowRunCancelResponse(runId, RunStatus.RUNNING, requested);
     }
 
     public WorkflowValidationResponse validate(WorkflowValidationRequest request) {

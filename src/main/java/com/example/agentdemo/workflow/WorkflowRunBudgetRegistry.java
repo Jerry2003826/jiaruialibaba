@@ -47,6 +47,25 @@ public class WorkflowRunBudgetRegistry {
     }
 
     /**
+     * Requests best-effort cancellation of an in-flight run. The next node boundary
+     * ({@link #recordStep}) throws {@link WorkflowCanceledException}. Returns {@code true} when a
+     * budget was open for {@code runId} (i.e. the run was active), {@code false} otherwise.
+     */
+    public boolean cancel(String runId) {
+        RunBudget budget = budgets.get(runId);
+        if (budget == null) {
+            return false;
+        }
+        budget.canceled.set(true);
+        return true;
+    }
+
+    boolean isCanceled(String runId) {
+        RunBudget budget = budgets.get(runId);
+        return budget != null && budget.canceled.get();
+    }
+
+    /**
      * Charges one node execution to {@code runId}'s budget, throwing if the step or time budget is
      * exhausted. No-op when no budget is open for {@code runId}.
      */
@@ -71,6 +90,8 @@ public class WorkflowRunBudgetRegistry {
         private final int maxStepExecutions;
         private final long deadlineNanos;
         private final AtomicInteger steps = new AtomicInteger();
+        private final java.util.concurrent.atomic.AtomicBoolean canceled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
 
         private RunBudget(int maxStepExecutions, long deadlineNanos) {
             this.maxStepExecutions = maxStepExecutions;
@@ -78,6 +99,9 @@ public class WorkflowRunBudgetRegistry {
         }
 
         private void recordStep(String runId, long nowNanos) {
+            if (canceled.get()) {
+                throw new WorkflowCanceledException(runId);
+            }
             // Overflow-safe deadline comparison (System.nanoTime values can wrap).
             if (deadlineNanos != 0L && nowNanos - deadlineNanos >= 0L) {
                 throw new BusinessException("WORKFLOW_DEADLINE_EXCEEDED",

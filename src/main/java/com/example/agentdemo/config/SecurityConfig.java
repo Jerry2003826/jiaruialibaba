@@ -130,6 +130,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/tools", "/api/tools/**")
                         .hasAuthority("SCOPE_tool.read")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/run").hasAuthority("SCOPE_workflow.run")
+                        .requestMatchers(HttpMethod.POST, "/api/workflows/runs/*/cancel")
+                        .hasAuthority("SCOPE_workflow.run")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/definitions/*/publish")
                         .hasAuthority("SCOPE_workflow.publish")
                         .requestMatchers(HttpMethod.GET, "/api/workflows/**").hasAuthority("SCOPE_workflow.read")

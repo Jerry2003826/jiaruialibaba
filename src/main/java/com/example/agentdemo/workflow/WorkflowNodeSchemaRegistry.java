@@ -21,6 +21,21 @@ public class WorkflowNodeSchemaRegistry {
             "{{toolResult}}",
             "{{answer}}");
 
+    /** Palette group per node type (Basic / LLM / Knowledge / Tools / Flow Control / Advanced). */
+    private static final Map<String, String> NODE_GROUPS = Map.ofEntries(
+            Map.entry("start", "Basic"),
+            Map.entry("end", "Basic"),
+            Map.entry("llm", "LLM"),
+            Map.entry("retriever", "Knowledge"),
+            Map.entry("tool", "Tools"),
+            Map.entry("dynamic", "Tools"),
+            Map.entry("condition", "Flow Control"),
+            Map.entry("parallel", "Flow Control"),
+            Map.entry("join", "Flow Control"),
+            Map.entry("loop", "Flow Control"),
+            Map.entry("loop_back", "Flow Control"),
+            Map.entry("subgraph", "Advanced"));
+
     private final List<WorkflowNodeSchema> schemas = List.of(
             startSchema(),
             retrieverSchema(),
@@ -33,7 +48,9 @@ public class WorkflowNodeSchemaRegistry {
             loopBackSchema(),
             subgraphSchema(),
             dynamicSchema(),
-            endSchema());
+            endSchema()).stream()
+            .map(schema -> schema.withGroup(NODE_GROUPS.getOrDefault(schema.type(), "Advanced")))
+            .toList();
 
     public List<WorkflowNodeSchema> listSchemas() {
         return schemas;

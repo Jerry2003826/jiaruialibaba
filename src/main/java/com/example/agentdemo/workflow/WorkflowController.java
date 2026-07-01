@@ -19,8 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +37,7 @@ public class WorkflowController {
     private final WorkflowGraphPreviewService workflowGraphPreviewService;
     private final WorkflowRunGraphService workflowRunGraphService;
     private final WorkflowGenerationService workflowGenerationService;
+    private final WorkflowRunEventService workflowRunEventService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
 
@@ -44,7 +47,7 @@ public class WorkflowController {
             WorkflowRunGraphService workflowRunGraphService,
             WorkflowGenerationService workflowGenerationService) {
         this(workflowService, workflowDefinitionService, workflowNodeSchemaRegistry, workflowGraphPreviewService,
-                workflowRunGraphService, workflowGenerationService, Runnable::run,
+                workflowRunGraphService, workflowGenerationService, null, Runnable::run,
                 new SseConfig.SseProperties(120_000L));
     }
 
@@ -54,6 +57,7 @@ public class WorkflowController {
             WorkflowGraphPreviewService workflowGraphPreviewService,
             WorkflowRunGraphService workflowRunGraphService,
             WorkflowGenerationService workflowGenerationService,
+            WorkflowRunEventService workflowRunEventService,
             @Qualifier("sseExecutor") Executor sseExecutor,
             SseConfig.SseProperties sseProperties) {
         this.workflowService = workflowService;
@@ -62,6 +66,7 @@ public class WorkflowController {
         this.workflowGraphPreviewService = workflowGraphPreviewService;
         this.workflowRunGraphService = workflowRunGraphService;
         this.workflowGenerationService = workflowGenerationService;
+        this.workflowRunEventService = workflowRunEventService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
     }
@@ -202,6 +207,57 @@ public class WorkflowController {
     @GetMapping("/runs/{runId}")
     public ApiResponse<WorkflowRunDetailResponse> getRunDetail(@PathVariable String runId) {
         return ApiResponse.ok(workflowService.getRunDetail(runId));
+    }
+
+    @PostMapping("/runs/{runId}/cancel")
+    public ApiResponse<WorkflowRunCancelResponse> cancelRun(@PathVariable String runId) {
+        return ApiResponse.ok(workflowService.cancelRun(runId));
+    }
+
+    @GetMapping(value = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter runEvents(@PathVariable String runId) {
+        SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
+        AtomicBoolean terminal = new AtomicBoolean(false);
+        try {
+            sseExecutor.execute(() -> streamRunEvents(runId, emitter, terminal));
+        }
+        catch (RejectedExecutionException ex) {
+            completeWithError(emitter, terminal, "run events queue full: " + ex.getMessage());
+        }
+        return emitter;
+    }
+
+    private void streamRunEvents(String runId, SseEmitter emitter, AtomicBoolean terminal) {
+        Set<String> sent = new HashSet<>();
+        long deadlineMs = System.currentTimeMillis() + sseProperties.timeoutMs();
+        try {
+            while (true) {
+                WorkflowRunEventsSnapshot snapshot = workflowRunEventService.snapshot(runId);
+                for (WorkflowRunEvent event : snapshot.events()) {
+                    Object id = event.data().getOrDefault("stepId", event.data().get("runId"));
+                    if (sent.add(event.event() + ":" + id)) {
+                        send(emitter, event.event(), event.data());
+                    }
+                }
+                if (snapshot.terminal()) {
+                    terminal.set(true);
+                    emitter.complete();
+                    return;
+                }
+                if (System.currentTimeMillis() > deadlineMs) {
+                    completeWithError(emitter, terminal, "run events stream timed out");
+                    return;
+                }
+                Thread.sleep(400L);
+            }
+        }
+        catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            completeWithError(emitter, terminal, "run events stream interrupted");
+        }
+        catch (RuntimeException ex) {
+            completeWithError(emitter, terminal, ex.getMessage());
+        }
     }
 
     @GetMapping("/runs/{runId}/graph")
