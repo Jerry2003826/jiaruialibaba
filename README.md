@@ -16,10 +16,11 @@
 | 生产启动硬门槛 | 已支持 | prod 下禁 H2/dev-token/内置 secret，强制 issuer/strict/DashScope/DashVector |
 | 可观测性 | 已支持 | `/healthz`、Actuator health/metrics/prometheus、`X-Request-Id`、token usage 落库 |
 | 部署（Docker/Compose/CI） | 已支持 | 多阶段非 root 镜像、`docker-compose.prod.yml`、GitHub Actions |
-| Workflow DSL / 画布 / trace | 已支持 | validate/preview/run/publish/rollback/run-graph |
+| Workflow DSL / 画布 / trace | 已支持 | validate/preview/run/publish/rollback/run-graph；layout+变量 schema 持久化、run cancel、run events SSE、节点分组 |
 | RAG（DashVector + 关键词兜底） | 已支持 | 文档保存/检索/问答，outbox exactly-once |
-| 知识库产品层 / 文件 ingestion（PDF/docx…） | 部分支持 | P1：Knowledge Base 模型、文件解析、citations |
-| Dify-like 前端产品台 | 部分支持 | P1：Apps/Knowledge/Tools/Runs/Settings 信息架构 |
+| 知识库产品层 / 文件 ingestion（PDF/docx…） | 已支持 | Knowledge Base 模型、Tika 解析（txt/md/html/pdf/docx/pptx/csv）、按 KB 检索 + citations、reindex/chunk 预览 |
+| Tool / MCP 管理 | 已支持 | catalog（可执行状态）、控制台 dry-run（tool.execute，脱敏 trace） |
+| Dify-like 前端产品台 | 部分支持 | 已加 Apps（含 API Access）、Settings；Knowledge/Workflow 画布沿用现有工作台，实时事件/画布联动为渐进增强 |
 | 多租户 / workspace / RBAC | 不支持 | 按设计保持单租户（owner 隔离） |
 | 计费 / 插件市场 / 多 provider 市场 | 不支持 | 保留 provider 抽象口 |
 
@@ -375,6 +376,14 @@ http://localhost:8080/
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
 - `GET /api/workflows/runs/{runId}`
 - `GET /api/workflows/runs/{runId}/graph`
+- `POST /api/workflows/runs/{runId}/cancel`（best-effort 取消，标记 CANCELED）
+- `GET /api/workflows/runs/{runId}/events`（SSE：node_started/node_succeeded/node_failed/run_done）
+- `POST /api/knowledge-bases` / `GET /api/knowledge-bases` / `GET /api/knowledge-bases/{kbId}`
+- `POST /api/knowledge-bases/{kbId}/documents/text` / `POST /api/knowledge-bases/{kbId}/documents/files`（multipart）
+- `GET /api/knowledge-bases/{kbId}/documents` / `GET /api/knowledge-bases/{kbId}/documents/{documentId}`
+- `GET /api/knowledge-bases/{kbId}/documents/{documentId}/chunks` / `POST /api/knowledge-bases/{kbId}/documents/{documentId}/reindex`
+- `DELETE /api/knowledge-bases/{kbId}/documents/{documentId}` / `POST /api/knowledge-bases/{kbId}/search`
+- `GET /api/tools/catalog`（含可执行状态）/ `POST /api/tools/{toolName}/test`（dry-run，需 `tool.execute`）
 - `GET /api/runs?type={type}&status={status}&page=0&size=20`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
@@ -991,6 +1000,37 @@ curl -X DELETE http://localhost:8080/api/apps/app-xxxx/api-keys/<keyId> -H "Auth
 ```
 
 > API Key 只能调用所属 app 的 `/run`、`/chat`、`/chat/stream`，不能访问控制台管理 API，也不能跨 app。
+
+## 知识库（Knowledge Base）
+
+按 KB 组织文档，支持文本与文件（Tika 解析 txt/md/html/pdf/docx/pptx/csv），按 KB 隔离检索并返回 citations。
+
+```bash
+# 创建知识库
+curl -X POST http://localhost:8080/api/knowledge-bases \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"产品文档","retrievalConfig":{"topK":5}}'
+# → data.kbId，例如 kb-xxxx
+
+# 写入文本文档
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/documents/text \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"退货政策","content":"支持 30 天无理由退货……"}'
+
+# 上传文件（PDF/docx 等）
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/documents/files \
+  -H "Authorization: Bearer $TOKEN" -F 'file=@policy.pdf'
+
+# 查看索引状态
+curl http://localhost:8080/api/knowledge-bases/kb-xxxx/documents -H "Authorization: Bearer $TOKEN"
+
+# 按 KB 检索（返回 citations）
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/search \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"query":"退货 多少天","topK":5}'
+```
+
+> KB↔App 绑定说明：当前 WORKFLOW app 通过在工作流中放置 `retriever` 节点进行检索；把某个 KB 作为 CHAT/AGENT app 的默认检索源属于后续增强（provider 抽象口已预留）。检索管理需 `rag.write`/`rag.read`，检索需 `rag.query`。
 
 ## PostgreSQL
 

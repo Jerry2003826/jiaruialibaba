@@ -1106,3 +1106,13 @@ button { font-family: inherit; }
   .route-filter-count { grid-column: 2; justify-self: start; }
   .field-row { grid-template-columns: 1fr; }
 }
+
+/* ===== Apps / Settings (Dify-like product surfaces) ===== */
+.data-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; margin-bottom: 8px; background: var(--surface, #fff); }
+.data-item-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.data-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.data-item code { font-size: 12px; }
+.muted { color: var(--muted, #6b7280); font-size: 12px; }
+.badge-ok { background: rgba(16,185,129,.14); color: #059669; }
+.app-detail-tabs { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
+@media (max-width: 900px) { .app-detail-tabs { grid-template-columns: 1fr; } }

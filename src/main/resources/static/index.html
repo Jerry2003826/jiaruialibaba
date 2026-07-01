@@ -18,6 +18,10 @@
       </div>
 
       <nav class="rail-nav">
+        <button class="rail-item" type="button" data-view="apps">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /></svg>
+          <span>应用</span>
+        </button>
         <button class="rail-item active" type="button" data-view="workflow">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4M16 11v2" /></svg>
           <span>工作流</span>
@@ -38,6 +42,10 @@
         <button class="rail-item rail-item-muted" type="button" data-view="tools">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M14 6a3 3 0 0 1 4 4l-8 8-4 1 1-4z" /></svg>
           <span>工具</span>
+        </button>
+        <button class="rail-item rail-item-muted" type="button" data-view="settings">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+          <span>设置</span>
         </button>
       </nav>
 
@@ -397,6 +405,99 @@
           <section class="card">
             <h3 class="card-title">MCP 服务</h3>
             <div id="mcp-server-list" class="data-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 应用（Dify-like 产品台） ===== -->
+      <section class="view view-apps" id="view-apps" data-view-panel="apps">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>应用</h2>
+            <span class="badge badge-soft">Chat · Workflow · Agent</span>
+          </div>
+          <button id="refresh-apps" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="library-grid">
+          <section class="card">
+            <h3 class="card-title">创建应用</h3>
+            <label class="field"><span>名称</span>
+              <input id="create-app-name" class="text-input" type="text" placeholder="客服助手">
+            </label>
+            <label class="field"><span>类型</span>
+              <select id="create-app-type" class="select">
+                <option value="CHAT">CHAT（对话）</option>
+                <option value="WORKFLOW">WORKFLOW（工作流）</option>
+                <option value="AGENT">AGENT（工具智能体）</option>
+              </select>
+            </label>
+            <label class="field" data-app-field="workflow"><span>绑定工作流 definitionId（WORKFLOW）</span>
+              <input id="create-app-workflow-id" class="text-input" type="text" placeholder="已发布的 workflow definitionId">
+            </label>
+            <label class="field" data-app-field="chat"><span>系统提示词（CHAT/AGENT）</span>
+              <textarea id="create-app-system-prompt" class="text-area text-area-sm" placeholder="你是一个乐于助人的助手"></textarea>
+            </label>
+            <label class="field" data-app-field="chat"><span>模型（可选）</span>
+              <input id="create-app-model" class="text-input" type="text" placeholder="qwen-plus">
+            </label>
+            <div class="form-actions">
+              <button id="create-app" class="btn btn-primary" type="button">创建应用</button>
+            </div>
+          </section>
+          <section class="card">
+            <h3 class="card-title">应用列表</h3>
+            <div id="apps-list" class="data-list"></div>
+          </section>
+          <section class="card card-wide" id="app-detail" hidden>
+            <div class="card-title-row">
+              <h3 class="card-title" id="app-detail-title">应用详情</h3>
+              <span id="app-detail-status" class="badge badge-soft"></span>
+            </div>
+            <div class="app-detail-tabs">
+              <div class="run-input">
+                <div class="run-input-head"><h4>Preview / 运行</h4></div>
+                <textarea id="app-run-input" class="code-input" spellcheck="false" placeholder='{"message":"你好"}'></textarea>
+                <button id="app-run" class="btn btn-primary btn-block" type="button">运行 / 对话</button>
+                <div id="app-run-result" class="result-card empty-result">发布后可在此测试 run/chat，并返回 runId。</div>
+              </div>
+              <div class="run-output">
+                <div class="run-output-head">
+                  <h4>API Access</h4>
+                  <button id="create-api-key" class="btn btn-ghost btn-sm" type="button">+ 新建 API Key</button>
+                </div>
+                <div id="api-key-reveal" class="hint-banner hidden"></div>
+                <div id="app-api-keys" class="data-list"></div>
+                <details class="raw-details">
+                  <summary>curl 示例</summary>
+                  <pre id="app-curl" class="result-box"></pre>
+                </details>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 设置 ===== -->
+      <section class="view view-settings" id="view-settings" data-view-panel="settings">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>设置</h2>
+            <span class="badge badge-soft">运行时 · 模型 · 安全</span>
+          </div>
+          <button id="refresh-settings" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="tools-grid">
+          <section class="card">
+            <h3 class="card-title">运行时与模型</h3>
+            <div id="settings-runtime" class="data-list"></div>
+          </section>
+          <section class="card">
+            <h3 class="card-title">MCP 服务</h3>
+            <div id="settings-mcp" class="data-list"></div>
+          </section>
+          <section class="card card-wide">
+            <h3 class="card-title">安全提示</h3>
+            <div id="settings-security" class="data-list"></div>
           </section>
         </div>
       </section>
