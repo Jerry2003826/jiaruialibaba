@@ -158,7 +158,7 @@ public class AppService {
                 SecurityIdentity.currentOwnerId());
     }
 
-    AppEntity findApp(String appId) {
+    public AppEntity findApp(String appId) {
         if (!StringUtils.hasText(appId)) {
             throw new BusinessException("APP_NOT_FOUND", "App not found: " + appId);
         }

@@ -3,6 +3,8 @@ package com.example.agentdemo.config;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
+import com.example.agentdemo.app.apikey.AppApiKeyAuthenticationFilter;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -78,7 +80,8 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain apiSecurity(HttpSecurity http, ApiRateLimitFilter apiRateLimitFilter) throws Exception {
+    SecurityFilterChain apiSecurity(HttpSecurity http, ApiRateLimitFilter apiRateLimitFilter,
+            AppApiKeyAuthenticationFilter appApiKeyAuthenticationFilter) throws Exception {
         return http
                 .securityMatcher("/api/**")
                 .csrf(AbstractHttpConfigurer::disable)
@@ -93,6 +96,11 @@ public class SecurityConfig {
                         // Declared before management rules so the specific runtime paths win.
                         .requestMatchers(HttpMethod.POST, "/api/apps/*/run", "/api/apps/*/chat",
                                 "/api/apps/*/chat/stream").hasAuthority("SCOPE_app.run")
+                        // API key management (console JWT only; app API keys can never reach these).
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/api-keys").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.DELETE, "/api/apps/*/api-keys/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.GET, "/api/apps/*/api-keys", "/api/apps/*/api-keys/**")
+                        .hasAuthority("SCOPE_app.read")
                         // App management endpoints (console JWT only).
                         .requestMatchers(HttpMethod.POST, "/api/apps/*/publish", "/api/apps/*/rollback/**")
                         .hasAuthority("SCOPE_app.write")
@@ -122,8 +130,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/chat/**", "/api/chat").hasAuthority("SCOPE_chat.execute")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
+                .addFilterBefore(appApiKeyAuthenticationFilter, BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(apiRateLimitFilter, BearerTokenAuthenticationFilter.class)
                 .build();
+    }
+
+    @Bean
+    FilterRegistrationBean<AppApiKeyAuthenticationFilter> appApiKeyFilterRegistration(
+            AppApiKeyAuthenticationFilter filter) {
+        // Registered manually in the API security chain; disable the servlet-container auto-registration
+        // that @Component filters otherwise receive so it does not also run for non-API requests.
+        FilterRegistrationBean<AppApiKeyAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
