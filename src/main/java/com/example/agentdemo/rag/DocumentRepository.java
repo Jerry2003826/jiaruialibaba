@@ -3,6 +3,7 @@ package com.example.agentdemo.rag;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
 import java.util.List;
@@ -40,6 +41,15 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
 
     Page<DocumentEntity> findByOwnerIdAndKbIdAndIndexStatusNotIn(String ownerId, String kbId,
             Collection<DocumentIndexStatus> indexStatuses, Pageable pageable);
+
+    @Query("""
+            select d.kbId as kbId, count(d) as count
+            from DocumentEntity d
+            where d.ownerId = :ownerId
+              and d.kbId in :kbIds
+            group by d.kbId
+            """)
+    List<KbDocumentCountProjection> countGroupedByOwnerIdAndKbIdIn(String ownerId, Collection<String> kbIds);
 
     long countByOwnerIdAndKbId(String ownerId, String kbId);
 

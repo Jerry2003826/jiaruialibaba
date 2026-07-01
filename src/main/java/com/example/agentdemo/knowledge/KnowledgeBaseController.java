@@ -33,9 +33,19 @@ import java.util.List;
 public class KnowledgeBaseController {
 
     private final KnowledgeBaseService knowledgeBaseService;
+    private final KnowledgeIngestionService knowledgeIngestionService;
+    private final KnowledgeDocumentService knowledgeDocumentService;
+    private final KnowledgeChunkPreviewService knowledgeChunkPreviewService;
+    private final KnowledgeSearchService knowledgeSearchService;
 
-    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService) {
+    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService,
+            KnowledgeIngestionService knowledgeIngestionService, KnowledgeDocumentService knowledgeDocumentService,
+            KnowledgeChunkPreviewService knowledgeChunkPreviewService, KnowledgeSearchService knowledgeSearchService) {
         this.knowledgeBaseService = knowledgeBaseService;
+        this.knowledgeIngestionService = knowledgeIngestionService;
+        this.knowledgeDocumentService = knowledgeDocumentService;
+        this.knowledgeChunkPreviewService = knowledgeChunkPreviewService;
+        this.knowledgeSearchService = knowledgeSearchService;
     }
 
     @PostMapping
@@ -56,26 +66,26 @@ public class KnowledgeBaseController {
     @PostMapping("/{kbId}/documents/text")
     public ApiResponse<KnowledgeDocumentResponse> addText(@PathVariable String kbId,
             @Valid @RequestBody TextDocumentRequest request) {
-        return ApiResponse.ok(knowledgeBaseService.addTextDocument(kbId, request));
+        return ApiResponse.ok(knowledgeIngestionService.addTextDocument(kbId, request));
     }
 
     @PostMapping(value = "/{kbId}/documents/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<KnowledgeDocumentResponse> addFile(@PathVariable String kbId,
             @RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(knowledgeBaseService.addFileDocument(kbId, file));
+        return ApiResponse.ok(knowledgeIngestionService.addFileDocument(kbId, file));
     }
 
     @GetMapping("/{kbId}/documents")
     public ApiResponse<KnowledgeDocumentPageResponse> listDocuments(@PathVariable String kbId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(knowledgeBaseService.listDocuments(kbId, page, size));
+        return ApiResponse.ok(knowledgeDocumentService.listDocuments(kbId, page, size));
     }
 
     @GetMapping("/{kbId}/documents/{documentId}")
     public ApiResponse<KnowledgeDocumentResponse> getDocument(@PathVariable String kbId,
             @PathVariable Long documentId) {
-        return ApiResponse.ok(knowledgeBaseService.getDocument(kbId, documentId));
+        return ApiResponse.ok(knowledgeDocumentService.getDocument(kbId, documentId));
     }
 
     @GetMapping("/{kbId}/documents/{documentId}/chunks")
@@ -83,25 +93,25 @@ public class KnowledgeBaseController {
             @PathVariable Long documentId,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        return ApiResponse.ok(knowledgeBaseService.previewChunks(kbId, documentId, page, size));
+        return ApiResponse.ok(knowledgeChunkPreviewService.previewChunks(kbId, documentId, page, size));
     }
 
     @DeleteMapping("/{kbId}/documents/{documentId}")
     public ApiResponse<Void> deleteDocument(@PathVariable String kbId, @PathVariable Long documentId) {
-        knowledgeBaseService.deleteDocument(kbId, documentId);
+        knowledgeDocumentService.deleteDocument(kbId, documentId);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/{kbId}/documents/{documentId}/reindex")
     public ApiResponse<KnowledgeDocumentResponse> reindex(@PathVariable String kbId,
             @PathVariable Long documentId) {
-        return ApiResponse.ok(knowledgeBaseService.reindex(kbId, documentId));
+        return ApiResponse.ok(knowledgeDocumentService.reindex(kbId, documentId));
     }
 
     @PostMapping("/{kbId}/search")
     public ApiResponse<KnowledgeSearchResponse> search(@PathVariable String kbId,
             @Valid @RequestBody KnowledgeSearchRequest request) {
-        return ApiResponse.ok(knowledgeBaseService.search(kbId, request.query(), request.topK()));
+        return ApiResponse.ok(knowledgeSearchService.search(kbId, request.query(), request.topK()));
     }
 
 }

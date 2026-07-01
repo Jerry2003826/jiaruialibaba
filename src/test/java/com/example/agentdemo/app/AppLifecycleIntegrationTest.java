@@ -12,6 +12,7 @@ import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.chat.TokenUsage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.knowledge.KnowledgeBaseService;
+import com.example.agentdemo.knowledge.KnowledgeIngestionService;
 import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
 import com.example.agentdemo.knowledge.dto.TextDocumentRequest;
 import org.mockito.ArgumentCaptor;
@@ -73,6 +74,9 @@ class AppLifecycleIntegrationTest {
 
     @Autowired
     private KnowledgeBaseService knowledgeBaseService;
+
+    @Autowired
+    private KnowledgeIngestionService knowledgeIngestionService;
 
     @MockBean
     private AiModelService aiModelService;
@@ -197,7 +201,7 @@ class AppLifecycleIntegrationTest {
                 Mockito.any())).thenReturn(AiModelResult.ok("done", null));
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
-        knowledgeBaseService.addTextDocument(kbId,
+        knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Returns", "Our returns policy allows refunds within 30 days."));
         AppResponse app = appService.publish(appService.create(new CreateAppRequest("KB Chat", null, AppType.CHAT,
                 new AppConfig("You help", null, true, null, List.of(kbId)), null, null)).appId());

@@ -15,14 +15,18 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
 /**
  * P1-1 knowledge base: KB CRUD, text + file (PDF/docx via Tika) ingestion, index status,
@@ -41,10 +45,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "demo.knowledge.max-content-chars=32",
         "demo.knowledge.max-scanned-documents=2"
 })
+@ExtendWith(OutputCaptureExtension.class)
 class KnowledgeBaseIntegrationTest {
 
     @Autowired
     private KnowledgeBaseService knowledgeBaseService;
+
+    @Autowired
+    private KnowledgeIngestionService knowledgeIngestionService;
+
+    @Autowired
+    private KnowledgeDocumentService knowledgeDocumentService;
+
+    @Autowired
+    private KnowledgeChunkPreviewService knowledgeChunkPreviewService;
+
+    @Autowired
+    private KnowledgeSearchService knowledgeSearchService;
 
     @Test
     void createAndListKnowledgeBase() {
@@ -56,16 +73,29 @@ class KnowledgeBaseIntegrationTest {
     }
 
     @Test
+    void listKnowledgeBasesReturnsGroupedDocumentCounts() {
+        String kbA = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("A", null, null)).kbId();
+        String kbB = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("B", null, null)).kbId();
+        knowledgeIngestionService.addTextDocument(kbA, new TextDocumentRequest("A1", "alpha"));
+        knowledgeIngestionService.addTextDocument(kbA, new TextDocumentRequest("A2", "beta"));
+        knowledgeIngestionService.addTextDocument(kbB, new TextDocumentRequest("B1", "gamma"));
+
+        assertThat(knowledgeBaseService.listKnowledgeBases())
+                .extracting(KnowledgeBaseResponse::kbId, KnowledgeBaseResponse::documentCount)
+                .contains(tuple(kbA, 2L), tuple(kbB, 1L));
+    }
+
+    @Test
     void textIngestionIsRetrievableWithCitations() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Returns", "returns refund in 30 days"));
         // Keyword-only deployment marks documents READY immediately (no vector store).
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
         assertThat(doc.sourceType()).isEqualTo("TEXT");
 
-        KnowledgeSearchResponse result = knowledgeBaseService.search(kbId, "returns refund", null);
+        KnowledgeSearchResponse result = knowledgeSearchService.search(kbId, "returns refund", null);
         assertThat(result.citations()).isNotEmpty();
         assertThat(result.citations().get(0).documentId()).isEqualTo(doc.documentId());
         assertThat(result.citations().get(0).title()).isEqualTo("Returns");
@@ -77,7 +107,7 @@ class KnowledgeBaseIntegrationTest {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
 
-        assertThatThrownBy(() -> knowledgeBaseService.addTextDocument(kbId,
+        assertThatThrownBy(() -> knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Too Large", "x".repeat(33))))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> {
@@ -88,11 +118,23 @@ class KnowledgeBaseIntegrationTest {
     }
 
     @Test
+    void textIngestionValidationFailureDoesNotLogAuditResourceResolutionWarn(CapturedOutput output) {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
+
+        assertThatThrownBy(() -> knowledgeIngestionService.addTextDocument(kbId,
+                new TextDocumentRequest("Too Large", "x".repeat(33))))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(output).doesNotContain("Failed to resolve audit resourceId expression '#result.documentId()'");
+    }
+
+    @Test
     void textIngestionAcceptsConfiguredBoundaryLength() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
 
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Boundary", "x".repeat(32)));
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
@@ -103,22 +145,22 @@ class KnowledgeBaseIntegrationTest {
     void searchIsIsolatedPerKnowledgeBase() {
         String kbA = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("A", null, null)).kbId();
         String kbB = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("B", null, null)).kbId();
-        knowledgeBaseService.addTextDocument(kbA, new TextDocumentRequest("A doc", "alpha returns policy"));
-        knowledgeBaseService.addTextDocument(kbB, new TextDocumentRequest("B doc", "beta shipping policy"));
+        knowledgeIngestionService.addTextDocument(kbA, new TextDocumentRequest("A doc", "alpha returns policy"));
+        knowledgeIngestionService.addTextDocument(kbB, new TextDocumentRequest("B doc", "beta shipping policy"));
 
-        assertThat(knowledgeBaseService.search(kbA, "returns", null).citations()).hasSize(1);
-        assertThat(knowledgeBaseService.search(kbB, "returns", null).citations()).isEmpty();
+        assertThat(knowledgeSearchService.search(kbA, "returns", null).citations()).hasSize(1);
+        assertThat(knowledgeSearchService.search(kbB, "returns", null).citations()).isEmpty();
     }
 
     @Test
     void searchStopsAfterConfiguredDocumentScanBudget() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Budgeted Search", null, null)).kbId();
-        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 1", "alpha policy"));
-        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 2", "beta policy"));
-        knowledgeBaseService.addTextDocument(kbId, new TextDocumentRequest("Doc 3", "needle policy"));
+        knowledgeIngestionService.addTextDocument(kbId, new TextDocumentRequest("Doc 1", "alpha policy"));
+        knowledgeIngestionService.addTextDocument(kbId, new TextDocumentRequest("Doc 2", "beta policy"));
+        knowledgeIngestionService.addTextDocument(kbId, new TextDocumentRequest("Doc 3", "needle policy"));
 
-        KnowledgeSearchResponse result = knowledgeBaseService.search(kbId, "needle", 5);
+        KnowledgeSearchResponse result = knowledgeSearchService.search(kbId, "needle", 5);
 
         assertThat(result.citations()).isEmpty();
     }
@@ -127,10 +169,10 @@ class KnowledgeBaseIntegrationTest {
     void previewChunksSupportsPaginationGuardrail() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Chunk Preview", null, new RetrievalConfig(4, 0, null))).kbId();
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Chunked", "abcdefghij"));
 
-        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), 1, 2);
+        ChunkPreviewResponse preview = knowledgeChunkPreviewService.previewChunks(kbId, doc.documentId(), 1, 2);
 
         assertThat(preview.page()).isEqualTo(1);
         assertThat(preview.size()).isEqualTo(2);
@@ -144,10 +186,10 @@ class KnowledgeBaseIntegrationTest {
     void chunkPreviewUsesDefaultPageAndSize() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Chunk Preview Defaults", null, new RetrievalConfig(4, 0, null))).kbId();
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Chunked", "abcdefghij"));
 
-        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), null, null);
+        ChunkPreviewResponse preview = knowledgeChunkPreviewService.previewChunks(kbId, doc.documentId(), null, null);
 
         assertThat(preview.page()).isEqualTo(0);
         assertThat(preview.size()).isEqualTo(20);
@@ -160,10 +202,11 @@ class KnowledgeBaseIntegrationTest {
     void chunkPreviewReturnsEmptyPageInsteadOfOverflowingForHugePageNumber() {
         String kbId = knowledgeBaseService.createKnowledgeBase(
                 new CreateKnowledgeBaseRequest("Chunk Preview Huge Page", null, new RetrievalConfig(4, 0, null))).kbId();
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Chunked", "abcdefghij"));
 
-        ChunkPreviewResponse preview = knowledgeBaseService.previewChunks(kbId, doc.documentId(), Integer.MAX_VALUE, 2);
+        ChunkPreviewResponse preview = knowledgeChunkPreviewService.previewChunks(kbId, doc.documentId(),
+                Integer.MAX_VALUE, 2);
 
         assertThat(preview.page()).isEqualTo(Integer.MAX_VALUE);
         assertThat(preview.size()).isEqualTo(2);
@@ -179,13 +222,13 @@ class KnowledgeBaseIntegrationTest {
         byte[] pdf = pdfBytes("Hello PDF knowledge base about returns policy");
         MockMultipartFile file = new MockMultipartFile("file", "policy.pdf", "application/pdf", pdf);
 
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addFileDocument(kbId, file);
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
         assertThat(doc.sourceType()).isEqualTo("FILE");
         assertThat(doc.fileName()).isEqualTo("policy.pdf");
         assertThat(doc.contentLength()).isGreaterThan(0);
-        assertThat(knowledgeBaseService.search(kbId, "returns policy", null).citations()).isNotEmpty();
+        assertThat(knowledgeSearchService.search(kbId, "returns policy", null).citations()).isNotEmpty();
     }
 
     @Test
@@ -196,10 +239,10 @@ class KnowledgeBaseIntegrationTest {
         MockMultipartFile file = new MockMultipartFile("file", "shipping.docx",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx);
 
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addFileDocument(kbId, file);
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
-        assertThat(knowledgeBaseService.search(kbId, "shipping", null).citations()).isNotEmpty();
+        assertThat(knowledgeSearchService.search(kbId, "shipping", null).citations()).isNotEmpty();
     }
 
     @Test
@@ -209,7 +252,7 @@ class KnowledgeBaseIntegrationTest {
         MockMultipartFile file = new MockMultipartFile("file", "../../notes.txt", "text/plain",
                 "returns and refunds".getBytes());
 
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addFileDocument(kbId, file);
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
         assertThat(doc.fileName()).isEqualTo("notes.txt");
@@ -223,7 +266,7 @@ class KnowledgeBaseIntegrationTest {
         MockMultipartFile file = new MockMultipartFile("file", "archive.zip", "application/zip",
                 new byte[] { 'P', 'K', 3, 4, 20, 0 });
 
-        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+        assertThatThrownBy(() -> knowledgeIngestionService.addFileDocument(kbId, file))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
     }
@@ -235,7 +278,7 @@ class KnowledgeBaseIntegrationTest {
         MockMultipartFile file = new MockMultipartFile("file", "blob.bin", "application/octet-stream",
                 new byte[] { 1, 2, 3, 4 });
 
-        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+        assertThatThrownBy(() -> knowledgeIngestionService.addFileDocument(kbId, file))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
     }
@@ -248,7 +291,7 @@ class KnowledgeBaseIntegrationTest {
         MockMultipartFile file = new MockMultipartFile("file", "blank.txt", "text/plain",
                 "    \n\t  ".getBytes());
 
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addFileDocument(kbId, file);
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.FAILED);
         assertThat(doc.errorMessage()).contains("No extractable text");
@@ -260,7 +303,7 @@ class KnowledgeBaseIntegrationTest {
                 .kbId();
         MockMultipartFile file = new MockMultipartFile("file", "empty.txt", "text/plain", new byte[0]);
 
-        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+        assertThatThrownBy(() -> knowledgeIngestionService.addFileDocument(kbId, file))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_FILE_EMPTY"));
     }
@@ -269,14 +312,14 @@ class KnowledgeBaseIntegrationTest {
     void reindexAndDelete() {
         String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Ops", null, null))
                 .kbId();
-        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
                 new TextDocumentRequest("Doc", "some content to index"));
 
-        assertThat(knowledgeBaseService.reindex(kbId, doc.documentId()).indexStatus())
+        assertThat(knowledgeDocumentService.reindex(kbId, doc.documentId()).indexStatus())
                 .isEqualTo(DocumentIndexStatus.READY);
 
-        knowledgeBaseService.deleteDocument(kbId, doc.documentId());
-        assertThatThrownBy(() -> knowledgeBaseService.getDocument(kbId, doc.documentId()))
+        knowledgeDocumentService.deleteDocument(kbId, doc.documentId());
+        assertThatThrownBy(() -> knowledgeDocumentService.getDocument(kbId, doc.documentId()))
                 .isInstanceOf(BusinessException.class);
     }
 

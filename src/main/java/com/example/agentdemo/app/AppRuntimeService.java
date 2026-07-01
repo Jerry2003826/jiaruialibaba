@@ -17,7 +17,7 @@ import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.SseConfig;
 import com.example.agentdemo.knowledge.Citation;
-import com.example.agentdemo.knowledge.KnowledgeBaseService;
+import com.example.agentdemo.knowledge.KnowledgeSearchService;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.RunContext;
 import com.example.agentdemo.trace.RunType;
@@ -71,7 +71,7 @@ public class AppRuntimeService {
     private final ConversationMemoryService conversationMemoryService;
     private final TraceService traceService;
     private final UsageRecordingService usageRecordingService;
-    private final KnowledgeBaseService knowledgeBaseService;
+    private final KnowledgeSearchService knowledgeSearchService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
     private final ObjectMapper objectMapper;
@@ -80,7 +80,7 @@ public class AppRuntimeService {
             AppProperties appProperties, WorkflowService workflowService,
             ToolCallingAgentService toolCallingAgentService, AiModelService aiModelService,
             ConversationMemoryService conversationMemoryService, TraceService traceService,
-            UsageRecordingService usageRecordingService, KnowledgeBaseService knowledgeBaseService,
+            UsageRecordingService usageRecordingService, KnowledgeSearchService knowledgeSearchService,
             Executor sseExecutor, SseConfig.SseProperties sseProperties, ObjectMapper objectMapper) {
         this.appRepository = appRepository;
         this.appRevisionRepository = appRevisionRepository;
@@ -91,7 +91,7 @@ public class AppRuntimeService {
         this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
         this.usageRecordingService = usageRecordingService;
-        this.knowledgeBaseService = knowledgeBaseService;
+        this.knowledgeSearchService = knowledgeSearchService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
         this.objectMapper = objectMapper;
@@ -333,7 +333,7 @@ public class AppRuntimeService {
         List<Citation> citations = new ArrayList<>();
         for (String kbId : kbIds) {
             try {
-                citations.addAll(knowledgeBaseService.search(kbId, message, null).citations());
+                citations.addAll(knowledgeSearchService.search(kbId, message, null).citations());
             }
             catch (RuntimeException ex) {
                 log.warn("App knowledge retrieval failed for kb {}", kbId, ex);
