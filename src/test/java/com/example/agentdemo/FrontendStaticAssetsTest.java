@@ -7,8 +7,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,6 +32,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class FrontendStaticAssetsTest {
+
+    private static final Pattern BLOCK_SCOPED_AGENT_WORKBENCH_DECLARATION =
+            Pattern.compile("(^|\\n)\\s*(const|let)\\s+AgentWorkbench\\b");
 
     @Autowired
     private MockMvc mockMvc;
@@ -76,72 +82,210 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("view-kb")))
                 .andExpect(content().string(containsString("create-kb")))
                 .andExpect(content().string(containsString("kb-doc-list")))
-                .andExpect(content().string(containsString("/app.js")))
+                .andExpect(content().string(containsString("/js/api.js")))
+                .andExpect(content().string(containsString("/js/state.js")))
+                .andExpect(content().string(containsString("/js/ui.js")))
+                .andExpect(content().string(containsString("/js/workflow.js")))
+                .andExpect(content().string(containsString("/js/apps.js")))
+                .andExpect(content().string(containsString("/js/knowledge.js")))
+                .andExpect(content().string(containsString("/js/runs.js")))
+                .andExpect(content().string(containsString("/js/tools.js")))
+                .andExpect(content().string(containsString("/js/settings.js")))
+                .andExpect(content().string(containsString("/js/main.js")))
+                .andExpect(content().string(not(containsString("/app.js"))))
+                .andExpect(result -> assertScriptsAppearInOrder(result.getResponse().getContentAsString(StandardCharsets.UTF_8), List.of(
+                        "<script src=\"/js/api.js\" defer></script>",
+                        "<script src=\"/js/state.js\" defer></script>",
+                        "<script src=\"/js/ui.js\" defer></script>",
+                        "<script src=\"/js/workflow.js\" defer></script>",
+                        "<script src=\"/js/apps.js\" defer></script>",
+                        "<script src=\"/js/knowledge.js\" defer></script>",
+                        "<script src=\"/js/runs.js\" defer></script>",
+                        "<script src=\"/js/tools.js\" defer></script>",
+                        "<script src=\"/js/settings.js\" defer></script>",
+                        "<script src=\"/js/main.js\" defer></script>"
+                )))
                 .andExpect(content().string(containsString("/styles.css")));
     }
 
     @Test
-    void servesWorkbenchJavaScript() throws Exception {
-        mockMvc.perform(get("/app.js"))
+    void classicWorkbenchScriptsAvoidRedeclaringAgentWorkbenchConst() throws Exception {
+        assertClassicScriptNamespaceSafe("/js/api.js");
+        assertClassicScriptNamespaceSafe("/js/state.js");
+        assertClassicScriptNamespaceSafe("/js/ui.js");
+        assertClassicScriptNamespaceSafe("/js/workflow.js");
+        assertClassicScriptNamespaceSafe("/js/apps.js");
+        assertClassicScriptNamespaceSafe("/js/knowledge.js");
+        assertClassicScriptNamespaceSafe("/js/runs.js");
+        assertClassicScriptNamespaceSafe("/js/tools.js");
+        assertClassicScriptNamespaceSafe("/js/settings.js");
+        assertClassicScriptNamespaceSafe("/js/main.js");
+    }
+
+    @Test
+    void namespaceGuardRejectsAnyBlockScopedAgentWorkbenchDeclaration() {
+        assertThatThrownBy(() -> assertNoBlockScopedAgentWorkbenchDeclaration(
+                "\"use strict\";\nconst AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};\n"))
+                .isInstanceOf(AssertionError.class);
+
+        assertThatThrownBy(() -> assertNoBlockScopedAgentWorkbenchDeclaration(
+                "\"use strict\";\nlet AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};\n"))
+                .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    void servesWorkbenchApiModule() throws Exception {
+        mockMvc.perform(get("/js/api.js"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("WorkflowCanvasController")))
+                .andExpect(content().string(containsString("window.AgentWorkbench = window.AgentWorkbench || {}")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules = AgentWorkbench.loadedModules || []")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"api\")")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.API = API")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.requestJson = requestJson")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.consumeSse = consumeSse")))
                 .andExpect(content().string(containsString("/api/workflows/generate")))
                 .andExpect(content().string(containsString("/api/workflows/generate/stream")))
                 .andExpect(content().string(containsString("/api/workflows/run")))
                 .andExpect(content().string(containsString("/api/workflows/validate")))
-                .andExpect(content().string(containsString("updateDocument:")))
-                .andExpect(content().string(containsString("editDocument")))
-                .andExpect(content().string(containsString("resetDocumentEditor")))
-                .andExpect(content().string(containsString("listOrders:")))
-                .andExpect(content().string(containsString("saveOrder")))
-                .andExpect(content().string(containsString("editOrder")))
-                .andExpect(content().string(containsString("resetOrderEditor")))
                 .andExpect(content().string(containsString("/api/agent/assistant-chat")))
-                .andExpect(content().string(containsString("workflowDefinitionId")))
-                .andExpect(content().string(containsString("workflowDefinition: buildWorkflowDefinition()")))
-                .andExpect(content().string(containsString("return { workflowDefinitionId: state.definitionId };")))
-                .andExpect(content().string(containsString("return { workflowDefinitionId: state.assistantWorkflowDefinitionId };")))
-                .andExpect(content().string(containsString("bindAssistantWorkflowFromDefinition")))
-                .andExpect(content().string(containsString("/api/chat/conversations/")))
-                .andExpect(content().string(containsString("/api/chat/stream")))
-                .andExpect(content().string(containsString("clearChatHistory")))
-                .andExpect(content().string(containsString("consumeSse")))
+                .andExpect(content().string(containsString("/api/chat/stream")));
+    }
+
+    @Test
+    void servesWorkbenchStateModule() throws Exception {
+        mockMvc.perform(get("/js/state.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("ROUTE_RULES")))
+                .andExpect(content().string(containsString("variableLabel")))
+                .andExpect(content().string(containsString("CANVAS_POSITIONS_KEY_PREFIX")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"state\")")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.state = state")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.constants =")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.variableLabel = variableLabel")))
+                .andExpect(content().string(containsString("FIELD_LABELS")));
+    }
+
+    @Test
+    void servesWorkbenchUiModule() throws Exception {
+        mockMvc.perform(get("/js/ui.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("loadHealth")))
+                .andExpect(content().string(containsString("renderRuntimeDetails")))
                 .andExpect(content().string(containsString("workflowRuntime")))
-                .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
+                .andExpect(content().string(containsString("workflowRequirePublishedForRun")));
+    }
+
+    @Test
+    void servesWorkbenchWorkflowModule() throws Exception {
+        mockMvc.perform(get("/js/workflow.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("class WorkflowCanvasController")))
+                .andExpect(content().string(containsString("window.WorkflowCanvasController")))
+                .andExpect(content().string(containsString("AgentWorkbench.controllers = AgentWorkbench.controllers || {}")))
+                .andExpect(content().string(containsString("AgentWorkbench.workflowController = AgentWorkbench.controllers.workflow = new WorkflowCanvasController()")))
+                .andExpect(content().string(containsString("window.WorkflowCanvasController = AgentWorkbench.workflowController")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.WorkflowCanvasController = WorkflowCanvasController")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.workflowController = window.WorkflowCanvasController")))
+                .andExpect(content().string(containsString("buildWorkflowDefinition")))
                 .andExpect(content().string(containsString("insertLoopTemplate")))
                 .andExpect(content().string(containsString("generateWorkflowFromPrompt")))
                 .andExpect(content().string(containsString("streamWorkflowGeneration")))
                 .andExpect(content().string(containsString("applyGeneratedWorkflow")))
                 .andExpect(content().string(containsString("saveCanvasPositions")))
-                .andExpect(content().string(containsString("ROUTE_RULES")))
                 .andExpect(content().string(containsString("renderRouteMap")))
                 .andExpect(content().string(containsString("route-highlight")))
-                .andExpect(content().string(containsString("variableLabel")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("显示名称", "所属流程", "技术 ID"))
-                .andExpect(content().string(containsString("payload.label = cleanText(node.label)")))
-                .andExpect(content().string(containsString("payload.route = cleanText(node.route)")))
                 .andExpect(content().string(containsString("explicitRouteSummaries")))
-                .andExpect(content().string(containsString("buildCompositeContainersFromSteps")))
-                .andExpect(content().string(containsString("tokenUsageSummary")))
-                .andExpect(content().string(containsString("tokenUsage")))
-                .andExpect(content().string(containsString("loadDefinitionHistory")))
-                .andExpect(content().string(containsString("runsPage?.content")))
-                // Apps product surface wiring.
-                .andExpect(content().string(containsString("/api/apps")))
+                .andExpect(content().string(containsString("loadDefinitionHistory")));
+    }
+
+    @Test
+    void servesWorkbenchAppsModule() throws Exception {
+        mockMvc.perform(get("/js/apps.js"))
+                .andExpect(status().isOk())
                 .andExpect(content().string(containsString("loadApps")))
+                .andExpect(content().string(containsString("API.apps")))
                 .andExpect(content().string(containsString("createApiKey")))
                 .andExpect(content().string(containsString("plaintextKey")))
-                .andExpect(content().string(containsString("runSelectedApp")))
-                // Knowledge Base view wiring.
-                .andExpect(content().string(containsString("/api/knowledge-bases")))
+                .andExpect(content().string(containsString("runSelectedApp")));
+    }
+
+    @Test
+    void servesWorkbenchKnowledgeModule() throws Exception {
+        mockMvc.perform(get("/js/knowledge.js"))
+                .andExpect(status().isOk())
                 .andExpect(content().string(containsString("loadKnowledgeBases")))
-                .andExpect(content().string(containsString("uploadKbFile")))
-                // Trace-driven highlighting / event replay wording in static assets.
-                .andExpect(content().string(containsString("/events")))
+                .andExpect(content().string(containsString("API.knowledgeBases")))
+                .andExpect(content().string(containsString("uploadKbFile")));
+    }
+
+    @Test
+    void servesWorkbenchRunsModule() throws Exception {
+        mockMvc.perform(get("/js/runs.js"))
+                .andExpect(status().isOk())
                 .andExpect(content().string(containsString("animateRunOnCanvas")))
+                .andExpect(content().string(containsString("API.workflowRunEvents(runId)")))
                 .andExpect(content().string(containsString("applyRunEventToCanvas")))
-                .andExpect(content().string(containsString("trace-driven highlighting")));
+                .andExpect(content().string(containsString("trace-driven highlighting")))
+                .andExpect(content().string(containsString("runsPage?.content")))
+                .andExpect(content().string(containsString("payload.label = cleanText(node.label)")))
+                .andExpect(content().string(containsString("payload.route = cleanText(node.route)")))
+                .andExpect(content().string(containsString("buildCompositeContainersFromSteps")))
+                .andExpect(content().string(containsString("tokenUsageSummary")))
+                .andExpect(content().string(containsString("tokenUsage")));
+    }
+
+    @Test
+    void servesWorkbenchToolsModule() throws Exception {
+        mockMvc.perform(get("/js/tools.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("bindTools")))
+                .andExpect(content().string(containsString("loadTools")))
+                .andExpect(content().string(containsString("API.tools")))
+                .andExpect(content().string(containsString("API.mcpServers")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"tools\")")))
+                .andExpect(content().string(containsString("AgentWorkbench.bindTools = bindTools")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadTools = loadTools")));
+    }
+
+    @Test
+    void servesWorkbenchSettingsModule() throws Exception {
+        mockMvc.perform(get("/js/settings.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("bindSettings")))
+                .andExpect(content().string(containsString("loadSettings")))
+                .andExpect(content().string(containsString("API.health")))
+                .andExpect(content().string(containsString("API.mcpServers")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"settings\")")))
+                .andExpect(content().string(containsString("AgentWorkbench.bindSettings = bindSettings")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadSettings = loadSettings")));
+    }
+
+    @Test
+    void servesWorkbenchBootstrapModule() throws Exception {
+        mockMvc.perform(get("/js/main.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("function bootstrapWorkbench()")))
+                .andExpect(content().string(containsString("document.addEventListener(\"DOMContentLoaded\"")))
+                .andExpect(content().string(containsString("AgentWorkbench.workflowController.init()")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"main\")")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.bootstrapWorkbench = bootstrapWorkbench")))
+                .andExpect(content().string(containsString("window.AgentWorkbench.init = bootstrapWorkbench")))
+                .andExpect(content().string(containsString("document.addEventListener(\"DOMContentLoaded\", AgentWorkbench.bootstrapWorkbench)")))
+                .andExpect(content().string(containsString("workflowDefinitionId")))
+                .andExpect(content().string(containsString("workflowDefinition: buildWorkflowDefinition()")))
+                .andExpect(content().string(containsString("return { workflowDefinitionId: state.assistantWorkflowDefinitionId };")))
+                .andExpect(content().string(containsString("bindAssistantWorkflowFromDefinition")))
+                .andExpect(content().string(containsString("clearChatHistory")))
+                .andExpect(content().string(containsString("consumeSse")))
+                .andExpect(content().string(containsString("API.clearConversation(conversationId)")))
+                .andExpect(content().string(containsString("editDocument")))
+                .andExpect(content().string(containsString("resetDocumentEditor")))
+                .andExpect(content().string(containsString("API.saveOrderEndpoint")))
+                .andExpect(content().string(containsString("saveOrder")))
+                .andExpect(content().string(containsString("editOrder")))
+                .andExpect(content().string(containsString("resetOrderEditor")));
     }
 
     @Test
@@ -173,6 +317,34 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".definition-history")))
                 .andExpect(content().string(containsString(".order-editor-grid")))
                 .andExpect(content().string(containsString(".history-list")));
+    }
+
+    private static void assertScriptsAppearInOrder(String html, List<String> scripts) {
+        int previousIndex = -1;
+        for (String script : scripts) {
+            int currentIndex = html.indexOf(script);
+            assertThat(currentIndex)
+                    .withFailMessage("Expected script %s to exist in HTML", script)
+                    .isGreaterThanOrEqualTo(0);
+            assertThat(currentIndex)
+                    .withFailMessage("Expected script order to keep %s after previous script", script)
+                    .isGreaterThan(previousIndex);
+            previousIndex = currentIndex;
+        }
+    }
+
+    private void assertClassicScriptNamespaceSafe(String path) throws Exception {
+        mockMvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("window.AgentWorkbench = window.AgentWorkbench || {}")))
+                .andExpect(result -> assertNoBlockScopedAgentWorkbenchDeclaration(
+                        result.getResponse().getContentAsString(StandardCharsets.UTF_8)));
+    }
+
+    private static void assertNoBlockScopedAgentWorkbenchDeclaration(String scriptText) {
+        assertThat(BLOCK_SCOPED_AGENT_WORKBENCH_DECLARATION.matcher(scriptText).find())
+                .withFailMessage("Expected script to avoid block-scoped AgentWorkbench declarations, but found: %s", scriptText)
+                .isFalse();
     }
 
 }
