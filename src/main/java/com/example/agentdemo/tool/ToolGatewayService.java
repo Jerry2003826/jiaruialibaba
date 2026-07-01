@@ -53,6 +53,20 @@ public class ToolGatewayService {
                 .toList();
     }
 
+    /** Tool listing enriched with executability (allowlist status) for the console. */
+    public List<ToolView> listToolViews() {
+        return listTools().stream()
+                .map(descriptor -> new ToolView(descriptor.name(), descriptor.description(), descriptor.provider(),
+                        descriptor.remote(), descriptor.serverName(), descriptor.inputSchema(),
+                        toolExecutionPolicy.canExecute(descriptor)))
+                .toList();
+    }
+
+    /** Finds a tool descriptor by name (for validation / inspection). */
+    public java.util.Optional<ToolDescriptor> findTool(String toolName) {
+        return listTools().stream().filter(tool -> tool.name().equals(toolName)).findFirst();
+    }
+
     static ToolExecutionLog toolNotFound(String toolName, Map<String, Object> arguments) {
         Instant now = Instant.now();
         return ToolExecutionLog.failure(toolName, safeArguments(arguments), "Tool not found: " + toolName,

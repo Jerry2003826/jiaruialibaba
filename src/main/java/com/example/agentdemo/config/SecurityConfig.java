@@ -127,6 +127,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/orders").hasAuthority("SCOPE_order.write")
                         .requestMatchers(HttpMethod.PUT, "/api/orders/**").hasAuthority("SCOPE_order.write")
                         .requestMatchers(HttpMethod.DELETE, "/api/orders/**").hasAuthority("SCOPE_order.write")
+                        .requestMatchers(HttpMethod.POST, "/api/tools/*/test").hasAuthority("SCOPE_tool.execute")
                         .requestMatchers(HttpMethod.GET, "/api/tools", "/api/tools/**")
                         .hasAuthority("SCOPE_tool.read")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/run").hasAuthority("SCOPE_workflow.run")
