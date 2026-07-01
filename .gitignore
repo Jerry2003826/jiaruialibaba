@@ -3,6 +3,7 @@ var/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 .idea/
 .vscode/

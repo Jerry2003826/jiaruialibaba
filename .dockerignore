@@ -1,0 +1,16 @@
+target/
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+.qwen/
+.playwright-mcp/
+var/
+docs/
+*.log
+.env
+.env.*
+!.env.prod.example
+.DS_Store
+**/.DS_Store

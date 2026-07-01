@@ -2,7 +2,26 @@
 
 ## 项目目标
 
-这是一个最小可运行、可扩展的 Spring AI Alibaba Agent 平台 demo。它不是完整 Dify，而是提供一个后端骨架和最小 Dify-like 工作台：Chat、SSE streaming、tool calling、RAG、workflow canvas、run trace。
+这是一个**单租户、可上线内测/小规模生产**的 Java 版 Dify-like 工业 MVP。它不是完整 Dify，聚焦于：产品闭环（应用/知识库/发布）、生产安全、部署运维、可观测性。
+
+安全与运维专项文档：[SECURITY.md](SECURITY.md)、[OPERATIONS.md](OPERATIONS.md)。
+
+## 工业 MVP 功能矩阵
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| App 产品层（CHAT/WORKFLOW/AGENT） | 已支持 | 创建/发布/回滚/归档，published 使用不可变 revision snapshot |
+| Runtime API Key | 已支持 | 面向业务系统，仅 runtime 端点、仅本 app、hash-at-rest、一次性明文 |
+| 审计日志 + 敏感信息脱敏 | 已支持 | 管理动作审计；统一 `SecretRedactor`；trace/error 不泄密 |
+| 生产启动硬门槛 | 已支持 | prod 下禁 H2/dev-token/内置 secret，强制 issuer/strict/DashScope/DashVector |
+| 可观测性 | 已支持 | `/healthz`、Actuator health/metrics/prometheus、`X-Request-Id`、token usage 落库 |
+| 部署（Docker/Compose/CI） | 已支持 | 多阶段非 root 镜像、`docker-compose.prod.yml`、GitHub Actions |
+| Workflow DSL / 画布 / trace | 已支持 | validate/preview/run/publish/rollback/run-graph |
+| RAG（DashVector + 关键词兜底） | 已支持 | 文档保存/检索/问答，outbox exactly-once |
+| 知识库产品层 / 文件 ingestion（PDF/docx…） | 部分支持 | P1：Knowledge Base 模型、文件解析、citations |
+| Dify-like 前端产品台 | 部分支持 | P1：Apps/Knowledge/Tools/Runs/Settings 信息架构 |
+| 多租户 / workspace / RBAC | 不支持 | 按设计保持单租户（owner 隔离） |
+| 计费 / 插件市场 / 多 provider 市场 | 不支持 | 保留 provider 抽象口 |
 
 ## 技术栈
 
@@ -359,6 +378,14 @@ http://localhost:8080/
 - `GET /api/runs?type={type}&status={status}&page=0&size=20`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
+- `GET /api/runs/{runId}/usage`（token 用量汇总）
+- `POST /api/apps` / `GET /api/apps?page=0&size=20` / `GET /api/apps/{appId}` / `PUT /api/apps/{appId}`
+- `GET /api/apps/{appId}/revisions`
+- `POST /api/apps/{appId}/publish` / `POST /api/apps/{appId}/rollback/{version}` / `DELETE /api/apps/{appId}`
+- `POST /api/apps/{appId}/run` / `POST /api/apps/{appId}/chat` / `POST /api/apps/{appId}/chat/stream`（runtime，`app.run` 或 API Key）
+- `POST /api/apps/{appId}/api-keys` / `GET /api/apps/{appId}/api-keys` / `DELETE /api/apps/{appId}/api-keys/{keyId}`
+- `GET /api/audit-logs?resourceType={type}&page=0&size=20`
+- 公开探针：`GET /healthz`、`GET /actuator/health`
 
 除 SSE 外，所有 API 都返回 `ApiResponse`。
 
@@ -902,6 +929,68 @@ curl -X POST http://localhost:8080/api/workflows/run \
     }
   }'
 ```
+
+## 生产部署（Docker Compose）
+
+多阶段构建、Java 21 runtime、非 root 用户、内置 `/healthz` HEALTHCHECK。
+
+```bash
+cp .env.prod.example .env.prod   # 填入真实 DB / JWT issuer / DashScope / DashVector
+docker compose -f docker-compose.prod.yml up --build -d          # app + postgres
+docker compose -f docker-compose.prod.yml --profile proxy up -d  # 可选 nginx 反向代理/TLS
+curl -fsS http://localhost:8080/healthz                          # {"status":"UP"}
+```
+
+app 以 `SPRING_PROFILES_ACTIVE=prod,postgres` 运行，启动即执行[生产硬门槛校验](SECURITY.md)。运维细节见 [OPERATIONS.md](OPERATIONS.md)。
+
+### 生产安全 checklist
+
+- [ ] `DEMO_SECURITY_JWT_MODE=issuer` 且配置 `issuer-uri`/`jwk-set-uri`（不用内置 secret）
+- [ ] `DEMO_SECURITY_DEV_TOKEN_ENABLED=false`
+- [ ] PostgreSQL（非 H2），`.env.prod` 未提交、DB 密码为强口令
+- [ ] `DEMO_ALIBABA_STRICT_MODE=true`、`DEMO_AI_FALLBACK_ENABLED=false`、`DEMO_RAG_KEYWORD_FALLBACK_ENABLED=false`、`DEMO_RAG_RETRIEVER=dashvector`
+- [ ] DashScope / DashVector 密钥已配置
+- [ ] 前置 TLS（nginx/网关），透传 `X-Forwarded-For` / `X-Request-Id`
+- [ ] 定期备份 PostgreSQL
+
+## App 与 Runtime API Key 使用
+
+以下示例假设已有一个控制台 JWT（`$TOKEN`，含相应 scope；本地演示可用 dev-token）。
+
+```bash
+# 1) 创建一个 WORKFLOW app（先有一个已发布的 workflow definition）
+curl -X POST http://localhost:8080/api/apps \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Support Flow","type":"WORKFLOW","workflowDefinitionId":"<wf-id>"}'
+# → data.appId，例如 app-xxxx
+
+# 2) 发布 app（WORKFLOW app 会校验并 pin 绑定 workflow 的已发布版本）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/publish -H "Authorization: Bearer $TOKEN"
+
+# 3) 为 app 创建 Runtime API Key（明文仅此一次返回）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/api-keys \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"prod-integration"}'
+# → data.plaintextKey，例如 app_xxxxxxxx
+
+# 4) 业务系统用 API Key 调用 runtime（无需控制台 JWT）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/run \
+  -H "X-App-API-Key: app_xxxxxxxx" -H 'Content-Type: application/json' \
+  -d '{"input":{"message":"你好"}}'
+
+# CHAT app 用 chat（同样支持 Authorization: Bearer app_xxxxxxxx）
+curl -X POST http://localhost:8080/api/apps/app-yyyy/chat \
+  -H "Authorization: Bearer app_xxxxxxxx" -H 'Content-Type: application/json' \
+  -d '{"message":"你好"}'
+
+# 5) 在 Runs 里查看 token 用量
+curl http://localhost:8080/api/runs/<runId>/usage -H "Authorization: Bearer $TOKEN"
+
+# 撤销 API Key
+curl -X DELETE http://localhost:8080/api/apps/app-xxxx/api-keys/<keyId> -H "Authorization: Bearer $TOKEN"
+```
+
+> API Key 只能调用所属 app 的 `/run`、`/chat`、`/chat/stream`，不能访问控制台管理 API，也不能跨 app。
 
 ## PostgreSQL
 
