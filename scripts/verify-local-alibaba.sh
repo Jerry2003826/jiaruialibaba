@@ -12,6 +12,19 @@ fail() {
   exit 1
 }
 
+health_origin() {
+  sed -E 's#(https?://[^/]+).*#\1#' <<<"$HEALTH_URL"
+}
+
+dev_token() {
+  local token_url token_response token
+  token_url="$(health_origin)/api/auth/dev-token"
+  token_response="$(curl -fsS "$token_url")" || return 1
+  token="$(sed -nE 's/.*"token":"([^"]+)".*/\1/p' <<<"$token_response")"
+  [[ -n "$token" ]] || return 1
+  printf '%s\n' "$token"
+}
+
 require_json_fragment() {
   local fragment="$1"
   local label="$2"
@@ -26,7 +39,12 @@ if ! command -v curl >/dev/null 2>&1; then
   fail "curl is required to verify the local backend"
 fi
 
-HEALTH_BODY="$(curl -fsS "$HEALTH_URL")" || fail "Cannot reach $HEALTH_URL"
+AUTH_TOKEN="${LOCAL_ALIBABA_AUTH_TOKEN:-}"
+if [[ -z "$AUTH_TOKEN" ]]; then
+  AUTH_TOKEN="$(dev_token)" || fail "Cannot get a local dev token from $(health_origin)/api/auth/dev-token"
+fi
+
+HEALTH_BODY="$(curl -fsS -H "Authorization: Bearer ${AUTH_TOKEN}" "$HEALTH_URL")" || fail "Cannot reach $HEALTH_URL"
 
 require_json_fragment '"success":true' "API wrapper"
 require_json_fragment '"status":"UP"' "backend"
