@@ -56,7 +56,32 @@ spring:
   flyway:
     enabled: false
 
+# Actuator: /actuator/health and /healthz are public liveness/readiness probes that only expose
+# UP/DOWN (show-details=never / show-components=never keeps model, vector store and configuration
+# state out of the public response). metrics/prometheus/info are exposed but locked behind
+# SCOPE_health.read by the actuator security filter chain, so they are never anonymous.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 logging:
+  pattern:
+    # Surface the per-request correlation id (see CorrelationIdFilter) in every log line.
+    level: "%5p [${spring.application.name:agent-backend-demo},%X{requestId:-}]"
   level:
     root: INFO
     com.example.agentdemo: INFO

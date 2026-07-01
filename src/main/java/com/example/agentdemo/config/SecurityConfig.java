@@ -55,8 +55,29 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Health/observability chain. {@code /healthz} and {@code /actuator/health} (plus liveness /
+     * readiness groups) are anonymous UP/DOWN probes; every other actuator endpoint
+     * (metrics, prometheus, info) is locked behind {@code SCOPE_health.read} so operational data is
+     * never exposed anonymously.
+     */
     @Bean
     @Order(1)
+    SecurityFilterChain observabilitySecurity(HttpSecurity http) throws Exception {
+        return http
+                .securityMatcher("/healthz", "/actuator/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/healthz").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .anyRequest().hasAuthority("SCOPE_health.read"))
+                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
+                .build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain apiSecurity(HttpSecurity http, ApiRateLimitFilter apiRateLimitFilter) throws Exception {
         return http
                 .securityMatcher("/api/**")

@@ -58,7 +58,16 @@ DEMO_RAG_KEYWORD_FALLBACK_ENABLED=false
 DEMO_RAG_RETRIEVER=dashvector
 ```
 
-`GET /api/health` 返回 `embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled`、`workflowRuntime`、`workflowRequirePublishedForRun` 等字段，便于确认当前是否走阿里栈与 workflow runtime。
+### 健康检查（公开 vs 受保护）
+
+| 端点 | 认证 | 用途 |
+| --- | --- | --- |
+| `GET /healthz` | 公开 | 轻量存活探针，仅返回 `{"status":"UP"}`，供负载均衡 / 上线探活使用，不暴露任何模型、向量库或配置状态。 |
+| `GET /actuator/health` | 公开 | 标准存活/就绪探针，`show-details=never`，同样只返回 `UP/DOWN`。 |
+| `GET /actuator/metrics`、`GET /actuator/prometheus`、`GET /actuator/info` | 需 `SCOPE_health.read` | 运维指标 / Prometheus 抓取，默认不对匿名开放（生产可再叠加 reverse proxy / 独立管理端口）。 |
+| `GET /api/health` | 需 `SCOPE_health.read` | 控制台受保护诊断接口，返回 `modelConfigured`、`embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled`、`workflowRuntime`、`workflowRequirePublishedForRun` 等字段，便于确认当前是否走阿里栈与 workflow runtime。 |
+
+每个请求都会分配 `X-Request-Id`（可由入站同名头透传），写入日志 MDC 与响应头，便于跨日志/trace 关联。
 
 本地 dev 可通过 `DEMO_ALIBABA_STRICT_MODE=false` 关闭严格模式（`application-alibaba-strict.yml` 已改为读取该 env）。CI/单测请设 `DEMO_ALIBABA_STRICT_MODE=false` 且 `DEMO_AI_FALLBACK_ENABLED=true`，或使用 `spring.profiles.group.dev=dev` 去掉 profile group 中的 `alibaba-strict`。
 
@@ -251,7 +260,7 @@ http://localhost:8080/
 ./mvnw spring-boot:run
 ```
 
-`/api/**` 默认开启 JWT 鉴权（仅 `/api/health` 与 `/api/auth/dev-token` 公开）。内置工作台在加载时
+`/api/**` 默认开启 JWT 鉴权（`/api/health` 需 `SCOPE_health.read`，`/api/auth/dev-token` 仅本地/演示公开；公开探针为 `/healthz` 与 `/actuator/health`）。内置工作台在加载时
 会自动向 `/api/auth/dev-token` 申请一个短期开发令牌并附加到所有请求与 SSE 调用，因此本地直接可用。
 HS256 secret 未设置时使用内置的不安全默认值，仅供本机演示，任何共享环境务必通过
 `DEMO_SECURITY_JWT_SECRET` 覆盖或改用 issuer 模式。

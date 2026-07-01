@@ -6,6 +6,9 @@ cd "$ROOT_DIR"
 
 PORT="${PORT:-8080}"
 HEALTH_URL="http://localhost:${PORT}/api/health"
+# Public, unauthenticated liveness probe used as the readiness gate before the authenticated
+# strict-mode verification runs.
+HEALTHZ_URL="http://localhost:${PORT}/healthz"
 LOG_DIR="$ROOT_DIR/var/log"
 LOG_FILE="$LOG_DIR/local-alibaba.log"
 PID_FILE="$ROOT_DIR/var/local-alibaba.pid"
@@ -260,7 +263,9 @@ backend_pid=$!
 printf '%s\n' "$backend_pid" > "$PID_FILE"
 
 for _ in {1..90}; do
-  if "$ROOT_DIR/scripts/verify-local-alibaba.sh" "$HEALTH_URL" >/dev/null 2>&1; then
+  # Gate on the public /healthz probe first, then assert the full strict Alibaba state.
+  if curl -fsS "$HEALTHZ_URL" >/dev/null 2>&1 \
+      && "$ROOT_DIR/scripts/verify-local-alibaba.sh" "$HEALTH_URL" >/dev/null 2>&1; then
     "$ROOT_DIR/scripts/verify-local-alibaba.sh" "$HEALTH_URL"
     log "Open http://localhost:${PORT}/"
     log "PID: $backend_pid"
