@@ -8,9 +8,12 @@ import java.util.regex.Pattern;
 
 public final class OrderIdExtractor {
 
-    // A standalone numeric order id (>= 8 digits). Reject digits glued to letters, other
-    // digits, or a decimal point so amounts like "12345678.90" are not mistaken for order ids.
-    private static final Pattern ORDER_ID_PATTERN = Pattern.compile("(?<![A-Za-z0-9.])(\\d{8,})(?![A-Za-z0-9.])");
+    // A standalone numeric order id (>= 8 digits). Reject digits glued to letters or other
+    // digits. A decimal point is only disqualifying when it sits between digits, so decimal
+    // amounts like "12345678.90" are ignored while a trailing sentence period ("...20260630001.")
+    // still yields the order id.
+    private static final Pattern ORDER_ID_PATTERN =
+            Pattern.compile("(?<![A-Za-z0-9])(?<!\\d\\.)(\\d{8,})(?![A-Za-z0-9])(?!\\.\\d)");
 
     private OrderIdExtractor() {
     }

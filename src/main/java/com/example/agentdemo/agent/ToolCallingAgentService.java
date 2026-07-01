@@ -47,6 +47,9 @@ public class ToolCallingAgentService {
     private static final Pattern EXPRESSION_PATTERN = Pattern.compile("([0-9(][0-9+\\-*/().\\s]*[0-9)])");
     private static final Pattern ORDER_ID_CLAIM_PATTERN = Pattern.compile(
             "(?i)(?:订单号|order\\s*(?:id|number))\\s*(?:是|为|:|：)?\\s*([A-Za-z0-9_-]{3,})");
+    // A bare "它" pronoun referring to a prior order, but not the "它" inside "其它" (= "other"),
+    // so "其它退货问题" is not mistaken for a reference to a historical order.
+    private static final Pattern STANDALONE_TA_PATTERN = Pattern.compile("(?<!其)它");
     private static final List<String> ORDER_INTENT_KEYWORDS = List.of(
             "订单", "退货", "退款", "物流", "快递", "运单", "发货", "包裹", "配送", "售后", "拒收",
             "order", "return", "refund", "tracking", "shipment", "delivery");
@@ -346,7 +349,8 @@ public class ToolCallingAgentService {
                 || lower.contains("那个订单")
                 || lower.contains("这单")
                 || lower.contains("那单")
-                || lower.contains("它们");
+                || lower.contains("它们")
+                || STANDALONE_TA_PATTERN.matcher(lower).find();
     }
 
     private boolean referencesTwoOrders(String message) {
@@ -799,12 +803,37 @@ public class ToolCallingAgentService {
     }
 
     private Optional<String> latestOrderId(List<ConversationMessage> history) {
-        // Reuse the validity rules so we never re-bind an order id that was reported unavailable.
-        List<String> validOrderIds = recentValidOrderIds(history);
-        if (validOrderIds.isEmpty()) {
-            return Optional.empty();
+        // First collect the order ids the assistant reported as unavailable, honouring "latest
+        // mention wins": a later concrete confirmation clears an earlier "not found" verdict.
+        Set<String> invalidOrderIds = new LinkedHashSet<>();
+        for (ConversationMessage message : history) {
+            if (message.role() != ConversationRole.ASSISTANT) {
+                continue;
+            }
+            List<String> extractedOrderIds = OrderIdExtractor.extractAll(message.content());
+            if (extractedOrderIds.isEmpty()) {
+                continue;
+            }
+            if (reportsUnavailableOrder(message.content())) {
+                invalidOrderIds.addAll(extractedOrderIds);
+            }
+            else if (mentionsConcreteOrder(message.content())) {
+                invalidOrderIds.removeAll(extractedOrderIds);
+            }
         }
-        return Optional.of(validOrderIds.getLast());
+        // Then scan every turn -- including the user's -- from newest to oldest, so an order id the
+        // user supplied is still recoverable even if the assistant never repeated it, while never
+        // re-binding an id that was reported unavailable.
+        for (int i = history.size() - 1; i >= 0; i--) {
+            List<String> extractedOrderIds = OrderIdExtractor.extractAll(history.get(i).content());
+            for (int j = extractedOrderIds.size() - 1; j >= 0; j--) {
+                String orderId = extractedOrderIds.get(j);
+                if (!invalidOrderIds.contains(orderId)) {
+                    return Optional.of(orderId);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private List<ToolPlan> plan(String message, List<ConversationMessage> history, String runId) {

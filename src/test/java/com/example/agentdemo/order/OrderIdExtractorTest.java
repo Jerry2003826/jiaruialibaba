@@ -24,4 +24,11 @@ class OrderIdExtractorTest {
         assertThat(OrderIdExtractor.extractFirst("订单号 20260630001 帮我查物流")).contains("20260630001");
     }
 
+    @Test
+    void extractsOrderIdImmediatelyFollowedByASentencePeriod() {
+        assertThat(OrderIdExtractor.extractFirst("Please check order 20260630001.")).contains("20260630001");
+        assertThat(OrderIdExtractor.extractAll("Orders 20260630001. and 20260630002."))
+                .containsExactly("20260630001", "20260630002");
+    }
+
 }

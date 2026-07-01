@@ -291,6 +291,39 @@ class ToolCallingAgentServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void barePronounReferencesTheMostRecentHistoricalOrder() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "查 20260630001"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "订单 20260630001 已发货。"));
+
+        stubConversation(conversationMemoryService, history);
+        when(workflowService.run(any(WorkflowRunRequest.class))).thenReturn(new WorkflowRunResponse(
+                Map.of("answer", "好的"), "workflow-run-ta", List.of(), "workflow-1", 1));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.strictMode(), ragService, workflowService);
+
+        // A bare "它" pronoun should still resolve to the most recent historical order.
+        service.assistantChat(new ToolChatRequest("conv-1", "它到哪了", "workflow-1", null));
+
+        ArgumentCaptor<WorkflowRunRequest> requestCaptor = ArgumentCaptor.forClass(WorkflowRunRequest.class);
+        verify(workflowService).run(requestCaptor.capture());
+        Map<String, Object> workflowInput = requestCaptor.getValue().input();
+        assertThat((List<String>) workflowInput.get("referencedOrderIds")).containsExactly("20260630001");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void bareEnglishWordOrdersDoesNotExpandToEveryCachedOrder() {
         ToolGatewayService toolGatewayService = gatewayWithLocalTools();
         DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
@@ -749,6 +782,42 @@ class ToolCallingAgentServiceTest {
         assertThat(response.toolCalls()).isEmpty();
         assertThat(response.retrievedContext()).isEmpty();
         verify(ragService, never()).retrieveForChat(anyString(), anyString());
+    }
+
+    @Test
+    void reusesOrderIdThatOnlyAppearedInAPreviousUserMessage() {
+        ToolGatewayService toolGatewayService = gatewayWithLocalTools();
+        DemoToolCallbackFactory callbackFactory = new DemoToolCallbackFactory(toolGatewayService, new ObjectMapper(),
+                mock(ObjectProvider.class));
+        AiModelService aiModelService = mock(AiModelService.class);
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ConversationMemoryService conversationMemoryService = mock(ConversationMemoryService.class);
+        TraceService traceService = mock(TraceService.class);
+        RagService ragService = mock(RagService.class);
+        // The order id only ever appeared in the user's earlier turn; the assistant's confirmation
+        // neither repeated it nor used a concrete-order keyword, so it must still be recoverable.
+        List<ConversationMessage> history = List.of(
+                new ConversationMessage(ConversationRole.USER, "帮我查 20260630001 的物流"),
+                new ConversationMessage(ConversationRole.ASSISTANT, "您的包裹已揽收，预计明天送达。"));
+
+        when(aiModelService.isModelConfigured()).thenReturn(false);
+        when(chatClientProvider.getIfAvailable()).thenReturn(null);
+        stubConversation(conversationMemoryService, history);
+        when(traceService.startRun(any(), any())).thenReturn(new TraceRun("run-1", Instant.now()));
+        when(traceService.startTraceStep(anyString(), anyString(), any()))
+                .thenReturn(new TraceStep("step-1", "run-1", "agent_plan"),
+                        new TraceStep("step-2", "run-1", "tool_queryOrderAPI"),
+                        new TraceStep("step-3", "run-1", "assistant_final_answer"));
+        when(aiModelService.generate(anyString(), any(), anyString())).thenReturn(AiModelResult.ok("订单已发货"));
+
+        ToolCallingAgentService service = new ToolCallingAgentService(toolGatewayService, callbackFactory,
+                aiModelService, chatClientProvider, conversationMemoryService, traceService,
+                TestAlibabaPolicies.legacyFallbackAllowed(), ragService);
+
+        AssistantChatResponse response = service.assistantChat(new ToolChatRequest(null, "那退款到账了吗"));
+
+        assertThat(response.toolCalls()).hasSize(1);
+        assertThat(response.toolCalls().getFirst().toolName()).isEqualTo("queryOrderAPI");
     }
 
     @Test
