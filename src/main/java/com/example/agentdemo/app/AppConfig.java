@@ -1,6 +1,10 @@
 package com.example.agentdemo.app;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -17,8 +21,12 @@ import java.util.List;
  * @param knowledgeBaseIds  knowledge bases used as the default retrieval source for CHAT apps
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record AppConfig(String systemPrompt, String model, Boolean memoryEnabled, Integer memoryMaxMessages,
-        List<String> knowledgeBaseIds) {
+public record AppConfig(
+        @Size(max = 16000) String systemPrompt,
+        @Size(max = 128) String model,
+        Boolean memoryEnabled,
+        @Min(0) @Max(100) Integer memoryMaxMessages,
+        @Size(max = 20) List<@NotBlank @Size(max = 64) String> knowledgeBaseIds) {
 
     /** Compatibility constructor for configs without bound knowledge bases. */
     public AppConfig(String systemPrompt, String model, Boolean memoryEnabled, Integer memoryMaxMessages) {

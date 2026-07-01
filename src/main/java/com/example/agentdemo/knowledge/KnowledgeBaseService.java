@@ -134,8 +134,12 @@ public class KnowledgeBaseService {
         catch (IOException ex) {
             throw new BusinessException("DOCUMENT_FILE_READ_FAILED", "Failed to read uploaded file", ex);
         }
-        String fileName = file.getOriginalFilename();
+        String fileName = documentTextExtractor.sanitizeFileName(file.getOriginalFilename());
         String mimeType = documentTextExtractor.detectMimeType(bytes, fileName);
+        if (!documentTextExtractor.isAllowedMimeType(mimeType)) {
+            throw new BusinessException("DOCUMENT_MIME_NOT_ALLOWED",
+                    "Uploaded file type is not allowed: " + (StringUtils.hasText(mimeType) ? mimeType : "unknown"));
+        }
         String title = StringUtils.hasText(fileName) ? fileName : "Uploaded file";
 
         // A parse failure must not lose the document record: persist it as FAILED with the reason.

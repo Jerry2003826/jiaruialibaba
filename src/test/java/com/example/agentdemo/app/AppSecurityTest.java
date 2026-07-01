@@ -1,6 +1,14 @@
 package com.example.agentdemo.app;
 
 import com.example.agentdemo.AgentBackendDemoApplication;
+import com.example.agentdemo.app.dto.AppResponse;
+import com.example.agentdemo.app.dto.CreateAppRequest;
+import com.example.agentdemo.workflow.WorkflowDefinition;
+import com.example.agentdemo.workflow.WorkflowDefinitionResponse;
+import com.example.agentdemo.workflow.WorkflowDefinitionSaveRequest;
+import com.example.agentdemo.workflow.WorkflowDefinitionService;
+import com.example.agentdemo.workflow.WorkflowEdge;
+import com.example.agentdemo.workflow.WorkflowNode;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -18,7 +26,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -46,6 +56,12 @@ class AppSecurityTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AppService appService;
+
+    @Autowired
+    private WorkflowDefinitionService workflowDefinitionService;
 
     @Test
     void appListRequiresAppReadScope() throws Exception {
@@ -93,11 +109,125 @@ class AppSecurityTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void createRejectsOversizedSystemPrompt() throws Exception {
+        mockMvc.perform(post("/api/apps")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("app.write")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Too Big",
+                                  "type": "CHAT",
+                                  "config": {
+                                    "systemPrompt": "%s"
+                                  }
+                                }
+                                """.formatted("x".repeat(16001))))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("VALIDATION_ERROR", "config.systemPrompt"));
+    }
+
+    @Test
+    void createRejectsTooManyKnowledgeBaseIds() throws Exception {
+        String kbIds = java.util.stream.IntStream.range(0, 21)
+                .mapToObj(i -> "\"kb-%02d\"".formatted(i))
+                .collect(java.util.stream.Collectors.joining(","));
+        mockMvc.perform(post("/api/apps")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("app.write")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "KB Overflow",
+                                  "type": "CHAT",
+                                  "config": {
+                                    "knowledgeBaseIds": [%s]
+                                  }
+                                }
+                                """.formatted(kbIds)))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("VALIDATION_ERROR", "config.knowledgeBaseIds"));
+    }
+
+    @Test
+    void createRejectsTooLargeMemoryWindow() throws Exception {
+        mockMvc.perform(post("/api/apps")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("app.write")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Memory Overflow",
+                                  "type": "CHAT",
+                                  "config": {
+                                    "memoryMaxMessages": 101
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("VALIDATION_ERROR", "config.memoryMaxMessages"));
+    }
+
+    @Test
+    void createAcceptsValidBoundaryConfig() throws Exception {
+        mockMvc.perform(post("/api/apps")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("app.write")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Valid Chat",
+                                  "type": "CHAT",
+                                  "config": {
+                                    "systemPrompt": "%s",
+                                    "model": "%s",
+                                    "memoryMaxMessages": 100,
+                                    "knowledgeBaseIds": ["kb-001"]
+                                  }
+                                }
+                                """.formatted("x".repeat(16000), "m".repeat(128))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void runRejectsOversizedInputPayload() throws Exception {
+        AppResponse app = appService.publish(appService.create(new CreateAppRequest("Flow App", null, AppType.WORKFLOW,
+                null, publishedWorkflow(), null)).appId());
+
+        mockMvc.perform(post("/api/apps/" + app.appId() + "/run")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("app.run")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "input": {
+                                    "message": "%s"
+                                  }
+                                }
+                                """.formatted("x".repeat(70_000))))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("VALIDATION_ERROR", "input"));
+    }
+
     private String appIdOf(String responseBody) {
         int idx = responseBody.indexOf("\"appId\":\"");
         int start = idx + "\"appId\":\"".length();
         int end = responseBody.indexOf('"', start);
         return responseBody.substring(start, end);
+    }
+
+    private String publishedWorkflow() {
+        WorkflowDefinitionResponse saved = workflowDefinitionService.save(
+                new WorkflowDefinitionSaveRequest("Flow", null, simpleWorkflow()));
+        workflowDefinitionService.publish(saved.definitionId());
+        return saved.definitionId();
+    }
+
+    private WorkflowDefinition simpleWorkflow() {
+        return new WorkflowDefinition(
+                List.of(new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(new WorkflowEdge("start", "end")));
     }
 
     private String bearer(List<String> scopes) throws Exception {

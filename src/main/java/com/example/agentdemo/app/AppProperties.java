@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 public class AppProperties {
 
     private boolean requirePublishedForRun = true;
+    private int maxRunInputBytes = 64 * 1024;
+    private ApiKey apiKey = new ApiKey();
 
     public boolean isRequirePublishedForRun() {
         return requirePublishedForRun;
@@ -20,6 +22,35 @@ public class AppProperties {
 
     public void setRequirePublishedForRun(boolean requirePublishedForRun) {
         this.requirePublishedForRun = requirePublishedForRun;
+    }
+
+    public int getMaxRunInputBytes() {
+        return maxRunInputBytes;
+    }
+
+    public void setMaxRunInputBytes(int maxRunInputBytes) {
+        this.maxRunInputBytes = maxRunInputBytes;
+    }
+
+    public ApiKey getApiKey() {
+        return apiKey;
+    }
+
+    public void setApiKey(ApiKey apiKey) {
+        this.apiKey = apiKey;
+    }
+
+    public static class ApiKey {
+
+        private long lastUsedUpdateIntervalSeconds = 60;
+
+        public long getLastUsedUpdateIntervalSeconds() {
+            return lastUsedUpdateIntervalSeconds;
+        }
+
+        public void setLastUsedUpdateIntervalSeconds(long lastUsedUpdateIntervalSeconds) {
+            this.lastUsedUpdateIntervalSeconds = lastUsedUpdateIntervalSeconds;
+        }
     }
 
 }

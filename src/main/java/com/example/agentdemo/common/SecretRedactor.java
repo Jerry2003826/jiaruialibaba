@@ -23,7 +23,9 @@ public final class SecretRedactor {
     public static final String REDACTED = "[REDACTED]";
 
     private static final List<String> SENSITIVE_KEY_FRAGMENTS = List.of(
-            "api_key", "apikey", "authorization", "cookie", "password", "secret", "token");
+            "api_key", "apikey", "access_key", "accesskey", "authorization", "bearer", "cookie",
+            "credential", "credentials", "dashscope_key", "dashvector_key", "password", "private_key",
+            "privatekey", "secret", "secret_key", "token");
 
     private static final Set<String> TOKEN_ACCOUNTING_KEYS = Set.of(
             "tokenusage",
@@ -43,6 +45,12 @@ public final class SecretRedactor {
             "outputtokensdetails",
             "totaltokensdetails");
 
+    private static final Set<String> NON_SECRET_KEY_NAMES = Set.of(
+            "keyid",
+            "documentkey",
+            "cachekey",
+            "partitionkey");
+
     private SecretRedactor() {
     }
 
@@ -54,7 +62,7 @@ public final class SecretRedactor {
      */
     public static boolean isSensitiveKey(String key) {
         String normalized = key == null ? "" : key.toLowerCase().replace("-", "_");
-        if (isTokenAccountingKey(normalized)) {
+        if (isTokenAccountingKey(normalized) || isNonSecretKeyName(normalized)) {
             return false;
         }
         return SENSITIVE_KEY_FRAGMENTS.stream().anyMatch(normalized::contains);
@@ -63,6 +71,11 @@ public final class SecretRedactor {
     private static boolean isTokenAccountingKey(String normalized) {
         String compact = normalized.replace("_", "");
         return TOKEN_ACCOUNTING_KEYS.contains(compact);
+    }
+
+    private static boolean isNonSecretKeyName(String normalized) {
+        String compact = normalized.replace("_", "");
+        return NON_SECRET_KEY_NAMES.contains(compact);
     }
 
     /**

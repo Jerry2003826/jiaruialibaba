@@ -1569,10 +1569,11 @@
         state.lastRunId = response.runId;
         setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
         renderRunResult(response);
+        setRunStatus(`回放中 · ${response.runId ? response.runId.slice(0, 8) : ""}`);
         await animateRunOnCanvas(response.runId);
         setRunStatus(`完成 · ${response.runId ? response.runId.slice(0, 8) : ""}`);
         await loadDefinitionHistory();
-        toast("工作流运行完成");
+        toast("工作流运行完成，已刷新运行后节点状态回放");
       },
       onError: (error) => {
         setWorkflowStatus("Run failed");
@@ -1604,9 +1605,9 @@
   // ============================================================
   // 运行轨迹
   // ============================================================
-  // Progressively highlight canvas nodes from the run-events SSE (node_started/succeeded/failed),
-  // then settle the authoritative statuses + steps panel via refreshRunTrace. Falls back to a plain
-  // refresh if the events stream is unavailable.
+  // trace-driven highlighting / 事件回放式高亮: replay run-events after the synchronous run
+  // completes, then settle the authoritative statuses + steps panel via refreshRunTrace. Falls
+  // back to a plain refresh if the events stream is unavailable.
   async function animateRunOnCanvas(runId) {
     if (!runId) return;
     clearCanvasNodeStatuses();

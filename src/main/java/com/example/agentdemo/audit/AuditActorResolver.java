@@ -23,6 +23,11 @@ public class AuditActorResolver {
 
     private static final int MAX_IP_LENGTH = 64;
     private static final int MAX_USER_AGENT_LENGTH = 256;
+    private final AuditProperties auditProperties;
+
+    public AuditActorResolver(AuditProperties auditProperties) {
+        this.auditProperties = auditProperties;
+    }
 
     public AuditActor resolve() {
         String ownerId = SecurityIdentity.currentOwnerId();
@@ -54,11 +59,13 @@ public class AuditActorResolver {
         if (request == null) {
             return null;
         }
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwarded)) {
-            String first = forwarded.split(",")[0].trim();
-            if (StringUtils.hasText(first)) {
-                return truncate(first, MAX_IP_LENGTH);
+        if (auditProperties.isTrustForwardedHeaders()) {
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (StringUtils.hasText(forwarded)) {
+                String first = forwarded.split(",")[0].trim();
+                if (StringUtils.hasText(first)) {
+                    return truncate(first, MAX_IP_LENGTH);
+                }
             }
         }
         return truncate(request.getRemoteAddr(), MAX_IP_LENGTH);

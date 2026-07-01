@@ -243,7 +243,11 @@
             <div class="run-output">
               <div class="run-output-head">
                 <h4>结果</h4>
-                <button id="refresh-run-graph" class="btn btn-ghost btn-sm" type="button">刷新轨迹</button>
+                <button id="refresh-run-graph" class="btn btn-ghost btn-sm" type="button"
+                        title="按事件与运行步骤刷新运行后节点状态回放">刷新轨迹</button>
+              </div>
+              <div class="run-hint" title="trace-driven highlighting / 事件回放式高亮">
+                运行后节点状态回放：基于 trace-driven highlighting / 事件回放式高亮恢复节点状态，不承诺实时逐节点执行。
               </div>
               <div id="run-result" class="result-card empty-result">运行后在这里查看友好结果与每一步轨迹。</div>
               <div class="trace-wrap">

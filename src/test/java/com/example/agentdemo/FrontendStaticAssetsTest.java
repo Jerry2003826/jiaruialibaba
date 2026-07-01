@@ -137,10 +137,20 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("/api/knowledge-bases")))
                 .andExpect(content().string(containsString("loadKnowledgeBases")))
                 .andExpect(content().string(containsString("uploadKbFile")))
-                // Real-time canvas highlighting from run-events SSE.
+                // Trace-driven highlighting / event replay wording in static assets.
                 .andExpect(content().string(containsString("/events")))
                 .andExpect(content().string(containsString("animateRunOnCanvas")))
-                .andExpect(content().string(containsString("applyRunEventToCanvas")));
+                .andExpect(content().string(containsString("applyRunEventToCanvas")))
+                .andExpect(content().string(containsString("trace-driven highlighting")));
+    }
+
+    @Test
+    void servesReplayHighlightingCopyOnWorkbenchHomePage() throws Exception {
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("运行后节点状态回放", "事件回放式高亮", "trace-driven highlighting")
+                        .doesNotContain("实时逐节点高亮"));
     }
 
     @Test

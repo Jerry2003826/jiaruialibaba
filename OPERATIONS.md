@@ -6,15 +6,25 @@
 
 ```bash
 cp .env.prod.example .env.prod   # 填入真实 DB / JWT issuer / DashScope / DashVector 配置
-docker compose -f docker-compose.prod.yml up --build -d          # app + postgres
-# 可选：带反向代理 / 缓存
-docker compose -f docker-compose.prod.yml --profile proxy up -d  # 额外启动 nginx
+DEMO_AUDIT_TRUST_FORWARDED_HEADERS=true docker compose -f docker-compose.prod.yml --profile proxy up --build -d
+# 可选：带缓存
 docker compose -f docker-compose.prod.yml --profile cache up -d  # 额外启动 redis（占位，暂未接入）
 ```
 
 - app 以 `SPRING_PROFILES_ACTIVE=prod,postgres` 运行，非 root 用户，内置 `/healthz` 健康检查。
+- 默认生产模式下 app 不向宿主机发布端口，只在 compose 网络内 `expose: 8080`，由 nginx 反向代理访问。
+- `DEMO_AUDIT_TRUST_FORWARDED_HEADERS` 默认保持 `false`；仅在受信反向代理部署时显式设为 `true`，否则审计 IP 一律取 `request.getRemoteAddr()`。
 - 启动即执行生产硬门槛校验（见 `SECURITY.md`）；配置不合规会拒绝启动并打印全部问题。
-- 探活：`curl -fsS http://localhost:8080/healthz` → `{"status":"UP"}`。
+- 推荐探活：`curl -fsS http://localhost/healthz` → `{"status":"UP"}`。
+
+### 内网直连 / 调试
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.direct.yml up --build -d
+curl -fsS http://localhost:8080/healthz
+```
+
+- `docker-compose.direct.yml` 仅用于可信内网直连或临时调试，会显式发布 app 端口并关闭 forwarded header 信任。
 
 ### 查看状态 / 日志
 

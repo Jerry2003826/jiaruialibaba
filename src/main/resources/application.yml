@@ -93,6 +93,8 @@ logging:
     org.springframework.ai: INFO
 
 demo:
+  audit:
+    trust-forwarded-headers: ${DEMO_AUDIT_TRUST_FORWARDED_HEADERS:false}
   security:
     # hmac: validate HS256 tokens with demo.security.jwt-secret (local/demo default).
     # issuer: back off the local decoder and let Spring Boot auto-configure an
@@ -118,6 +120,19 @@ demo:
   chat:
     memory:
       max-messages: ${DEMO_CHAT_MEMORY_MAX_MESSAGES:20}
+  knowledge:
+    max-file-bytes: ${DEMO_KNOWLEDGE_MAX_FILE_BYTES:10485760}
+    max-content-chars: ${DEMO_KNOWLEDGE_MAX_CONTENT_CHARS:500000}
+    allowed-mime-types:
+      - text/plain
+      - text/markdown
+      - text/csv
+      - text/html
+      - application/pdf
+      - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      - application/vnd.openxmlformats-officedocument.presentationml.presentation
+      - application/msword
+      - application/vnd.ms-powerpoint
   rag:
     retriever: ${DEMO_RAG_RETRIEVER:dashvector}
     keyword-fallback-enabled: ${DEMO_RAG_KEYWORD_FALLBACK_ENABLED:true}
@@ -134,6 +149,9 @@ demo:
     # Runtime invocations (run/chat/chat-stream) must use the published, immutable app revision.
     # Set false only for local/dev iteration on unpublished drafts.
     require-published-for-run: ${DEMO_APP_REQUIRE_PUBLISHED_FOR_RUN:true}
+    max-run-input-bytes: ${DEMO_APP_MAX_RUN_INPUT_BYTES:65536}
+    api-key:
+      last-used-update-interval-seconds: ${DEMO_APP_API_KEY_LAST_USED_UPDATE_INTERVAL_SECONDS:60}
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
     require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}

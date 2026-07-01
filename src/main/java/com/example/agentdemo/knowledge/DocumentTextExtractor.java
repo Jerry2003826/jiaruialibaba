@@ -8,6 +8,9 @@ import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Extracts plain text and detects the MIME type of uploaded documents using Apache Tika. Supports
@@ -16,6 +19,8 @@ import java.io.IOException;
  */
 @Component
 public class DocumentTextExtractor {
+
+    private static final int MAX_FILE_NAME_LENGTH = 256;
 
     private final KnowledgeProperties knowledgeProperties;
 
@@ -31,7 +36,18 @@ public class DocumentTextExtractor {
      * @return the detected MIME type
      */
     public String detectMimeType(byte[] bytes, String fileName) {
-        return newTika().detect(bytes, fileName == null ? "" : fileName);
+        return newTika().detect(bytes, sanitizeFileName(fileName));
+    }
+
+    public boolean isAllowedMimeType(String mimeType) {
+        if (!StringUtils.hasText(mimeType)) {
+            return false;
+        }
+        Set<String> allowed = knowledgeProperties.getAllowedMimeTypes().stream()
+                .filter(StringUtils::hasText)
+                .map(value -> value.toLowerCase(Locale.ROOT).trim())
+                .collect(Collectors.toUnmodifiableSet());
+        return allowed.contains(mimeType.toLowerCase(Locale.ROOT).trim());
     }
 
     /**
@@ -64,7 +80,25 @@ public class DocumentTextExtractor {
     }
 
     private String safeName(String fileName) {
-        return StringUtils.hasText(fileName) ? fileName : "(unnamed)";
+        String sanitized = sanitizeFileName(fileName);
+        return StringUtils.hasText(sanitized) ? sanitized : "(unnamed)";
+    }
+
+    public String sanitizeFileName(String fileName) {
+        if (!StringUtils.hasText(fileName)) {
+            return null;
+        }
+        String normalized = fileName.replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        String baseName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        String cleaned = baseName.replace("/", "").replace("\\", "").trim();
+        if (!StringUtils.hasText(cleaned)) {
+            return "uploaded-file";
+        }
+        if (cleaned.length() > MAX_FILE_NAME_LENGTH) {
+            return cleaned.substring(0, MAX_FILE_NAME_LENGTH);
+        }
+        return cleaned;
     }
 
 }

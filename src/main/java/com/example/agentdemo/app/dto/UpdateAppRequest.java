@@ -1,6 +1,7 @@
 package com.example.agentdemo.app.dto;
 
 import com.example.agentdemo.app.AppConfig;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -17,7 +18,7 @@ import jakarta.validation.constraints.Size;
 public record UpdateAppRequest(
         @NotBlank @Size(max = 128) String name,
         @Size(max = 1024) String description,
-        AppConfig config,
+        @Valid AppConfig config,
         @Size(max = 64) String workflowDefinitionId,
         Integer workflowDefinitionVersion) {
 }

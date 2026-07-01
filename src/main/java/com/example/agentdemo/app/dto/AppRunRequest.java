@@ -1,5 +1,7 @@
 package com.example.agentdemo.app.dto;
 
+import com.example.agentdemo.app.validation.ValidAppRunInput;
+
 import java.util.Map;
 
 /**
@@ -7,5 +9,5 @@ import java.util.Map;
  *
  * @param input workflow input variables (may be null/empty)
  */
-public record AppRunRequest(Map<String, Object> input) {
+public record AppRunRequest(@ValidAppRunInput Map<String, Object> input) {
 }

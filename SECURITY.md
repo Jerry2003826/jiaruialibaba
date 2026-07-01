@@ -51,6 +51,8 @@
 ## 网络与传输
 
 - 生产建议前置 nginx/反向代理终止 TLS（见 `deploy/nginx/nginx.conf` 与 `docker-compose.prod.yml` 的 `proxy` profile），并透传 `X-Forwarded-For`、`X-Request-Id`。
+- `demo.audit.trust-forwarded-headers` 默认是 `false`；只有在受信反向代理部署下才应开启。推荐用 `DEMO_AUDIT_TRUST_FORWARDED_HEADERS=true docker compose -f docker-compose.prod.yml --profile proxy up --build -d` 启动代理模式。
+- 直连 app 的场景只建议用于可信内网调试；此时应保持 `demo.audit.trust-forwarded-headers=false`，避免客户端伪造源 IP。
 - Actuator 的 metrics/prometheus 默认需要 scope；如需 Prometheus 抓取，建议独立管理端口或反向代理内网限制。
 
 ## 密钥与备份

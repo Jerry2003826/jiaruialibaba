@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -42,10 +44,21 @@ public class AppApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private final AppApiKeyRepository appApiKeyRepository;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
+    private final long lastUsedUpdateIntervalSeconds;
 
-    public AppApiKeyAuthenticationFilter(AppApiKeyRepository appApiKeyRepository, ObjectMapper objectMapper) {
+    @Autowired
+    public AppApiKeyAuthenticationFilter(AppApiKeyRepository appApiKeyRepository, ObjectMapper objectMapper,
+            com.example.agentdemo.app.AppProperties appProperties) {
+        this(appApiKeyRepository, objectMapper, appProperties, Clock.systemUTC());
+    }
+
+    AppApiKeyAuthenticationFilter(AppApiKeyRepository appApiKeyRepository, ObjectMapper objectMapper,
+            com.example.agentdemo.app.AppProperties appProperties, Clock clock) {
         this.appApiKeyRepository = appApiKeyRepository;
         this.objectMapper = objectMapper;
+        this.clock = clock;
+        this.lastUsedUpdateIntervalSeconds = appProperties.getApiKey().getLastUsedUpdateIntervalSeconds();
     }
 
     @Override
@@ -103,7 +116,12 @@ public class AppApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private void touchLastUsed(AppApiKeyEntity key) {
         try {
-            key.markUsed(Instant.now());
+            Instant now = Instant.now(clock);
+            if (key.getLastUsedAt() != null
+                    && key.getLastUsedAt().plusSeconds(lastUsedUpdateIntervalSeconds).isAfter(now)) {
+                return;
+            }
+            key.markUsed(now);
             appApiKeyRepository.save(key);
         }
         catch (RuntimeException ex) {

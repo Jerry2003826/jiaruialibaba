@@ -111,6 +111,44 @@ class KnowledgeBaseIntegrationTest {
     }
 
     @Test
+    void txtIngestionSanitizesDangerousFileName() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "../../notes.txt", "text/plain",
+                "returns and refunds".getBytes());
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(doc.fileName()).isEqualTo("notes.txt");
+        assertThat(doc.title()).isEqualTo("notes.txt");
+    }
+
+    @Test
+    void zipFileIsRejectedBeforeParsing() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "archive.zip", "application/zip",
+                new byte[] { 'P', 'K', 3, 4, 20, 0 });
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
+    }
+
+    @Test
+    void octetStreamFileIsRejectedBeforeParsing() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "blob.bin", "application/octet-stream",
+                new byte[] { 1, 2, 3, 4 });
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
+    }
+
+    @Test
     void unparseableFileIsRecordedAsFailed() {
         String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
                 .kbId();
@@ -122,6 +160,17 @@ class KnowledgeBaseIntegrationTest {
 
         assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.FAILED);
         assertThat(doc.errorMessage()).contains("No extractable text");
+    }
+
+    @Test
+    void emptyFileIsRejected() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "empty.txt", "text/plain", new byte[0]);
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_FILE_EMPTY"));
     }
 
     @Test

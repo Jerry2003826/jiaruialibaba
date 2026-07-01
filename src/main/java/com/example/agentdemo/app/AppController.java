@@ -92,7 +92,7 @@ public class AppController {
 
     @PostMapping("/{appId}/run")
     public ApiResponse<AppRunResultResponse> run(@PathVariable String appId,
-            @RequestBody(required = false) AppRunRequest request) {
+            @Valid @RequestBody(required = false) AppRunRequest request) {
         return ApiResponse.ok(appRuntimeService.run(appId, request));
     }
 
