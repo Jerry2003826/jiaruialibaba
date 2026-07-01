@@ -472,11 +472,19 @@ button { font-family: inherit; }
 .edge-path { fill: none; stroke: #b9c0cc; stroke-width: 2; transition: stroke .15s; }
 .edge-path.conditional { stroke: var(--node-flow); stroke-dasharray: 6 5; }
 .edge-path.active { stroke: var(--run); stroke-width: 2.6; }
+.edge-path.route-highlight {
+  stroke: var(--run);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 7px rgba(47, 127, 245, .42));
+}
+.edge-path.route-muted { opacity: .2; }
 .arrow-head { fill: #b9c0cc; }
 .edge-label {
   font-size: 11px; font-weight: 600; fill: var(--node-flow);
   paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round;
 }
+.edge-label.route-highlight { fill: var(--run); font-weight: 750; }
+.edge-label.route-muted { opacity: .24; }
 .node-layer { position: absolute; top: 0; left: 0; }
 
 .canvas-node {
@@ -495,6 +503,13 @@ button { font-family: inherit; }
 .canvas-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring), var(--sh-md); }
 .canvas-node.connecting { border-color: var(--node-flow); box-shadow: 0 0 0 3px rgba(139, 92, 246, .25); }
 .canvas-node.dragging { box-shadow: var(--sh-lg); cursor: grabbing; z-index: 20; }
+.canvas-node.route-highlight {
+  border-color: var(--run);
+  box-shadow: 0 0 0 3px rgba(47, 127, 245, .20), 0 10px 26px rgba(47, 127, 245, .18);
+  z-index: 12;
+}
+.canvas-node.route-highlight .node-accent { box-shadow: 0 0 14px rgba(47, 127, 245, .45); }
+.canvas-node.route-muted { opacity: .34; filter: grayscale(.18); }
 .canvas-node.status-success { border-color: var(--ok); }
 .canvas-node.status-failed { border-color: var(--err); }
 .canvas-node.status-running { border-color: var(--run); }
@@ -563,6 +578,97 @@ button { font-family: inherit; }
 .zoom-btn:hover { background: var(--surface-3); color: var(--text); }
 .zoom-label { border: none; background: transparent; color: var(--text-soft); font-size: 12px; font-weight: 600; cursor: pointer; min-width: 42px; }
 .zoom-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
+/* 路由分配概览 */
+.route-map-panel {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: min(390px, calc(100% - 112px));
+  max-height: calc(100% - var(--run-drawer-current-h) - 32px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-md);
+  z-index: 7;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+.route-map-panel.collapsed { width: 210px; }
+.route-map-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.route-map-kicker {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  font-weight: 720;
+  letter-spacing: .08em;
+  color: var(--text-faint);
+}
+.route-map-head strong { font-size: 13px; font-weight: 700; color: var(--text); }
+.route-map-toggle svg, #route-map-toggle svg { transition: transform .16s ease; }
+.route-map-panel.collapsed #route-map-toggle svg { transform: rotate(180deg); }
+.route-map-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  overflow-y: auto;
+}
+.route-filter {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .14s, background .14s, box-shadow .14s;
+}
+.route-filter:hover { border-color: var(--border-strong); box-shadow: var(--sh-sm); }
+.route-filter.active { border-color: var(--run); background: var(--run-soft); }
+.route-filter input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--run);
+}
+.route-filter-main { min-width: 0; }
+.route-filter-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 680;
+  color: var(--text);
+}
+.route-filter-path {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.route-filter-count {
+  align-self: start;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 
 /* 检查器（滑出） */
 .inspector-panel {
@@ -990,5 +1096,13 @@ button { font-family: inherit; }
   .palette-list { padding: 4px 8px 14px; }
   .palette-button { gap: 8px; padding: 8px; font-size: 12.5px; }
   .workflow-canvas { min-width: 420px; }
+  .route-map-panel {
+    left: 10px;
+    top: 10px;
+    width: min(320px, calc(100% - 72px));
+    max-height: 46vh;
+  }
+  .route-filter { grid-template-columns: 18px minmax(0, 1fr); }
+  .route-filter-count { grid-column: 2; justify-self: start; }
   .field-row { grid-template-columns: 1fr; }
 }

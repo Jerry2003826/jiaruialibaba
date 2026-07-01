@@ -16,17 +16,21 @@ import com.example.agentdemo.trace.TraceStep;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -431,6 +435,39 @@ class GraphWorkflowRuntimeTest {
         verify(traceService).failStep(eq("step-workflow_node_tool_1"),
                 any(com.example.agentdemo.common.BusinessException.class),
                 argThat(com.example.agentdemo.support.WorkflowRuntimeTestSupport::hasFailedAttempt));
+    }
+
+    @Test
+    void executesGraphNodesWithCapturedInlineExecutionContext() {
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-context"), any(), any()))
+                .thenAnswer(invocation -> stepForRun("run-context", invocation.getArgument(1)));
+        WorkflowInlineExecutionService inlineExecutionService = mock(WorkflowInlineExecutionService.class);
+        WorkflowInlineExecutionService.InlineExecutionContext inlineContext =
+                new WorkflowInlineExecutionService.InlineExecutionContext(new ArrayDeque<>(), 0, new ArrayList<>());
+        when(inlineExecutionService.captureContext()).thenReturn(inlineContext);
+        when(inlineExecutionService.callWithContext(eq(inlineContext), any()))
+                .thenAnswer(invocation -> ((Supplier<?>) invocation.getArgument(1)).get());
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService()))),
+                variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                inlineExecutionService);
+        GraphWorkflowRuntime runtime = new GraphWorkflowRuntime(nodeExecutor, traceService, executorService,
+                inlineExecutionService);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run("run-context", plan, Map.of("message", "hello"));
+
+        assertThat(result.steps()).hasSize(3);
+        verify(inlineExecutionService).captureContext();
+        verify(inlineExecutionService, atLeast(3)).callWithContext(eq(inlineContext), any());
     }
 
     private GraphWorkflowRuntime graphRuntime(WorkflowNodeExecutor nodeExecutor, TraceService traceService) {

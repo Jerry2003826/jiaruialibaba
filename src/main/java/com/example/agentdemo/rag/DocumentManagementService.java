@@ -8,6 +8,7 @@ import com.example.agentdemo.rag.dto.DocumentDetailResponse;
 import com.example.agentdemo.rag.dto.DocumentPageResponse;
 import com.example.agentdemo.rag.dto.DocumentSummaryResponse;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,7 +65,8 @@ public class DocumentManagementService {
         validatePageRequest(page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<DocumentEntity> documentPage = documentRepository
-                .findByIndexStatusNotOrderByCreatedAtDesc(DocumentIndexStatus.DELETED, pageable);
+                .findByOwnerIdAndIndexStatusNotOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId(),
+                        DocumentIndexStatus.DELETED, pageable);
         List<DocumentSummaryResponse> content = documentPage.getContent().stream()
                 .map(this::toSummary)
                 .toList();
@@ -110,7 +112,7 @@ public class DocumentManagementService {
         }
         document.markDeleting();
         documentRepository.save(document);
-        enqueueVectorDelete(documentId, vectorIds);
+        enqueueDocumentDelete(documentId, vectorIds);
     }
 
     private void cancelPendingUpserts(Long documentId) {
@@ -149,7 +151,7 @@ public class DocumentManagementService {
             return;
         }
         try {
-            outboxEventRepository.save(VectorOutboxEventEntity.delete(documentId,
+            outboxEventRepository.save(VectorOutboxEventEntity.vectorDelete(documentId,
                     objectMapper.writeValueAsString(vectorIds)));
         }
         catch (JsonProcessingException ex) {
@@ -158,11 +160,25 @@ public class DocumentManagementService {
         }
     }
 
+    private void enqueueDocumentDelete(Long documentId, List<String> vectorIds) {
+        if (outboxEventRepository == null) {
+            return;
+        }
+        try {
+            outboxEventRepository.save(VectorOutboxEventEntity.documentDelete(documentId,
+                    objectMapper.writeValueAsString(vectorIds)));
+        }
+        catch (JsonProcessingException ex) {
+            throw new BusinessException("VECTOR_OUTBOX_SERIALIZATION_FAILED",
+                    "Failed to serialize document delete outbox payload", ex);
+        }
+    }
+
     private DocumentEntity findDocument(Long documentId) {
         if (documentId == null) {
             throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
         }
-        return documentRepository.findById(documentId)
+        return documentRepository.findByIdAndOwnerId(documentId, SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("DOCUMENT_NOT_FOUND", "Document not found: " + documentId));
     }
 

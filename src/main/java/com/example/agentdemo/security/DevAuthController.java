@@ -24,25 +24,24 @@ import java.util.List;
 /**
  * Mints short-lived HS256 tokens so the bundled local workbench can authenticate against the
  * secured API without a full OIDC provider. Only registered when
- * {@code demo.security.dev-token.enabled=true} (default) and only mints tokens in
+ * {@code demo.security.dev-token.enabled=true} and only mints tokens in
  * {@code demo.security.jwt-mode=hmac}. Disable it for production deployments and front the UI
  * with a real identity provider (issuer mode) instead.
  *
- * <p>{@code @Profile("!prod")} is a hard, fail-safe guard: this anonymous full-scope token endpoint
- * is never registered under the {@code prod} profile, even if {@code dev-token.enabled} is left at
- * its default {@code true}. That prevents a prod deployment from silently exposing a way to mint a
- * fully-privileged token without any credentials.
+ * <p>{@code @Profile("!prod")} is a hard, fail-safe guard, and the property gate is opt-in. A
+ * deployment must explicitly enable this anonymous workbench token endpoint.
  */
 @RestController
 @RequestMapping("/api/auth")
 @Profile("!prod")
 @ConditionalOnProperty(prefix = "demo.security.dev-token", name = "enabled", havingValue = "true",
-        matchIfMissing = true)
+        matchIfMissing = false)
 public class DevAuthController {
 
     /** Scopes the workbench needs to drive every panel. Keep in sync with {@code SecurityConfig}. */
     static final List<String> WORKBENCH_SCOPES = List.of(
-            "chat.execute", "agent.execute", "rag.read", "rag.write", "rag.query",
+            "health.read", "chat.execute", "agent.execute", "rag.read", "rag.write", "rag.query",
+            "order.read", "order.write", "tool.read",
             "workflow.read", "workflow.edit", "workflow.run", "workflow.publish", "trace.read");
 
     private final String jwtMode;

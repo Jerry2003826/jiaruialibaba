@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
@@ -86,7 +87,7 @@ class VectorOutboxWorkerDataTest {
         verify(gateway).upsert(anyList());
 
         List<VectorOutboxEventEntity> compensating = outboxEventRepository.findAll().stream()
-                .filter(e -> e.getType() == VectorOutboxEventType.DELETE && e.getDocumentId().equals(documentId))
+                .filter(e -> e.getType() == VectorOutboxEventType.VECTOR_DELETE && e.getDocumentId().equals(documentId))
                 .toList();
         assertThat(compensating).hasSize(1);
         assertThat(compensating.getFirst().getStatus()).isEqualTo(VectorOutboxEventStatus.PENDING);
@@ -96,7 +97,7 @@ class VectorOutboxWorkerDataTest {
     }
 
     @Test
-    void upsertFailureMarksDocumentFailedAndSchedulesRetry() {
+    void upsertFailureKeepsDocumentPendingUntilRetriesAreExhausted() {
         long documentId = saveDocument(DocumentEntity::markPending);
         long eventId = saveUpsert(documentId);
         doThrow(new RuntimeException("dashvector unavailable")).when(gateway).upsert(anyList());
@@ -104,7 +105,7 @@ class VectorOutboxWorkerDataTest {
         worker.processPending();
 
         assertThat(documentRepository.findById(documentId)).get()
-                .extracting(DocumentEntity::getIndexStatus).isEqualTo(DocumentIndexStatus.FAILED);
+                .extracting(DocumentEntity::getIndexStatus).isEqualTo(DocumentIndexStatus.PENDING);
         VectorOutboxEventEntity event = outboxEventRepository.findById(eventId).orElseThrow();
         assertThat(event.getStatus()).isEqualTo(VectorOutboxEventStatus.FAILED);
         assertThat(event.getAttempts()).isEqualTo(1);
@@ -124,6 +125,40 @@ class VectorOutboxWorkerDataTest {
                 .extracting(VectorOutboxEventEntity::getStatus).isEqualTo(VectorOutboxEventStatus.FAILED);
         assertThat(documentRepository.findById(documentId)).isPresent();
         verify(gateway, never()).delete(anyCollection());
+    }
+
+    @Test
+    void deleteDeadLetterMarksDocumentFailedInsteadOfLeavingItDeleting() {
+        long documentId = saveDocument(DocumentEntity::markDeleting);
+        long eventId = saveDelete(documentId, List.of("doc-" + documentId + "-chunk-0"));
+        when(gateway.isConfigured()).thenReturn(false);
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            makeRetryImmediatelyClaimable(eventId);
+            worker.processPending();
+        }
+
+        assertThat(outboxEventRepository.findById(eventId)).get()
+                .extracting(VectorOutboxEventEntity::getStatus).isEqualTo(VectorOutboxEventStatus.DEAD_LETTER);
+        assertThat(documentRepository.findById(documentId)).get()
+                .extracting(DocumentEntity::getIndexStatus).isEqualTo(DocumentIndexStatus.FAILED);
+    }
+
+    @Test
+    void vectorDeleteSuccessRemovesOnlyOldChunksAndKeepsUpdatedDocument() {
+        long documentId = saveDocument(DocumentEntity::markPending);
+        documentChunkRepository.saveAndFlush(
+                new DocumentChunkEntity(documentId, 0, "doc-" + documentId + "-chunk-0", "old chunk"));
+        long eventId = saveVectorDelete(documentId, List.of("doc-" + documentId + "-chunk-0"));
+        when(gateway.isConfigured()).thenReturn(true);
+
+        worker.processPending();
+
+        assertThat(outboxEventRepository.findById(eventId)).get()
+                .extracting(VectorOutboxEventEntity::getStatus).isEqualTo(VectorOutboxEventStatus.SUCCEEDED);
+        assertThat(documentRepository.findById(documentId)).isPresent();
+        assertThat(documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId)).isEmpty();
+        verify(gateway).delete(anyCollection());
     }
 
     @Test
@@ -194,8 +229,21 @@ class VectorOutboxWorkerDataTest {
     }
 
     private long saveDelete(long documentId, List<String> vectorIds) {
-        return outboxEventRepository.saveAndFlush(VectorOutboxEventEntity.delete(documentId, writeJson(vectorIds)))
+        return outboxEventRepository.saveAndFlush(VectorOutboxEventEntity.documentDelete(documentId, writeJson(vectorIds)))
                 .getId();
+    }
+
+    private long saveVectorDelete(long documentId, List<String> vectorIds) {
+        return outboxEventRepository.saveAndFlush(VectorOutboxEventEntity.vectorDelete(documentId, writeJson(vectorIds)))
+                .getId();
+    }
+
+    private void makeRetryImmediatelyClaimable(long eventId) {
+        VectorOutboxEventEntity event = outboxEventRepository.findById(eventId).orElseThrow();
+        if (event.getStatus() == VectorOutboxEventStatus.FAILED) {
+            ReflectionTestUtils.setField(event, "nextAttemptAt", Instant.now().minusSeconds(1));
+            outboxEventRepository.saveAndFlush(event);
+        }
     }
 
     private String upsertPayload(long documentId) {

@@ -12,9 +12,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 
@@ -215,10 +217,16 @@ public class WorkflowInlineExecutionService {
             throw new BusinessException("WORKFLOW_UNSUPPORTED",
                     "Dynamic node only supports action=tool in demo scope: " + node.id());
         }
+        Set<String> allowedTools = allowedDynamicTools(node);
 
         List<Object> outputs = new ArrayList<>();
         WorkflowNodeTraceExecutor traceExecutor = traceExecutor();
         for (int index = 0; index < items.size(); index++) {
+            String toolName = dynamicToolName(items.get(index));
+            if (!allowedTools.contains(toolName)) {
+                throw new BusinessException("WORKFLOW_TOOL_NOT_ALLOWED",
+                        "Dynamic node tool is not allowed: " + toolName);
+            }
             WorkflowNode syntheticNode = syntheticToolNode(node.id(), index, items.get(index));
             recordInlineSummary(traceExecutor.execute(runId, syntheticNode, state).summary());
             outputs.add(state.lastOutput());
@@ -232,14 +240,42 @@ public class WorkflowInlineExecutionService {
     }
 
     private WorkflowNode syntheticToolNode(String dynamicNodeId, int index, Object item) {
-        String toolName = item instanceof Map<?, ?> map && map.get("toolName") != null
-                ? String.valueOf(map.get("toolName"))
-                : String.valueOf(item);
+        String toolName = dynamicToolName(item);
         Map<String, Object> arguments = item instanceof Map<?, ?> map
                 ? copyStringKeyMap(map)
                 : Map.of();
         return new WorkflowNode(dynamicNodeId + ":dynamic:" + index + ":" + toolName, "tool",
                 Map.of("toolName", toolName, "arguments", arguments));
+    }
+
+    private String dynamicToolName(Object item) {
+        return item instanceof Map<?, ?> map && map.get("toolName") != null
+                ? String.valueOf(map.get("toolName"))
+                : String.valueOf(item);
+    }
+
+    private Set<String> allowedDynamicTools(WorkflowNode node) {
+        Object rawAllowedTools = node.config().get("allowedTools");
+        Set<String> allowedTools = new LinkedHashSet<>();
+        if (rawAllowedTools instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (item != null && StringUtils.hasText(String.valueOf(item))) {
+                    allowedTools.add(String.valueOf(item).trim());
+                }
+            }
+        }
+        else if (rawAllowedTools instanceof String text) {
+            for (String item : text.split(",")) {
+                if (StringUtils.hasText(item)) {
+                    allowedTools.add(item.trim());
+                }
+            }
+        }
+        if (allowedTools.isEmpty()) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Dynamic node requires config.allowedTools to execute tool items: " + node.id());
+        }
+        return allowedTools;
     }
 
     private Map<String, Object> copyStringKeyMap(Map<?, ?> source) {
@@ -265,9 +301,9 @@ public class WorkflowInlineExecutionService {
     }
 
     private boolean evaluateLoopCondition(WorkflowNode node, WorkflowExecutionState state) {
-        String left = variableResolver.renderString(configString(node, "left", ""), state);
-        String operator = configString(node, "operator", "exists").toLowerCase(Locale.ROOT);
-        Object right = variableResolver.renderValue(node.config().getOrDefault("right", ""), state);
+        String left = variableResolver.renderString(configString(node, "left", "{{input}}"), state);
+        String operator = configString(node, "operator", "greaterthan").toLowerCase(Locale.ROOT);
+        Object right = variableResolver.renderValue(node.config().getOrDefault("right", "0"), state);
         boolean caseSensitive = Boolean.TRUE.equals(node.config().get("caseSensitive"));
         return nodeExecutorProvider.getObject().evaluateCondition(left, operator, right, caseSensitive);
     }

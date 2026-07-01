@@ -64,7 +64,8 @@ class DashVectorDocumentRetrieverTest {
 
         DocumentEntity highDocument = readyDocument(10L, "High Title", "full high");
         DocumentEntity lowDocument = readyDocument(20L, null, "full low");
-        when(documentRepository.findByIdInAndIndexStatus(anyCollection(), eq(DocumentIndexStatus.READY)))
+        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+                        eq(DocumentIndexStatus.READY)))
                 .thenReturn(List.of(highDocument, lowDocument));
 
         List<RetrievedContext> contexts = retriever.retrieve("question", 3);
@@ -99,7 +100,8 @@ class DashVectorDocumentRetrieverTest {
         when(chunkRepository.findByVectorIdIn(anyCollection())).thenReturn(List.of(pendingChunk, readyChunk));
 
         DocumentEntity readyDocument = readyDocument(10L, "Ready Title", "full ready");
-        when(documentRepository.findByIdInAndIndexStatus(anyCollection(), eq(DocumentIndexStatus.READY)))
+        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+                        eq(DocumentIndexStatus.READY)))
                 .thenReturn(List.of(readyDocument));
 
         List<RetrievedContext> contexts = retriever.retrieve("question", 2);

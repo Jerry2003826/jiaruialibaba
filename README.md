@@ -33,7 +33,7 @@ export AI_DASHSCOPE_API_KEY=your-dashscope-api-key
 export AI_DASHSCOPE_CHAT_MODEL=qwen-plus
 ```
 
-`AI_DASHSCOPE_API_KEY` 不配置时，若未开启阿里严格模式，服务仍可启动，并会对 Chat/SSE/RAG 使用 fallback 响应，方便本地验证接口和 trace。开启严格模式后，必须配置完整阿里栈（DashScope Chat + Embedding + DashVector），否则启动失败。
+`AI_DASHSCOPE_API_KEY` 不配置时，若未开启阿里严格模式，服务仍可启动；但 Chat/SSE、RAG 回答、Workflow LLM 节点和工作流生成这类需要大模型的路径会返回 `ALIBABA_LLM_NOT_CONFIGURED` / `ALIBABA_LLM_UNAVAILABLE`，不会再生成本地假回答。开启严格模式后，必须配置完整阿里栈（DashScope Chat + Embedding + DashVector），否则启动失败。
 为了兼容 DashScope Python SDK 的常见命名，项目也支持 `DASHSCOPE_API_KEY` 作为备用读取来源；推荐在本项目中继续使用 `AI_DASHSCOPE_API_KEY`。
 
 ## 阿里严格模式（Alibaba Strict Mode）
@@ -192,7 +192,7 @@ export DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS=true
 
 ## LLM Tool Calling Agent
 
-`POST /api/agent/tool-chat` 在配置了 DashScope API Key 且 `ChatClient` 可用时，会通过 Spring AI 原生 tool-calling 循环调用本地与 MCP 工具；每次工具执行由 `TracingToolCallback` 写入 `run_step`。未配置模型时自动降级为规则匹配 + `AiModelService.generate` fallback，仍保留 trace 与 `conversationId` 行为。MCP 启用时，远程工具 callbacks 会合并进 LLM tool loop。
+`POST /api/agent/tool-chat` 在配置了 DashScope API Key 且 `ChatClient` 可用时，会通过 Spring AI 原生 tool-calling 循环调用本地与 MCP 工具；每次工具执行由 `TracingToolCallback` 写入 `run_step`。未配置模型时，在非 strict 场景仍可走规则匹配规划本地工具，但最终自然语言回答需要 `AiModelService.generate`，缺少 DashScope 时会返回 LLM 配置错误。MCP 启用时，远程工具 callbacks 会合并进 LLM tool loop。
 
 ## 启动方式
 
@@ -760,7 +760,7 @@ curl http://localhost:8080/api/runs/{runId}/steps
 
 - `start`: 将请求 `input` 放入 workflow 状态。
 - `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
-- `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时走 fallback。支持 workflow 变量。
+- `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时返回 LLM 配置错误，不生成本地假回答。支持 workflow 变量。
 - `tool`: 复用 `ToolGatewayService`，当前本地支持 `getCurrentTime` 和 `calculate`；开启 MCP 后可调用远程 MCP tool 名称。
 - `condition`: 计算一个布尔条件，并从 `condition=true` 或 `condition=false` 的 outgoing edge 中选择下一节点。支持 `equals`、`notEquals`、`contains`、`notContains`、`startsWith`、`endsWith`、`exists`、`notExists`、`greaterThan`、`lessThan`。
 - `parallel`: 受限并行分支入口，至少两条普通 outgoing edge，每条分支会并发执行。

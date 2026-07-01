@@ -1,6 +1,7 @@
 package com.example.agentdemo.order;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,8 @@ public class DatabaseOrderLookupService implements OrderLookupService {
         String orderId = extractOrderId(query)
                 .orElseThrow(() -> new BusinessException("ORDER_ID_REQUIRED",
                         "Order id is required for queryOrderAPI"));
-        DemoOrderEntity order = demoOrderRepository.findById(orderId)
+        DemoOrderEntity order = demoOrderRepository.findByOrderIdAndOwnerId(orderId,
+                        SecurityIdentity.currentOwnerId())
                 .orElse(null);
         if (order == null) {
             return missingToolOutput(orderId, query);

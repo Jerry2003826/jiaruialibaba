@@ -97,6 +97,32 @@ class AiModelServiceStrictTest {
     }
 
     @Test
+    void timesOutStreamingWithConfiguredTimeout() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("spring.ai.dashscope.api-key", "sk-test");
+        environment.setProperty("demo.ai.stream-timeout-ms", "10");
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.StreamResponseSpec streamResponseSpec = mock(ChatClient.StreamResponseSpec.class);
+        when(chatClientProvider.getIfAvailable()).thenReturn(chatClient);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(org.mockito.ArgumentMatchers.anyString())).thenReturn(requestSpec);
+        when(requestSpec.messages(org.mockito.ArgumentMatchers.anyList())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamResponseSpec);
+        when(streamResponseSpec.content()).thenReturn(reactor.core.publisher.Flux.never());
+
+        AiModelService service = new AiModelService(chatClientProvider, environment, TestAlibabaPolicies.strictMode());
+
+        assertThatThrownBy(() -> service.stream("system", "hello", chunk -> {
+        }))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+    }
+
+    @Test
     void throwsWhenFallbackDisabledAndRuntimeCallFails() {
         MockEnvironment environment = new MockEnvironment();
         environment.setProperty("spring.ai.dashscope.api-key", "sk-test");

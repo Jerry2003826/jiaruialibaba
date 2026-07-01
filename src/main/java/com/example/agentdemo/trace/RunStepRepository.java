@@ -8,4 +8,6 @@ public interface RunStepRepository extends JpaRepository<RunStepEntity, String> 
 
     List<RunStepEntity> findByRunIdOrderByStartedAtAsc(String runId);
 
+    List<RunStepEntity> findByOwnerIdAndRunIdOrderByStartedAtAsc(String ownerId, String runId);
+
 }

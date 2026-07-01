@@ -24,6 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "demo.ai.fallback-enabled=true",
         "demo.rag.keyword-fallback-enabled=true",
         "spring.ai.dashscope.api-key=",
+        "demo.security.jwt-mode=hmac",
+        "demo.security.jwt-secret=test-security-secret-32-bytes-minimum-value",
         "spring.datasource.url=jdbc:h2:mem:agent_backend_prod_devtoken_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
         "demo.dashvector.endpoint=",
         "demo.dashvector.api-key=",

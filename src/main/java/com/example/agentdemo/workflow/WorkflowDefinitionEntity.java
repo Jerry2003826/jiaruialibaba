@@ -1,5 +1,6 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -27,6 +28,9 @@ public class WorkflowDefinitionEntity {
 
     @Column(nullable = false, unique = true, length = 64)
     private String definitionId;
+
+    @Column(name = "owner_id", nullable = false, length = 128)
+    private String ownerId;
 
     @Column(nullable = false, length = 128)
     private String name;
@@ -60,6 +64,7 @@ public class WorkflowDefinitionEntity {
 
     public WorkflowDefinitionEntity(String definitionId, String name, String description, String definitionJson) {
         this.definitionId = definitionId;
+        this.ownerId = SecurityIdentity.currentOwnerId();
         this.name = name;
         this.description = description;
         this.definitionJson = definitionJson;
@@ -75,6 +80,9 @@ public class WorkflowDefinitionEntity {
         }
         if (status == null) {
             status = WorkflowDefinitionStatus.DRAFT;
+        }
+        if (!org.springframework.util.StringUtils.hasText(ownerId)) {
+            ownerId = SecurityIdentity.DEFAULT_OWNER_ID;
         }
         if (createdAt == null) {
             createdAt = now;
@@ -111,6 +119,10 @@ public class WorkflowDefinitionEntity {
 
     public String getDefinitionId() {
         return definitionId;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 
     public String getName() {

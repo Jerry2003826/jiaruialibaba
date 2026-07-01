@@ -47,7 +47,9 @@ class WorkflowAdvancedNodesTest {
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
                         new WorkflowNode("sub_1", "subgraph", Map.of("definitionId", "wf-child")),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "sub_1"),
@@ -62,7 +64,7 @@ class WorkflowAdvancedNodesTest {
     @Test
     void rejectsDynamicNodeInsideParallelBranch() {
         WorkflowDefinition definition = parallelWithBranchNode("dyn_1", "dynamic",
-                Map.of("itemsFrom", "{{input.tools}}"));
+                Map.of("itemsFrom", "{{input.tools}}", "allowedTools", List.of("getCurrentTime")));
 
         assertThatThrownBy(() -> compiler.compile(definition))
                 .isInstanceOf(BusinessException.class)
@@ -139,6 +141,34 @@ class WorkflowAdvancedNodesTest {
     }
 
     @Test
+    void loopUsesSchemaConditionDefaultsWhenConfigOmitsOperands() {
+        WorkflowRuntimeTestSupport.RuntimeStack stack = simpleStack();
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("loop_1", "loop", Map.of("maxIterations", 2)),
+                        new WorkflowNode("body", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("loop_back", "loop_back", Map.of()),
+                        new WorkflowNode("after_loop", "tool", Map.of("toolName", "getCurrentTime")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "loop_1"),
+                        new WorkflowEdge("loop_1", "body", "body"),
+                        new WorkflowEdge("loop_1", "after_loop", "exit"),
+                        new WorkflowEdge("body", "loop_back"),
+                        new WorkflowEdge("loop_back", "loop_1"),
+                        new WorkflowEdge("after_loop", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = stack.runtime().run("run-loop-defaults",
+                plan, Map.of("message", "1"));
+
+        assertThat(result.steps())
+                .extracting(WorkflowStepSummary::nodeId)
+                .contains("body");
+        assertLoopIterations(result, 2);
+    }
+
+    @Test
     void loopStopsAtMaxIterationsEvenWhenConditionRemainsTrue() {
         WorkflowRuntimeTestSupport.RuntimeStack stack = simpleStack();
         WorkflowExecutionPlan plan = compiler.compile(fixedLoopDefinition(3));
@@ -155,7 +185,9 @@ class WorkflowAdvancedNodesTest {
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),
@@ -175,7 +207,9 @@ class WorkflowAdvancedNodesTest {
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("calculate"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),

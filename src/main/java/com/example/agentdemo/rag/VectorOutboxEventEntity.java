@@ -79,8 +79,19 @@ public class VectorOutboxEventEntity {
         return new VectorOutboxEventEntity(VectorOutboxEventType.UPSERT, documentId, payloadJson);
     }
 
+    public static VectorOutboxEventEntity vectorDelete(Long documentId, String payloadJson) {
+        return new VectorOutboxEventEntity(VectorOutboxEventType.VECTOR_DELETE, documentId, payloadJson);
+    }
+
+    public static VectorOutboxEventEntity documentDelete(Long documentId, String payloadJson) {
+        return new VectorOutboxEventEntity(VectorOutboxEventType.DOCUMENT_DELETE, documentId, payloadJson);
+    }
+
+    /**
+     * Legacy alias: old DELETE events represented full document deletion.
+     */
     public static VectorOutboxEventEntity delete(Long documentId, String payloadJson) {
-        return new VectorOutboxEventEntity(VectorOutboxEventType.DELETE, documentId, payloadJson);
+        return documentDelete(documentId, payloadJson);
     }
 
     @PrePersist

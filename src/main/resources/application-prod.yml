@@ -1,0 +1,19 @@
+demo:
+  ai:
+    max-tokens-per-call: ${DEMO_AI_MAX_TOKENS_PER_CALL:32000}
+  security:
+    jwt-mode: ${DEMO_SECURITY_JWT_MODE:issuer}
+    dev-token:
+      enabled: false
+    rate-limit:
+      enabled: true
+  workflow:
+    require-published-for-run: true
+    allow-inline-run: false
+    run-deadline-ms: ${DEMO_WORKFLOW_RUN_DEADLINE_MS:120000}
+    max-step-executions: ${DEMO_WORKFLOW_MAX_STEP_EXECUTIONS:1000}
+
+spring:
+  h2:
+    console:
+      enabled: false

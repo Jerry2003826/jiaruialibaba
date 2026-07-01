@@ -23,6 +23,9 @@ import java.util.function.Consumer;
 @Service
 public class AiModelService {
 
+    private static final long DEFAULT_STREAM_TIMEOUT_MS = 90_000L;
+    private static final int DEFAULT_MAX_TOKENS_PER_CALL = 32_000;
+
     private final ObjectProvider<ChatClient> chatClientProvider;
     private final Environment environment;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
@@ -80,12 +83,16 @@ public class AiModelService {
             }
             ChatResponse response = request.call().chatResponse();
             String answer = extractAnswer(response);
-            return AiModelResult.ok(StringUtils.hasText(answer) ? answer : "",
-                    extractTokenUsage(response, requestedModel));
+            TokenUsage tokenUsage = extractTokenUsage(response, requestedModel);
+            enforceTokenBudget(tokenUsage);
+            return AiModelResult.ok(StringUtils.hasText(answer) ? answer : "", tokenUsage);
+        }
+        catch (BusinessException ex) {
+            throw ex;
         }
         catch (Exception ex) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "DashScope chat call failed: " + ex.getMessage(), ex);
+                    "DashScope chat call failed", ex);
         }
     }
 
@@ -142,15 +149,39 @@ public class AiModelService {
                             onChunk.accept(chunk);
                         }
                     })
-                    .blockLast(Duration.ofSeconds(90));
+                    .blockLast(streamTimeout());
         }
         catch (Exception ex) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "DashScope streaming call failed: " + ex.getMessage(), ex);
+                    "DashScope streaming call failed", ex);
         }
         if (chunks.get() == 0) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
                     "DashScope streaming returned no content");
+        }
+    }
+
+    private Duration streamTimeout() {
+        Long timeoutMs = environment.getProperty("demo.ai.stream-timeout-ms", Long.class,
+                DEFAULT_STREAM_TIMEOUT_MS);
+        if (timeoutMs == null || timeoutMs <= 0) {
+            timeoutMs = DEFAULT_STREAM_TIMEOUT_MS;
+        }
+        return Duration.ofMillis(timeoutMs);
+    }
+
+    private void enforceTokenBudget(TokenUsage tokenUsage) {
+        if (tokenUsage == null || tokenUsage.totalTokens() == null) {
+            return;
+        }
+        Integer maxTokens = environment.getProperty("demo.ai.max-tokens-per-call", Integer.class,
+                DEFAULT_MAX_TOKENS_PER_CALL);
+        if (maxTokens == null || maxTokens <= 0) {
+            maxTokens = DEFAULT_MAX_TOKENS_PER_CALL;
+        }
+        if (tokenUsage.totalTokens() > maxTokens) {
+            throw new BusinessException("ALIBABA_LLM_TOKEN_BUDGET_EXCEEDED",
+                    "DashScope chat token usage exceeded the configured per-call budget");
         }
     }
 

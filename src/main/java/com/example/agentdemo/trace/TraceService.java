@@ -1,6 +1,7 @@
 package com.example.agentdemo.trace;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.dto.RunPageResponse;
 import com.example.agentdemo.trace.dto.RunResponse;
 import com.example.agentdemo.trace.dto.RunStepResponse;
@@ -115,7 +116,7 @@ public class TraceService {
 
     @Transactional
     public void markRunSucceeded(String runId, Object output) {
-        RunEntity run = findRun(runId);
+        RunEntity run = findRunForMutation(runId);
         run.setOutput(toJson(output));
         run.setStatus(RunStatus.SUCCEEDED);
         run.setEndedAt(Instant.now());
@@ -124,7 +125,7 @@ public class TraceService {
 
     @Transactional
     public void markRunFailed(String runId, Throwable error) {
-        RunEntity run = findRun(runId);
+        RunEntity run = findRunForMutation(runId);
         run.setErrorMessage(error.getMessage());
         run.setOutput(toJson(new ErrorPayload(error.getClass().getSimpleName(), error.getMessage())));
         run.setStatus(RunStatus.FAILED);
@@ -141,7 +142,8 @@ public class TraceService {
     public RunPageResponse listRuns(RunType type, RunStatus status, int page, int size) {
         validateRunQuery(page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
-        Page<RunEntity> runPage = runRepository.findAll(RunSpecifications.filter(type, status), pageable);
+        Page<RunEntity> runPage = runRepository.findAll(
+                RunSpecifications.filter(SecurityIdentity.currentOwnerId(), type, status), pageable);
         List<RunResponse> content = runPage.getContent().stream().map(this::toRunResponse).toList();
         return new RunPageResponse(content, runPage.getNumber(), runPage.getSize(), runPage.getTotalElements(),
                 runPage.getTotalPages());
@@ -166,7 +168,7 @@ public class TraceService {
         if (runIds == null || runIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        return runRepository.findAllByRunIdIn(runIds)
+        return runRepository.findAllByOwnerIdAndRunIdIn(SecurityIdentity.currentOwnerId(), runIds)
                 .stream()
                 .map(this::toRunResponse)
                 .collect(Collectors.toMap(RunResponse::runId, Function.identity()));
@@ -175,7 +177,7 @@ public class TraceService {
     @Transactional(readOnly = true)
     public List<RunStepResponse> listSteps(String runId) {
         ensureRunExists(runId);
-        return runStepRepository.findByRunIdOrderByStartedAtAsc(runId)
+        return runStepRepository.findByOwnerIdAndRunIdOrderByStartedAtAsc(SecurityIdentity.currentOwnerId(), runId)
                 .stream()
                 .map(this::toRunStepResponse)
                 .toList();
@@ -333,12 +335,17 @@ public class TraceService {
     }
 
     private void ensureRunExists(String runId) {
-        if (!runRepository.existsById(runId)) {
+        if (!runRepository.existsByRunIdAndOwnerId(runId, SecurityIdentity.currentOwnerId())) {
             throw new BusinessException("RUN_NOT_FOUND", "Run not found: " + runId);
         }
     }
 
     private RunEntity findRun(String runId) {
+        return runRepository.findByRunIdAndOwnerId(runId, SecurityIdentity.currentOwnerId())
+                .orElseThrow(() -> new BusinessException("RUN_NOT_FOUND", "Run not found: " + runId));
+    }
+
+    private RunEntity findRunForMutation(String runId) {
         return runRepository.findById(runId)
                 .orElseThrow(() -> new BusinessException("RUN_NOT_FOUND", "Run not found: " + runId));
     }

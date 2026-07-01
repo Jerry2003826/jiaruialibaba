@@ -31,4 +31,11 @@ class OrderIdExtractorTest {
                 .containsExactly("20260630001", "20260630002");
     }
 
+    @Test
+    void doesNotExtractNumericPrefixFromHyphenOrUnderscoreToken() {
+        assertThat(OrderIdExtractor.extractFirst("订单号 20260630001-1 帮我查物流")).isEmpty();
+        assertThat(OrderIdExtractor.extractFirst("订单号 20260630001_1 帮我查物流")).isEmpty();
+        assertThat(OrderIdExtractor.extractFirst("订单号 abc_20260630001 帮我查物流")).isEmpty();
+    }
+
 }

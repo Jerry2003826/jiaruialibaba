@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.StepStatus;
@@ -113,7 +114,7 @@ class WorkflowServiceDefinitionIdTest {
         WorkflowRunRecordEntity v2 = new WorkflowRunRecordEntity("run-2", "wf-1", 2,
                 Instant.parse("2026-06-24T04:00:00Z"));
         PageRequest pageable = PageRequest.of(1, 1, Sort.by(Sort.Direction.DESC, "startedAt"));
-        when(runRecordRepository.searchRuns("wf-1", 2, RunStatus.SUCCEEDED, pageable))
+        when(runRecordRepository.searchRuns("wf-1", "workbench-dev", 2, RunStatus.SUCCEEDED, pageable))
                 .thenReturn(new PageImpl<>(List.of(v2), pageable, 2));
         when(traceService.findRunsById(List.of("run-2"))).thenReturn(Map.of("run-2",
                 new RunResponse("run-2", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}", "{\"answer\":\"v2\"}",
@@ -163,7 +164,8 @@ class WorkflowServiceDefinitionIdTest {
         TraceService traceService = mock(TraceService.class);
         WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-1", "wf-1", 2,
                 Instant.parse("2026-06-24T04:00:00Z"));
-        when(runRecordRepository.findById("run-1")).thenReturn(Optional.of(record));
+        when(runRecordRepository.findByRunIdAndOwnerId("run-1", "workbench-dev"))
+                .thenReturn(Optional.of(record));
         RunResponse run = new RunResponse("run-1", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{\"input\":\"hi\"}",
                 "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T04:00:03Z"));
         RunStepResponse step = new RunStepResponse("step-1", "run-1", "llm_1", "{}", "{\"answer\":\"ok\"}", null,
@@ -193,6 +195,19 @@ class WorkflowServiceDefinitionIdTest {
         assertThatThrownBy(() -> service.run(new WorkflowRunRequest(null, null, Map.of())))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_DEFINITION_REQUIRED"));
+    }
+
+    @Test
+    void rejectsInlineWorkflowRunWhenPublishedDefinitionsAreRequired() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+        properties.setRequirePublishedForRun(true);
+        WorkflowService service = new WorkflowService(new WorkflowCompiler(new WorkflowNodeSchemaRegistry()),
+                mock(WorkflowRuntime.class), mock(TraceService.class), mock(WorkflowDefinitionService.class),
+                mock(WorkflowRunRecordRepository.class), new WorkflowRunBudgetRegistry(), properties);
+
+        assertThatThrownBy(() -> service.run(new WorkflowRunRequest(validDefinition(), Map.of("message", "hello"))))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_INLINE_RUN_DISABLED"));
     }
 
     @Test

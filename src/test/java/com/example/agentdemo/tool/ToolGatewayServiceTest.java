@@ -6,6 +6,9 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.Duration;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -249,6 +252,8 @@ class ToolGatewayServiceTest {
         assertThat(log.serverName()).isEqualTo("github");
         assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_REMOTE_TOOL);
         assertThat(log.errorType()).isEqualTo(ToolExecutionLog.ERROR_TYPE_RAW_REMOTE);
+        assertThat(log.errorMessage()).isEqualTo("Remote MCP tool failed: remote_fail");
+        assertThat(log.errorMessage()).doesNotContain("raw remote failure");
     }
 
     @Test
@@ -263,6 +268,22 @@ class ToolGatewayServiceTest {
         assertThat(log.succeeded()).isFalse();
         assertThat(log.errorMessage()).isEqualTo("Remote MCP tool failed: remote_null_message_fail");
         assertThat(log.errorType()).isEqualTo(ToolExecutionLog.ERROR_TYPE_RAW_REMOTE);
+    }
+
+    @Test
+    void timesOutSlowMcpToolCallback() {
+        ToolCallbackProvider callbackProvider = ToolCallbackProvider.from(new SlowToolCallback());
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new McpToolProvider(List.of(callbackProvider),
+                new ObjectMapper(), "github", Duration.ofMillis(50))),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_slow"));
+
+        ToolExecutionLog log = gateway.execute("remote_slow", Map.of());
+
+        assertThat(log.succeeded()).isFalse();
+        assertThat(log.serverName()).isEqualTo("github");
+        assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_REMOTE_TOOL);
+        assertThat(log.errorType()).isEqualTo(ToolExecutionLog.ERROR_TYPE_RAW_REMOTE);
+        assertThat(log.errorMessage()).contains("timed out");
     }
 
     private static final class EchoToolCallback implements ToolCallback {
@@ -473,6 +494,35 @@ class ToolGatewayServiceTest {
         @Override
         public String call(String toolInput) {
             throw new IllegalStateException();
+        }
+
+    }
+
+    private static final class SlowToolCallback implements ToolCallback {
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name("remote_slow")
+                    .description("Slow remote MCP server tool")
+                    .inputSchema("""
+                            {
+                              "type": "object",
+                              "properties": {}
+                            }
+                            """)
+                    .build();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            try {
+                Thread.sleep(500);
+            }
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            return "late";
         }
 
     }

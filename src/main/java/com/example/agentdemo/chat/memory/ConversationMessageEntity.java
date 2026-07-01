@@ -1,5 +1,6 @@
 package com.example.agentdemo.chat.memory;
 
+import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -26,6 +27,9 @@ public class ConversationMessageEntity {
     @Column(name = "conversation_id", nullable = false, length = 128)
     private String conversationId;
 
+    @Column(name = "owner_id", nullable = false, length = 128)
+    private String ownerId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private ConversationRole role;
@@ -42,12 +46,16 @@ public class ConversationMessageEntity {
 
     public ConversationMessageEntity(String conversationId, ConversationRole role, String content) {
         this.conversationId = conversationId;
+        this.ownerId = SecurityIdentity.currentOwnerId();
         this.role = role;
         this.content = content;
     }
 
     @PrePersist
     void prePersist() {
+        if (!org.springframework.util.StringUtils.hasText(ownerId)) {
+            ownerId = SecurityIdentity.DEFAULT_OWNER_ID;
+        }
         if (createdAt == null) {
             createdAt = Instant.now();
         }
@@ -59,6 +67,10 @@ public class ConversationMessageEntity {
 
     public String getConversationId() {
         return conversationId;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 
     public ConversationRole getRole() {

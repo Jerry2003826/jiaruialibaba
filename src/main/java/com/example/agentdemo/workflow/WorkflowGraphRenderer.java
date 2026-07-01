@@ -22,7 +22,7 @@ public class WorkflowGraphRenderer {
     public List<WorkflowGraphNodeView> previewNodes(WorkflowDefinition definition) {
         return definition.nodes()
                 .stream()
-                .map(node -> new WorkflowGraphNodeView(node.id(), node.type(), label(node.id(), node.type())))
+                .map(node -> new WorkflowGraphNodeView(node.id(), node.type(), nodeLabel(node)))
                 .toList();
     }
 
@@ -31,7 +31,7 @@ public class WorkflowGraphRenderer {
                 .stream()
                 .map(edge -> {
                     WorkflowExecutionEdge executionEdge = new WorkflowExecutionEdge(edge);
-                    String edgeLabel = edgeLabel(executionEdge.condition());
+                    String edgeLabel = edgeLabel(edge, executionEdge.condition());
                     return new WorkflowGraphEdgeView(executionEdge.from(), executionEdge.to(),
                             executionEdge.condition(), edgeLabel);
                 })
@@ -82,7 +82,7 @@ public class WorkflowGraphRenderer {
                 .stream()
                 .map(edge -> {
                     WorkflowExecutionEdge executionEdge = new WorkflowExecutionEdge(edge);
-                    String edgeLabel = edgeLabel(executionEdge.condition());
+                    String edgeLabel = edgeLabel(edge, executionEdge.condition());
                     boolean traversed = isEdgeTraversed(executionEdge, nodesById);
                     return new WorkflowRunGraphEdgeView(executionEdge.from(), executionEdge.to(),
                             executionEdge.condition(), edgeLabel, traversed);
@@ -96,7 +96,7 @@ public class WorkflowGraphRenderer {
                 .stream()
                 .map(edge -> {
                     WorkflowExecutionEdge executionEdge = new WorkflowExecutionEdge(edge);
-                    String edgeLabel = edgeLabel(executionEdge.condition());
+                    String edgeLabel = edgeLabel(edge, executionEdge.condition());
                     boolean traversed = stepsByNodeName.containsKey(executionEdge.from())
                             && stepsByNodeName.containsKey(executionEdge.to());
                     return new WorkflowRunGraphEdgeView(executionEdge.from(), executionEdge.to(),
@@ -155,7 +155,7 @@ public class WorkflowGraphRenderer {
         }
         String statusLabel = status == null ? "NOT_EXECUTED" : status.name();
         return new WorkflowRunGraphNodeView(node.id(), node.type(),
-                label(node.id(), node.type()) + " " + statusLabel,
+                nodeLabel(node) + " " + statusLabel,
                 executed, status, stepId, errorMessage, compositeRole, parallelGroup, iterations, children);
     }
 
@@ -431,7 +431,7 @@ public class WorkflowGraphRenderer {
     private WorkflowRunGraphNodeView runNode(WorkflowNode node, RunStepResponse step) {
         String statusLabel = step == null ? "NOT_EXECUTED" : step.status().name();
         return new WorkflowRunGraphNodeView(node.id(), node.type(),
-                label(node.id(), node.type()) + " " + statusLabel,
+                nodeLabel(node) + " " + statusLabel,
                 step != null,
                 step == null ? null : step.status(),
                 step == null ? null : step.stepId(),
@@ -620,11 +620,18 @@ public class WorkflowGraphRenderer {
         };
     }
 
+    private String nodeLabel(WorkflowNode node) {
+        return StringUtils.hasText(node.label()) ? node.label() : label(node.id(), node.type());
+    }
+
     private String label(String nodeId, String nodeType) {
         return nodeId + " (" + nodeType + ")";
     }
 
-    private String edgeLabel(String condition) {
+    private String edgeLabel(WorkflowEdge edge, String condition) {
+        if (StringUtils.hasText(edge.label())) {
+            return edge.label();
+        }
         return StringUtils.hasText(condition) ? condition : null;
     }
 

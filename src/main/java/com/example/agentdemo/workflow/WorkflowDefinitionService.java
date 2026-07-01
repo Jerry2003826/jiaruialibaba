@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -59,7 +60,8 @@ public class WorkflowDefinitionService {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.publish();
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
-        workflowDefinitionRevisionRepository.findByDefinitionIdAndVersion(saved.getDefinitionId(), saved.getVersion())
+        workflowDefinitionRevisionRepository.findByDefinitionIdAndVersionAndOwnerId(saved.getDefinitionId(),
+                        saved.getVersion(), SecurityIdentity.currentOwnerId())
                 .ifPresent(revision -> {
                     revision.markPublished();
                     workflowDefinitionRevisionRepository.save(revision);
@@ -82,17 +84,19 @@ public class WorkflowDefinitionService {
     @Transactional
     public void delete(String definitionId) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
-        if (workflowRunRecordRepository.existsByDefinitionId(definitionId)) {
+        if (workflowRunRecordRepository.existsByDefinitionIdAndOwnerId(definitionId,
+                SecurityIdentity.currentOwnerId())) {
             throw new BusinessException("WORKFLOW_DEFINITION_IN_USE",
                     "Workflow definition has run history and cannot be deleted: " + definitionId);
         }
-        workflowDefinitionRevisionRepository.deleteAllByDefinitionId(definitionId);
+        workflowDefinitionRevisionRepository.deleteAllByDefinitionIdAndOwnerId(definitionId,
+                SecurityIdentity.currentOwnerId());
         workflowDefinitionRepository.delete(entity);
     }
 
     @Transactional(readOnly = true)
     public List<WorkflowDefinitionResponse> list() {
-        return workflowDefinitionRepository.findAllByOrderByCreatedAtDesc()
+        return workflowDefinitionRepository.findAllByOwnerIdOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId())
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -106,7 +110,8 @@ public class WorkflowDefinitionService {
     @Transactional(readOnly = true)
     public List<WorkflowDefinitionRevisionResponse> listRevisions(String definitionId) {
         findEntity(definitionId);
-        return workflowDefinitionRevisionRepository.findAllByDefinitionIdOrderByVersionDesc(definitionId)
+        return workflowDefinitionRevisionRepository.findAllByDefinitionIdAndOwnerIdOrderByVersionDesc(definitionId,
+                        SecurityIdentity.currentOwnerId())
                 .stream()
                 .map(this::toRevisionResponse)
                 .toList();
@@ -143,7 +148,8 @@ public class WorkflowDefinitionService {
         if (!StringUtils.hasText(definitionId)) {
             throw new BusinessException("WORKFLOW_DEFINITION_NOT_FOUND", "Workflow definition not found: " + definitionId);
         }
-        return workflowDefinitionRepository.findByDefinitionId(definitionId)
+        return workflowDefinitionRepository.findByDefinitionIdAndOwnerId(definitionId,
+                        SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("WORKFLOW_DEFINITION_NOT_FOUND",
                         "Workflow definition not found: " + definitionId));
     }
@@ -153,7 +159,8 @@ public class WorkflowDefinitionService {
             throw new BusinessException("WORKFLOW_REVISION_NOT_FOUND",
                     "Workflow definition revision not found: " + definitionId + ":" + version);
         }
-        return workflowDefinitionRevisionRepository.findByDefinitionIdAndVersion(definitionId, version)
+        return workflowDefinitionRevisionRepository.findByDefinitionIdAndVersionAndOwnerId(definitionId, version,
+                        SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("WORKFLOW_REVISION_NOT_FOUND",
                         "Workflow definition revision not found: " + definitionId + ":" + version));
     }

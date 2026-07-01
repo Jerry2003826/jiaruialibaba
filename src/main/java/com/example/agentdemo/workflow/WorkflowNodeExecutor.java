@@ -256,7 +256,7 @@ public class WorkflowNodeExecutor {
             return result.answer();
         }
         throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                "Alibaba LLM is required for workflow LLM nodes: " + result.errorMessage());
+                "Alibaba LLM is required for workflow LLM nodes");
     }
 
     private String outputModel(String configuredModel, AiModelResult result) {

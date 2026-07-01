@@ -38,7 +38,8 @@ class WorkflowRunGraphServiceTest {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-graph", "wf-1", 2,
                 Instant.parse("2026-06-24T05:00:00Z"));
-        when(runRecordRepository.findById("run-graph")).thenReturn(Optional.of(record));
+        when(runRecordRepository.findByRunIdAndOwnerId("run-graph", "workbench-dev"))
+                .thenReturn(Optional.of(record));
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("run-graph", RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}",
                 "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T05:00:04Z"));
@@ -89,7 +90,8 @@ class WorkflowRunGraphServiceTest {
         WorkflowRunRequest request = new WorkflowRunRequest(definition, Map.of("message", "time"));
         String inputJson = objectMapper.writeValueAsString(new WorkflowRunTraceInput(request, null, null));
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        when(runRecordRepository.findById("inline-run")).thenReturn(Optional.empty());
+        when(runRecordRepository.findByRunIdAndOwnerId("inline-run", "workbench-dev"))
+                .thenReturn(Optional.empty());
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("inline-run", RunType.WORKFLOW, RunStatus.SUCCEEDED, inputJson,
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:20:00Z"),
@@ -127,7 +129,8 @@ class WorkflowRunGraphServiceTest {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         WorkflowRunRecordEntity record = new WorkflowRunRecordEntity("run-failed", "wf-1", 3,
                 Instant.parse("2026-06-24T05:10:00Z"));
-        when(runRecordRepository.findById("run-failed")).thenReturn(Optional.of(record));
+        when(runRecordRepository.findByRunIdAndOwnerId("run-failed", "workbench-dev"))
+                .thenReturn(Optional.of(record));
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("run-failed", RunType.WORKFLOW, RunStatus.FAILED, "{}", "{}",
                 "tool failed", record.getStartedAt(), Instant.parse("2026-06-24T05:10:03Z"));
@@ -153,7 +156,8 @@ class WorkflowRunGraphServiceTest {
     @Test
     void rejectsGraphForNonWorkflowRunWithoutSavedMetadata() {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        when(runRecordRepository.findById("chat-run")).thenReturn(Optional.empty());
+        when(runRecordRepository.findByRunIdAndOwnerId("chat-run", "workbench-dev"))
+                .thenReturn(Optional.empty());
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("chat-run", RunType.CHAT, RunStatus.SUCCEEDED, "{\"message\":\"hi\"}",
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:30:00Z"),
@@ -173,7 +177,8 @@ class WorkflowRunGraphServiceTest {
         WorkflowRunRequest request = new WorkflowRunRequest(null, "wf-missing-record", Map.of("message", "hi"));
         String inputJson = objectMapper.writeValueAsString(new WorkflowRunTraceInput(request, "wf-missing-record", 4));
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        when(runRecordRepository.findById("stale-run")).thenReturn(Optional.empty());
+        when(runRecordRepository.findByRunIdAndOwnerId("stale-run", "workbench-dev"))
+                .thenReturn(Optional.empty());
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("stale-run", RunType.WORKFLOW, RunStatus.SUCCEEDED, inputJson,
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:40:00Z"),
@@ -191,7 +196,8 @@ class WorkflowRunGraphServiceTest {
     @Test
     void rejectsGraphWhenInlineWorkflowRunTraceInputIsBlank() {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
-        when(runRecordRepository.findById("blank-run")).thenReturn(Optional.empty());
+        when(runRecordRepository.findByRunIdAndOwnerId("blank-run", "workbench-dev"))
+                .thenReturn(Optional.empty());
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse("blank-run", RunType.WORKFLOW, RunStatus.SUCCEEDED, "",
                 "{\"answer\":\"ok\"}", null, Instant.parse("2026-06-24T05:45:00Z"),
@@ -366,7 +372,7 @@ class WorkflowRunGraphServiceTest {
         WorkflowRunRecordRepository runRecordRepository = mock(WorkflowRunRecordRepository.class);
         WorkflowRunRecordEntity record = new WorkflowRunRecordEntity(runId, "wf-advanced", 1,
                 Instant.parse("2026-06-24T06:00:00Z"));
-        when(runRecordRepository.findById(runId)).thenReturn(Optional.of(record));
+        when(runRecordRepository.findByRunIdAndOwnerId(runId, "workbench-dev")).thenReturn(Optional.of(record));
         TraceService traceService = mock(TraceService.class);
         RunResponse run = new RunResponse(runId, RunType.WORKFLOW, RunStatus.SUCCEEDED, "{}",
                 "{\"answer\":\"ok\"}", null, record.getStartedAt(), Instant.parse("2026-06-24T06:00:04Z"));
@@ -379,7 +385,9 @@ class WorkflowRunGraphServiceTest {
         return new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),

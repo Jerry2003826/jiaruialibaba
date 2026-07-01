@@ -29,4 +29,14 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void illegalArgumentResponseDoesNotExposeRawExceptionMessage() {
+        ResponseEntity<ApiResponse<Void>> response = handler.handleIllegalArgumentException(
+                new IllegalArgumentException("secret backend path /tmp/private-token"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().message()).isEqualTo("Bad request");
+    }
+
 }

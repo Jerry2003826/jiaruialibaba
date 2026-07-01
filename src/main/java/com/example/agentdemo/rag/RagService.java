@@ -193,7 +193,7 @@ public class RagService {
             return modelResult.answer();
         }
         throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                "Alibaba LLM is required for RAG answer generation: " + modelResult.errorMessage());
+                "Alibaba LLM is required for RAG answer generation");
     }
 
     private DocumentResponse toDocumentResponse(DocumentEntity document) {

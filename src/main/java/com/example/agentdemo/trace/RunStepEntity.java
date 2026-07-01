@@ -1,11 +1,13 @@
 package com.example.agentdemo.trace;
 
+import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import org.hibernate.annotations.JdbcTypeCode;
@@ -25,6 +27,9 @@ public class RunStepEntity {
 
     @Column(nullable = false, length = 64)
     private String runId;
+
+    @Column(name = "owner_id", nullable = false, length = 128)
+    private String ownerId;
 
     @Column(nullable = false, length = 128)
     private String nodeName;
@@ -57,10 +62,18 @@ public class RunStepEntity {
             Instant startedAt) {
         this.stepId = stepId;
         this.runId = runId;
+        this.ownerId = SecurityIdentity.currentOwnerId();
         this.nodeName = nodeName;
         this.inputJson = inputJson;
         this.status = status;
         this.startedAt = startedAt;
+    }
+
+    @PrePersist
+    void prePersist() {
+        if (!org.springframework.util.StringUtils.hasText(ownerId)) {
+            ownerId = SecurityIdentity.DEFAULT_OWNER_ID;
+        }
     }
 
     public String getStepId() {
@@ -69,6 +82,10 @@ public class RunStepEntity {
 
     public String getRunId() {
         return runId;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 
     public String getNodeName() {

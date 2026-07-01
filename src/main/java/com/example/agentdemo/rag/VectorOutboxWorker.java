@@ -142,9 +142,12 @@ public class VectorOutboxWorker {
             if (event.getType() == VectorOutboxEventType.UPSERT) {
                 finalizeUpsertSuccess(event);
             }
-            else {
+            else if (isDocumentDelete(event)) {
                 documentChunkRepository.deleteByDocumentId(event.getDocumentId());
                 documentRepository.findById(event.getDocumentId()).ifPresent(documentRepository::delete);
+            }
+            else {
+                documentChunkRepository.deleteByDocumentId(event.getDocumentId());
             }
             event.markSucceeded();
         });
@@ -173,20 +176,29 @@ public class VectorOutboxWorker {
         if (vectorIds.isEmpty()) {
             return;
         }
-        outboxEventRepository.save(VectorOutboxEventEntity.delete(upsertEvent.getDocumentId(), writePayload(vectorIds)));
+        outboxEventRepository.save(VectorOutboxEventEntity.vectorDelete(upsertEvent.getDocumentId(),
+                writePayload(vectorIds)));
         log.warn("Vector outbox upsert for document {} completed after the document was deleted; enqueued a "
                 + "compensating delete for {} orphaned vector(s)", upsertEvent.getDocumentId(), vectorIds.size());
     }
 
     private void finalizeFailure(Long id, RuntimeException failure) {
         runFinalize(id, event -> {
-            if (event.getType() == VectorOutboxEventType.UPSERT) {
+            event.markFailed(failure);
+            if (event.getType() == VectorOutboxEventType.UPSERT
+                    && event.getStatus() == VectorOutboxEventStatus.DEAD_LETTER) {
                 documentRepository.findById(event.getDocumentId()).ifPresent(document -> {
                     document.markFailed();
                     documentRepository.save(document);
                 });
             }
-            event.markFailed(failure);
+            if (event.getType() != VectorOutboxEventType.UPSERT
+                    && event.getStatus() == VectorOutboxEventStatus.DEAD_LETTER) {
+                documentRepository.findById(event.getDocumentId()).ifPresent(document -> {
+                    document.markFailed();
+                    documentRepository.save(document);
+                });
+            }
         });
     }
 
@@ -223,6 +235,11 @@ public class VectorOutboxWorker {
         catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Failed to serialize compensating vector delete payload", ex);
         }
+    }
+
+    private boolean isDocumentDelete(VectorOutboxEventEntity event) {
+        return event.getType() == VectorOutboxEventType.DOCUMENT_DELETE
+                || event.getType() == VectorOutboxEventType.DELETE;
     }
 
 }

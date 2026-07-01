@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.example.agentdemo.trace.RunStatus;
 import com.example.agentdemo.trace.RunType;
@@ -98,7 +99,8 @@ public class WorkflowService {
         validateRunQuery(definitionId, page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
         Page<WorkflowRunRecordEntity> recordPage =
-                workflowRunRecordRepository.searchRuns(definitionId, definitionVersion, status, pageable);
+                workflowRunRecordRepository.searchRuns(definitionId, SecurityIdentity.currentOwnerId(),
+                        definitionVersion, status, pageable);
         List<WorkflowRunRecordEntity> records = recordPage.getContent();
         Map<String, RunResponse> runsById = findRunsById(records);
         List<WorkflowRunRecordResponse> content =
@@ -108,7 +110,8 @@ public class WorkflowService {
     }
 
     public WorkflowRunDetailResponse getRunDetail(String runId) {
-        WorkflowRunRecordEntity record = workflowRunRecordRepository.findById(runId)
+        WorkflowRunRecordEntity record = workflowRunRecordRepository.findByRunIdAndOwnerId(runId,
+                        SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("WORKFLOW_RUN_NOT_FOUND", "Workflow run not found: " + runId));
         RunResponse run = traceService.getRun(runId);
         List<RunStepResponse> steps = traceService.listSteps(runId);
@@ -123,6 +126,11 @@ public class WorkflowService {
 
     private WorkflowDefinitionResolution resolveDefinition(WorkflowRunRequest request) {
         if (request.workflowDefinition() != null) {
+            if (workflowRuntimeProperties.isRequirePublishedForRun()
+                    && !workflowRuntimeProperties.isAllowInlineRun()) {
+                throw new BusinessException("WORKFLOW_INLINE_RUN_DISABLED",
+                        "Inline workflow runs are disabled when published definitions are required");
+            }
             return new WorkflowDefinitionResolution(null, null, request.workflowDefinition());
         }
         if (StringUtils.hasText(request.definitionId())) {

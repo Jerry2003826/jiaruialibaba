@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.dto.RunResponse;
@@ -63,7 +64,7 @@ public class WorkflowRunGraphService {
     }
 
     private WorkflowDefinitionResolution resolveDefinition(String runId, RunResponse run) {
-        return workflowRunRecordRepository.findById(runId)
+        return workflowRunRecordRepository.findByRunIdAndOwnerId(runId, SecurityIdentity.currentOwnerId())
                 .map(record -> workflowDefinitionService.resolveDefinition(record.getDefinitionId(),
                         record.getDefinitionVersion()))
                 .orElseGet(() -> resolveInlineDefinition(run));

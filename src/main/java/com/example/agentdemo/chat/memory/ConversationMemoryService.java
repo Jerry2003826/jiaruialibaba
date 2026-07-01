@@ -1,16 +1,21 @@
 package com.example.agentdemo.chat.memory;
 
 import com.example.agentdemo.config.ConversationMemoryProperties;
+import com.example.agentdemo.security.SecurityIdentity;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 public class ConversationMemoryService {
+
+    private static final int TRIM_BATCH_SIZE = 1_000;
 
     private final ConversationMessageRepository conversationMessageRepository;
     private final ConversationMemoryProperties properties;
@@ -33,13 +38,13 @@ public class ConversationMemoryService {
 
     @Transactional(readOnly = true)
     public List<ConversationMessage> loadRecentMessages(String conversationId) {
-        List<ConversationMessageEntity> entities =
-                conversationMessageRepository.findByConversationIdOrderByCreatedAtAscIdAsc(conversationId);
         int maxMessages = Math.max(1, properties.getMaxMessages());
-        if (entities.size() <= maxMessages) {
-            return entities.stream().map(this::toMessage).toList();
-        }
-        return entities.subList(entities.size() - maxMessages, entities.size())
+        String ownerId = SecurityIdentity.currentOwnerId();
+        List<ConversationMessageEntity> entities = new ArrayList<>(
+                conversationMessageRepository.findByOwnerIdAndConversationIdOrderByCreatedAtDescIdDesc(ownerId,
+                        conversationId, PageRequest.of(0, maxMessages)));
+        Collections.reverse(entities);
+        return entities
                 .stream()
                 .map(this::toMessage)
                 .toList();
@@ -58,7 +63,8 @@ public class ConversationMemoryService {
     @Transactional
     public long clearConversation(String conversationId) {
         String resolvedConversationId = resolveConversationId(conversationId);
-        return conversationMessageRepository.deleteByConversationId(resolvedConversationId);
+        return conversationMessageRepository.deleteByOwnerIdAndConversationId(SecurityIdentity.currentOwnerId(),
+                resolvedConversationId);
     }
 
     private void appendMessage(String conversationId, ConversationRole role, String content) {
@@ -68,15 +74,22 @@ public class ConversationMemoryService {
 
     private void trimOldMessages(String conversationId) {
         int maxMessages = Math.max(1, properties.getMaxMessages());
-        List<ConversationMessageEntity> entities =
-                conversationMessageRepository.findByConversationIdOrderByCreatedAtAscIdAsc(conversationId);
-        if (entities.size() <= maxMessages) {
+        String ownerId = SecurityIdentity.currentOwnerId();
+        long messageCount = conversationMessageRepository.countByOwnerIdAndConversationId(ownerId, conversationId);
+        long excess = messageCount - maxMessages;
+        if (excess <= 0) {
             return;
         }
-        List<Long> idsToDelete = entities.subList(0, entities.size() - maxMessages).stream()
-                .map(ConversationMessageEntity::getId)
-                .toList();
-        conversationMessageRepository.deleteByIdIn(idsToDelete);
+        while (excess > 0) {
+            int batchSize = (int) Math.min(excess, TRIM_BATCH_SIZE);
+            List<Long> idsToDelete = conversationMessageRepository.findOldestIdsByOwnerIdAndConversationId(ownerId,
+                    conversationId, PageRequest.of(0, batchSize));
+            if (idsToDelete.isEmpty()) {
+                return;
+            }
+            conversationMessageRepository.deleteByIdIn(idsToDelete);
+            excess -= idsToDelete.size();
+        }
     }
 
     private ConversationMessage toMessage(ConversationMessageEntity entity) {

@@ -69,16 +69,19 @@ public class GraphWorkflowRuntime implements WorkflowRuntime {
             GraphExecutionContext context) throws GraphStateException {
         StateGraph graph = new StateGraph("workflow-" + runId,
                 KeyStrategy.builder().defaultStrategy(KeyStrategy.REPLACE).build());
+        WorkflowInlineExecutionService.InlineExecutionContext inlineContext = inlineExecutionService.captureContext();
         for (WorkflowNode node : executionPlan.nodesById().values()) {
             if (executionPlan.isCompositeScopedNode(node.id())) {
                 continue;
             }
             graph.addNode(node.id(), AsyncNodeAction.node_async(overAllState ->
-                    executeGraphNode(runId, node, context)));
+                    inlineExecutionService.callWithContext(inlineContext,
+                            () -> executeGraphNode(runId, node, context))));
         }
         for (BranchPath branchPath : context.branchPaths()) {
             graph.addNode(branchPath.graphNodeId(), AsyncNodeAction.node_async(overAllState ->
-                    executeGraphBranch(runId, branchPath, context)));
+                    inlineExecutionService.callWithContext(inlineContext,
+                            () -> executeGraphBranch(runId, branchPath, context))));
         }
         graph.addEdge(StateGraph.START, executionPlan.startNode().id());
         for (WorkflowNode node : executionPlan.nodesById().values()) {

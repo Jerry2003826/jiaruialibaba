@@ -46,7 +46,9 @@ class WorkflowAdvancedGraphRuntimeTest {
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),

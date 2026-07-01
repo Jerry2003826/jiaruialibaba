@@ -14,11 +14,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.Collections;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Component
 @Order(100)
@@ -28,11 +36,13 @@ public class McpToolProvider implements ToolProvider {
     private final Map<String, ToolCallback> callbacks;
     private final ObjectMapper objectMapper;
     private final String serverName;
+    private final Duration callTimeout;
 
     @Autowired
     public McpToolProvider(ObjectProvider<ToolCallbackProvider> callbackProviders, ObjectMapper objectMapper,
-            @Value("${demo.mcp.server-name:mcp}") String serverName) {
-        this(callbackProviders.orderedStream().toList(), objectMapper, serverName);
+            @Value("${demo.mcp.server-name:mcp}") String serverName,
+            @Value("${demo.mcp.tool-timeout-ms:30000}") long toolTimeoutMs) {
+        this(callbackProviders.orderedStream().toList(), objectMapper, serverName, Duration.ofMillis(toolTimeoutMs));
     }
 
     McpToolProvider(List<ToolCallbackProvider> callbackProviders) {
@@ -48,9 +58,15 @@ public class McpToolProvider implements ToolProvider {
     }
 
     McpToolProvider(List<ToolCallbackProvider> callbackProviders, ObjectMapper objectMapper, String serverName) {
+        this(callbackProviders, objectMapper, serverName, Duration.ofSeconds(30));
+    }
+
+    McpToolProvider(List<ToolCallbackProvider> callbackProviders, ObjectMapper objectMapper, String serverName,
+            Duration callTimeout) {
         this.callbacks = indexCallbacks(callbackProviders);
         this.objectMapper = objectMapper;
         this.serverName = StringUtils.hasText(serverName) ? serverName.trim() : providerName();
+        this.callTimeout = callTimeout == null ? Duration.ofSeconds(30) : callTimeout;
     }
 
     @Override
@@ -79,7 +95,7 @@ public class McpToolProvider implements ToolProvider {
         }
         try {
             String toolInputJson = objectMapper.writeValueAsString(safeArguments);
-            String output = callback.call(toolInputJson);
+            String output = callWithTimeout(callback, toolInputJson);
             return ToolExecutionLog.success(toolName, safeArguments, output, startedAt, Instant.now(), descriptor);
         }
         catch (JsonProcessingException ex) {
@@ -90,6 +106,45 @@ public class McpToolProvider implements ToolProvider {
         catch (RuntimeException ex) {
             return ToolExecutionLog.failure(toolName, safeArguments, remoteErrorMessage(toolName, ex), startedAt, Instant.now(),
                     descriptor, ToolExecutionLog.ERROR_REMOTE_TOOL, ToolExecutionLog.ERROR_TYPE_RAW_REMOTE);
+        }
+    }
+
+    private String callWithTimeout(ToolCallback callback, String toolInputJson) {
+        if (callTimeout.isZero() || callTimeout.isNegative()) {
+            return callback.call(toolInputJson);
+        }
+        String toolName = callback.getToolDefinition().name();
+        ThreadFactory threadFactory = task -> {
+            Thread thread = new Thread(task, "mcp-tool-call-" + toolName);
+            thread.setDaemon(true);
+            return thread;
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
+        Future<String> result = executor.submit(() -> callback.call(toolInputJson));
+        try {
+            return result.get(Math.max(1L, callTimeout.toMillis()), TimeUnit.MILLISECONDS);
+        }
+        catch (TimeoutException ex) {
+            result.cancel(true);
+            throw new McpToolTimeoutException(toolName, callTimeout, ex);
+        }
+        catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            result.cancel(true);
+            throw new McpToolTimeoutException(toolName, callTimeout, ex);
+        }
+        catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Remote MCP tool failed: " + toolName, cause);
+        }
+        finally {
+            executor.shutdownNow();
         }
     }
 
@@ -230,7 +285,7 @@ public class McpToolProvider implements ToolProvider {
     }
 
     private String remoteErrorMessage(String toolName, RuntimeException ex) {
-        if (StringUtils.hasText(ex.getMessage())) {
+        if (ex instanceof McpToolTimeoutException) {
             return ex.getMessage();
         }
         return "Remote MCP tool failed: " + toolName;
@@ -309,6 +364,14 @@ public class McpToolProvider implements ToolProvider {
             return Map.of();
         }
         return Collections.unmodifiableMap(new LinkedHashMap<>(arguments));
+    }
+
+    private static final class McpToolTimeoutException extends RuntimeException {
+
+        private McpToolTimeoutException(String toolName, Duration timeout, Throwable cause) {
+            super("Remote MCP tool timed out after " + timeout.toMillis() + " ms: " + toolName, cause);
+        }
+
     }
 
 }

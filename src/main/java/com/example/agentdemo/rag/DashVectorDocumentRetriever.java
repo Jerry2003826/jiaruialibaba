@@ -4,6 +4,7 @@ import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.rag.vector.VectorSearchResult;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -77,7 +78,8 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                 .map(DocumentChunkEntity::getDocumentId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, DocumentEntity> documentsById = documentRepository
-                .findByIdInAndIndexStatus(documentIds, DocumentIndexStatus.READY)
+                .findByOwnerIdAndIdInAndIndexStatus(SecurityIdentity.currentOwnerId(), documentIds,
+                        DocumentIndexStatus.READY)
                 .stream()
                 .collect(Collectors.toMap(DocumentEntity::getId, Function.identity()));
 

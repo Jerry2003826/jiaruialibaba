@@ -33,7 +33,7 @@ class DocumentManagementServiceTest {
     void updateDocumentReplacesContentClearsOldChunksAndReindexes() {
         DocumentEntity document = new DocumentEntity("Old", "old content");
         ReflectionTestUtils.setField(document, "id", 1L);
-        when(documentRepository.findById(1L)).thenReturn(Optional.of(document));
+        when(documentRepository.findByIdAndOwnerId(1L, "workbench-dev")).thenReturn(Optional.of(document));
         when(documentRepository.save(document)).thenReturn(document);
 
         DocumentResponse response = service.updateDocument(1L, new DocumentRequest("New", "new content"));
@@ -50,7 +50,7 @@ class DocumentManagementServiceTest {
     void deleteDocumentDoesNotRemoveVectorsBeforeDbWhenConfigured() {
         DocumentEntity document = new DocumentEntity("Doc", "content");
         DocumentChunkEntity chunk = new DocumentChunkEntity(1L, 0, "vec-1", "chunk");
-        when(documentRepository.findById(1L)).thenReturn(Optional.of(document));
+        when(documentRepository.findByIdAndOwnerId(1L, "workbench-dev")).thenReturn(Optional.of(document));
         when(documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(1L)).thenReturn(List.of(chunk));
         when(vectorStoreGateway.isConfigured()).thenReturn(true);
 
@@ -65,7 +65,7 @@ class DocumentManagementServiceTest {
     void deleteDocumentSkipsVectorDeleteWhenNotConfiguredInLegacyMode() {
         DocumentEntity document = new DocumentEntity("Doc", "content");
         DocumentChunkEntity chunk = new DocumentChunkEntity(1L, 0, "vec-1", "chunk");
-        when(documentRepository.findById(1L)).thenReturn(Optional.of(document));
+        when(documentRepository.findByIdAndOwnerId(1L, "workbench-dev")).thenReturn(Optional.of(document));
         when(documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(1L)).thenReturn(List.of(chunk));
         when(vectorStoreGateway.isConfigured()).thenReturn(false);
 
@@ -82,7 +82,7 @@ class DocumentManagementServiceTest {
                 documentChunkRepository, vectorStoreGateway, TestAlibabaPolicies.strictMode());
         DocumentEntity document = new DocumentEntity("Doc", "content");
         DocumentChunkEntity chunk = new DocumentChunkEntity(1L, 0, "vec-1", "chunk");
-        when(documentRepository.findById(1L)).thenReturn(Optional.of(document));
+        when(documentRepository.findByIdAndOwnerId(1L, "workbench-dev")).thenReturn(Optional.of(document));
         when(documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(1L)).thenReturn(List.of(chunk));
         when(vectorStoreGateway.isConfigured()).thenReturn(false);
 
@@ -97,7 +97,7 @@ class DocumentManagementServiceTest {
 
     @Test
     void getDocumentThrowsWhenMissing() {
-        when(documentRepository.findById(99L)).thenReturn(Optional.empty());
+        when(documentRepository.findByIdAndOwnerId(99L, "workbench-dev")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getDocument(99L))
                 .isInstanceOf(BusinessException.class)

@@ -73,8 +73,8 @@ demo:
     jwt-secret: ${DEMO_SECURITY_JWT_SECRET:dev-local-insecure-jwt-secret-change-me-0123456789}
     dev-token:
       # Exposes GET /api/auth/dev-token so the bundled workbench can authenticate
-      # against the secured API in local/demo mode. Disable in production.
-      enabled: ${DEMO_SECURITY_DEV_TOKEN_ENABLED:true}
+      # against the secured API in local/demo mode. Explicitly enable only for trusted local/demo use.
+      enabled: ${DEMO_SECURITY_DEV_TOKEN_ENABLED:false}
       ttl-minutes: ${DEMO_SECURITY_DEV_TOKEN_TTL_MINUTES:120}
   alibaba:
     strict-mode: ${DEMO_ALIBABA_STRICT_MODE:false}
@@ -84,6 +84,7 @@ demo:
     embedding-model: ${AI_DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
     embedding-dimension: ${AI_DASHSCOPE_EMBEDDING_DIMENSION:1024}
     embedding-base-url: ${AI_DASHSCOPE_EMBEDDING_BASE_URL:}
+    max-tokens-per-call: ${DEMO_AI_MAX_TOKENS_PER_CALL:32000}
   chat:
     memory:
       max-messages: ${DEMO_CHAT_MEMORY_MAX_MESSAGES:20}
@@ -102,6 +103,7 @@ demo:
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
     require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}
+    allow-inline-run: ${DEMO_WORKFLOW_ALLOW_INLINE_RUN:false}
     max-nodes: ${DEMO_WORKFLOW_MAX_NODES:100}
     max-edges: ${DEMO_WORKFLOW_MAX_EDGES:200}
     max-parallel-branches: ${DEMO_WORKFLOW_MAX_PARALLEL_BRANCHES:16}
@@ -109,8 +111,8 @@ demo:
     # Run-level execution budget: caps total node executions across the whole run (loops, dynamic
     # fan-out and nested subgraphs included) so a runaway run is aborted with WORKFLOW_BUDGET_EXCEEDED.
     max-step-executions: ${DEMO_WORKFLOW_MAX_STEP_EXECUTIONS:1000}
-    # Wall-clock budget for a run in ms; 0 disables it (default) so long model calls are never cut off.
-    run-deadline-ms: ${DEMO_WORKFLOW_RUN_DEADLINE_MS:0}
+    # Wall-clock budget for a run in ms.
+    run-deadline-ms: ${DEMO_WORKFLOW_RUN_DEADLINE_MS:120000}
   tools:
     allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}

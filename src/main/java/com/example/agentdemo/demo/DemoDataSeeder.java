@@ -6,6 +6,7 @@ import com.example.agentdemo.rag.DocumentIndexStatus;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.DocumentRequest;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -113,7 +114,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     void seedOrders() {
         transactionTemplate.executeWithoutResult(status -> {
             for (DemoOrderSeed seed : ORDER_SEEDS) {
-                if (!demoOrderRepository.existsById(seed.orderId())) {
+                if (!demoOrderRepository.existsByOrderIdAndOwnerId(seed.orderId(),
+                        SecurityIdentity.DEFAULT_OWNER_ID)) {
                     demoOrderRepository.save(seed.toEntity());
                 }
             }
@@ -130,7 +132,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     private void seedKnowledgeDocument(String title, String content) {
-        if (documentRepository.existsByTitleAndIndexStatusNot(title, DocumentIndexStatus.DELETED)) {
+        if (documentRepository.existsByOwnerIdAndTitleAndIndexStatusNot(SecurityIdentity.DEFAULT_OWNER_ID, title,
+                DocumentIndexStatus.DELETED)) {
             return;
         }
         try {

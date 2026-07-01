@@ -84,7 +84,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinition definition = validDefinition();
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(definition));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(entity));
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(entity));
 
         WorkflowDefinition resolved = service.resolveDefinition("wf-1");
 
@@ -97,7 +97,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(definition));
         entity.updateDraft("Support Bot v2", null, new ObjectMapper().writeValueAsString(definition));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(entity));
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(entity));
 
         WorkflowDefinitionResolution resolution = service.resolveDefinition("wf-1", null);
 
@@ -112,7 +112,8 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionRevisionEntity revision = new WorkflowDefinitionRevisionEntity("wf-1", 3,
                 WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
                 new ObjectMapper().writeValueAsString(definition));
-        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 3)).thenReturn(Optional.of(revision));
+        when(revisionRepository.findByDefinitionIdAndVersionAndOwnerId("wf-1", 3, "workbench-dev"))
+                .thenReturn(Optional.of(revision));
 
         WorkflowDefinitionResolution resolution = service.resolveDefinition("wf-1", 3);
 
@@ -123,7 +124,7 @@ class WorkflowDefinitionServiceTest {
 
     @Test
     void throwsWhenDefinitionIdIsMissing() {
-        when(repository.findByDefinitionId("missing")).thenReturn(Optional.empty());
+        when(repository.findByDefinitionIdAndOwnerId("missing", "workbench-dev")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.resolveDefinition("missing"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -138,7 +139,7 @@ class WorkflowDefinitionServiceTest {
                 new ObjectMapper().writeValueAsString(definition));
         WorkflowDefinitionEntity second = new WorkflowDefinitionEntity("wf-2", "Second", "desc",
                 new ObjectMapper().writeValueAsString(definition));
-        when(repository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(second, first));
+        when(repository.findAllByOwnerIdOrderByCreatedAtDesc("workbench-dev")).thenReturn(List.of(second, first));
 
         List<WorkflowDefinitionResponse> responses = service.list();
 
@@ -153,7 +154,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
         existing.prePersist();
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         WorkflowDefinitionResponse response = service.update("wf-1",
@@ -184,9 +185,10 @@ class WorkflowDefinitionServiceTest {
                 WorkflowDefinitionStatus.DRAFT, "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
         existing.prePersist();
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 1)).thenReturn(Optional.of(currentRevision));
+        when(revisionRepository.findByDefinitionIdAndVersionAndOwnerId("wf-1", 1, "workbench-dev"))
+                .thenReturn(Optional.of(currentRevision));
 
         WorkflowDefinitionResponse response = service.publish("wf-1");
 
@@ -210,8 +212,8 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionRevisionEntity revision1 = new WorkflowDefinitionRevisionEntity("wf-1", 1,
                 WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
                 new ObjectMapper().writeValueAsString(definition));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
-        when(revisionRepository.findAllByDefinitionIdOrderByVersionDesc("wf-1"))
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(current));
+        when(revisionRepository.findAllByDefinitionIdAndOwnerIdOrderByVersionDesc("wf-1", "workbench-dev"))
                 .thenReturn(List.of(revision2, revision1));
 
         List<WorkflowDefinitionRevisionResponse> revisions = service.listRevisions("wf-1");
@@ -233,9 +235,10 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionRevisionEntity targetRevision = new WorkflowDefinitionRevisionEntity("wf-1", 1,
                 WorkflowDefinitionStatus.PUBLISHED, "Support Bot", null,
                 new ObjectMapper().writeValueAsString(rollbackDefinition));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(current));
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 1)).thenReturn(Optional.of(targetRevision));
+        when(revisionRepository.findByDefinitionIdAndVersionAndOwnerId("wf-1", 1, "workbench-dev"))
+                .thenReturn(Optional.of(targetRevision));
 
         WorkflowDefinitionResponse response = service.rollback("wf-1", 1);
 
@@ -259,8 +262,9 @@ class WorkflowDefinitionServiceTest {
     void throwsWhenRollbackRevisionIsMissing() throws Exception {
         WorkflowDefinitionEntity current = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(current));
-        when(revisionRepository.findByDefinitionIdAndVersion("wf-1", 99)).thenReturn(Optional.empty());
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(current));
+        when(revisionRepository.findByDefinitionIdAndVersionAndOwnerId("wf-1", 99, "workbench-dev"))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.rollback("wf-1", 99))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -272,12 +276,12 @@ class WorkflowDefinitionServiceTest {
     void deletesDefinitionAndRevisionsWhenNoRunHistoryExists() throws Exception {
         WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
-        when(runRecordRepository.existsByDefinitionId("wf-1")).thenReturn(false);
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(existing));
+        when(runRecordRepository.existsByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(false);
 
         service.delete("wf-1");
 
-        verify(revisionRepository).deleteAllByDefinitionId("wf-1");
+        verify(revisionRepository).deleteAllByDefinitionIdAndOwnerId("wf-1", "workbench-dev");
         verify(repository).delete(existing);
     }
 
@@ -285,14 +289,14 @@ class WorkflowDefinitionServiceTest {
     void rejectsDeleteWhenRunHistoryExists() throws Exception {
         WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity("wf-1", "Support Bot", null,
                 new ObjectMapper().writeValueAsString(validDefinition()));
-        when(repository.findByDefinitionId("wf-1")).thenReturn(Optional.of(existing));
-        when(runRecordRepository.existsByDefinitionId("wf-1")).thenReturn(true);
+        when(repository.findByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(Optional.of(existing));
+        when(runRecordRepository.existsByDefinitionIdAndOwnerId("wf-1", "workbench-dev")).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete("wf-1"))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_DEFINITION_IN_USE"))
                 .hasMessage("Workflow definition has run history and cannot be deleted: wf-1");
-        verify(revisionRepository, never()).deleteAllByDefinitionId("wf-1");
+        verify(revisionRepository, never()).deleteAllByDefinitionIdAndOwnerId("wf-1", "workbench-dev");
         verify(repository, never()).delete(existing);
     }
 
@@ -323,7 +327,7 @@ class WorkflowDefinitionServiceTest {
         workflowRuntimeProperties.setRequirePublishedForRun(true);
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity("def-1", "Draft Flow", "desc", "{}");
         entity.prePersist();
-        when(repository.findByDefinitionId("def-1")).thenReturn(Optional.of(entity));
+        when(repository.findByDefinitionIdAndOwnerId("def-1", "workbench-dev")).thenReturn(Optional.of(entity));
 
         assertThatThrownBy(() -> service.resolveDefinition("def-1", null))
                 .isInstanceOf(BusinessException.class)
@@ -338,7 +342,7 @@ class WorkflowDefinitionServiceTest {
                 "{\"nodes\":[{\"id\":\"start\",\"type\":\"start\",\"config\":{}},{\"id\":\"end\",\"type\":\"end\",\"config\":{}}],"
                         + "\"edges\":[{\"from\":\"start\",\"to\":\"end\"}]}");
         entity.prePersist();
-        when(repository.findByDefinitionId("def-1")).thenReturn(Optional.of(entity));
+        when(repository.findByDefinitionIdAndOwnerId("def-1", "workbench-dev")).thenReturn(Optional.of(entity));
 
         WorkflowDefinitionResolution resolution = service.resolveDefinition("def-1", null);
 

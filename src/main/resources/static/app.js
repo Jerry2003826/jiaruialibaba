@@ -64,6 +64,15 @@
     loop_back: "循环回边", subgraph: "子图", dynamic: "动态", end: "结束"
   };
 
+  const ROUTE_RULES = [
+    { id: "return", label: "退货流程", short: "退货", keywords: ["退货", "退回", "拒收", "return", "return_flow", "return_policy"] },
+    { id: "refund", label: "退款流程", short: "退款", keywords: ["退款", "到账", "refund", "refund_flow", "after_sales"] },
+    { id: "logistics", label: "物流查询", short: "物流", keywords: ["物流", "快递", "运单", "发货", "包裹", "配送", "tracking", "shipment", "delivery"] },
+    { id: "order", label: "订单查询", short: "订单", keywords: ["订单", "订单号", "queryOrderAPI", "order_query", "order id", "order number"] },
+    { id: "knowledge", label: "知识库问答", short: "知识库", keywords: ["知识库", "检索", "文档", "上下文", "流程", "政策", "规则", "rag", "retriever", "context", "policy", "guide"], typeHints: ["retriever"] },
+    { id: "fallback", label: "兜底处理", short: "兜底", keywords: ["兜底", "异常", "失败", "澄清", "人工", "fallback", "error", "clarification", "default"] }
+  ];
+
   // 简洁线性图标（inner SVG，viewBox 0 0 24 24）
   const NODE_ICONS = {
     start: '<circle cx="12" cy="12" r="8"/><path d="M10 9l5 3-5 3z"/>',
@@ -113,7 +122,9 @@
     assistantWorkflowDefinitionId: null,
     assistantWorkflowDefinitionVersion: null,
     assistantWorkflowDefinitionName: null,
-    assistantWorkflowDefinitionStatus: null
+    assistantWorkflowDefinitionStatus: null,
+    routeFilters: new Set(),
+    routePanelCollapsed: false
   };
 
   const els = {};
@@ -136,6 +147,7 @@
       bindNavigation();
       bindRuntimeChip();
       bindWorkflowActions();
+      bindRouteMap();
       bindCanvasInteractions();
       bindRunDrawer();
       bindChat();
@@ -166,6 +178,7 @@
       "insert-loop-template", "publish-definition",
       "palette", "palette-collapse", "node-palette",
       "workflow-canvas", "canvas-world", "edge-layer", "node-layer", "canvas-empty",
+      "route-map-panel", "route-map-title", "route-map-toggle", "route-map-list",
       "zoom-out", "zoom-label", "zoom-in", "zoom-fit",
       "node-inspector", "inspector-title", "inspector-close", "inspector-empty", "inspector-form",
       "edge-section", "add-edge", "edge-list", "delete-node",
@@ -268,6 +281,13 @@
 
     // 面板折叠
     els.paletteCollapse?.addEventListener("click", togglePalette);
+  }
+
+  function bindRouteMap() {
+    els.routeMapToggle?.addEventListener("click", () => {
+      state.routePanelCollapsed = !state.routePanelCollapsed;
+      renderRouteMap();
+    });
   }
 
   function togglePalette() {
@@ -510,15 +530,15 @@
     state.connectSourceId = null;
     state.selectedNodeId = null;
     state.nodes = [
-      { id: "start", type: "start", config: {} },
-      { id: "retriever_1", type: "retriever", config: { topK: 3 } },
-      { id: "llm_1", type: "llm", config: { prompt: "Answer using this context: {{context}}\nInput: {{input}}" } },
-      { id: "end", type: "end", config: {} }
+      { id: "start", type: "start", label: "开始入口", route: "", config: {} },
+      { id: "retriever_1", type: "retriever", label: "知识库检索", route: "知识库问答", config: { topK: 3 } },
+      { id: "llm_1", type: "llm", label: "回答生成", route: "知识库问答", config: { prompt: "Answer using this context: {{context}}\nInput: {{input}}" } },
+      { id: "end", type: "end", label: "结束输出", route: "", config: {} }
     ];
     state.edges = [
-      { from: "start", to: "retriever_1", condition: "" },
-      { from: "retriever_1", to: "llm_1", condition: "" },
-      { from: "llm_1", to: "end", condition: "" }
+      { from: "start", to: "retriever_1", condition: "", label: "进入检索", route: "知识库问答" },
+      { from: "retriever_1", to: "llm_1", condition: "", label: "带上下文回答", route: "知识库问答" },
+      { from: "llm_1", to: "end", condition: "", label: "输出结果", route: "知识库问答" }
     ];
     state.positions = new Map([
       ["start", { x: 80, y: 90 }],
@@ -539,8 +559,20 @@
   }
 
   function hydrateWorkflow(definition, options = {}) {
-    state.nodes = (definition.nodes || []).map((node) => ({ id: node.id, type: node.type, config: { ...(node.config || {}) } }));
-    state.edges = (definition.edges || []).map((edge) => ({ from: edge.from, to: edge.to, condition: edge.condition || "" }));
+    state.nodes = (definition.nodes || []).map((node) => ({
+      id: node.id,
+      type: node.type,
+      label: cleanText(node.label),
+      route: cleanText(node.route),
+      config: { ...(node.config || {}) }
+    }));
+    state.edges = (definition.edges || []).map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      condition: edge.condition || "",
+      label: cleanText(edge.label),
+      route: cleanText(edge.route)
+    }));
     state.positions = new Map();
     state.nodes.forEach((node, index) => {
       const col = index % 4, row = Math.floor(index / 4);
@@ -578,6 +610,7 @@
   // ============================================================
   function renderAll() {
     renderPalette();
+    renderRouteMap();
     renderNodes();
     renderEdges();
     renderInspector();
@@ -600,6 +633,7 @@
 
   function renderNodes() {
     els.nodeLayer.innerHTML = "";
+    const routeHighlight = selectedRouteHighlight();
     state.nodes.forEach((node) => {
       const position = state.positions.get(node.id) || { x: 80, y: 80 };
       const element = document.createElement("article");
@@ -609,14 +643,16 @@
       element.style.top = `${position.y}px`;
       element.classList.toggle("selected", state.selectedNodeId === node.id);
       element.classList.toggle("connecting", state.connectSourceId === node.id);
+      element.classList.toggle("route-highlight", routeHighlight.active && routeHighlight.nodeIds.has(node.id));
+      element.classList.toggle("route-muted", routeHighlight.active && !routeHighlight.nodeIds.has(node.id));
       const color = colorForType(node.type);
       element.innerHTML = `
         <div class="node-accent" style="background:${color}"></div>
         <div class="node-main">
           <span class="node-ico" style="background:${color}">${iconSvg(node.type)}</span>
           <div class="node-meta">
-            <div class="node-type">${escapeHtml(nodeLabel(node.type))}</div>
-            <div class="node-id">${escapeHtml(node.id)}</div>
+            <div class="node-type">${escapeHtml(nodeDisplayName(node))}</div>
+            <div class="node-id">${escapeHtml(nodeLabel(node.type))} · ${escapeHtml(node.id)}</div>
             <div class="node-summary">${escapeHtml(nodeSummary(node))}</div>
           </div>
         </div>
@@ -675,6 +711,7 @@
     const svg = els.edgeLayer;
     // 保留 <defs>，清除旧路径
     svg.querySelectorAll(".edge-path, .edge-label").forEach((n) => n.remove());
+    const routeHighlight = selectedRouteHighlight();
     state.edges.forEach((edge) => {
       const from = portWorld(edge.from, "right");
       const to = portWorld(edge.to, "left");
@@ -682,19 +719,229 @@
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       const mid = Math.max(50, Math.abs(to.x - from.x) / 2);
       path.setAttribute("d", `M ${from.x} ${from.y} C ${from.x + mid} ${from.y}, ${to.x - mid} ${to.y}, ${to.x} ${to.y}`);
-      path.setAttribute("class", edge.condition ? "edge-path conditional" : "edge-path");
+      const edgeClasses = ["edge-path"];
+      if (edge.condition) edgeClasses.push("conditional");
+      if (routeHighlight.active) edgeClasses.push(routeHighlight.edgeKeys.has(routeEdgeKey(edge)) ? "route-highlight" : "route-muted");
+      path.setAttribute("class", edgeClasses.join(" "));
       path.setAttribute("marker-end", "url(#arrow)");
       svg.appendChild(path);
-      if (edge.condition) {
+      const displayLabel = edgeDisplayName(edge);
+      if (displayLabel) {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute("x", String((from.x + to.x) / 2));
         label.setAttribute("y", String((from.y + to.y) / 2 - 8));
         label.setAttribute("text-anchor", "middle");
-        label.setAttribute("class", "edge-label");
-        label.textContent = edge.condition;
+        const labelClasses = ["edge-label"];
+        if (routeHighlight.active) labelClasses.push(routeHighlight.edgeKeys.has(routeEdgeKey(edge)) ? "route-highlight" : "route-muted");
+        label.setAttribute("class", labelClasses.join(" "));
+        label.textContent = displayLabel;
         svg.appendChild(label);
       }
     });
+  }
+
+  function renderRouteMap() {
+    if (!els.routeMapPanel || !els.routeMapList) return;
+    const routes = routeSummaries();
+    const visibleIds = new Set(routes.map((route) => route.id));
+    Array.from(state.routeFilters).forEach((id) => { if (!visibleIds.has(id)) state.routeFilters.delete(id); });
+    els.routeMapPanel.classList.toggle("collapsed", state.routePanelCollapsed);
+    if (els.routeMapTitle) {
+      els.routeMapTitle.textContent = state.routePanelCollapsed
+        ? `${routes.length || 0} 条路径`
+        : `${routes.length || 0} 条路径 · ${state.nodes.length} 节点`;
+    }
+    if (els.routeMapToggle) {
+      els.routeMapToggle.title = state.routePanelCollapsed ? "展开路由概览" : "折叠路由概览";
+      els.routeMapToggle.setAttribute("aria-label", els.routeMapToggle.title);
+    }
+    els.routeMapList.innerHTML = "";
+    if (state.routePanelCollapsed) return;
+    if (routes.length === 0) {
+      els.routeMapList.appendChild(emptyDiv("暂无可识别路径"));
+      return;
+    }
+    routes.forEach((route) => {
+      const checked = state.routeFilters.has(route.id);
+      const label = document.createElement("label");
+      label.className = `route-filter ${checked ? "active" : ""}`;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = checked;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) state.routeFilters.add(route.id);
+        else state.routeFilters.delete(route.id);
+        renderRouteMap();
+        renderNodes();
+        renderEdges();
+      });
+      const main = document.createElement("span");
+      main.className = "route-filter-main";
+      main.innerHTML = `<span class="route-filter-title">${escapeHtml(route.label)}</span>
+        <span class="route-filter-path">${escapeHtml(route.pathText)}</span>`;
+      const count = document.createElement("span");
+      count.className = "route-filter-count";
+      count.textContent = `${route.nodeIds.size} 节点`;
+      label.append(checkbox, main, count);
+      els.routeMapList.appendChild(label);
+    });
+  }
+
+  function routeSummaries() {
+    const explicitRoutes = explicitRouteSummaries();
+    const explicitLabels = new Set(explicitRoutes.map((route) => normalizeRouteText(route.label)));
+    const matchedRoutes = ROUTE_RULES
+      .map((rule) => ({ ...rule, ...routeMatchForRule(rule) }))
+      .filter((route) => route.nodeIds.size > 0)
+      .filter((route) => !explicitLabels.has(normalizeRouteText(route.label)))
+      .map((route) => ({ ...route, pathText: routePathText(route.nodeIds) }));
+    const routes = [...explicitRoutes, ...matchedRoutes];
+    if (routes.length > 0 || state.nodes.length === 0) return routes;
+    const nodeIds = new Set(state.nodes.map((node) => node.id));
+    const edgeKeys = new Set(state.edges.map(routeEdgeKey));
+    return [{
+      id: "canvas-default",
+      label: "默认路径",
+      short: "默认",
+      nodeIds,
+      edgeKeys,
+      pathText: routePathText(nodeIds)
+    }];
+  }
+
+  function explicitRouteSummaries() {
+    const groups = new Map();
+    const ensureGroup = (routeName) => {
+      const label = cleanText(routeName);
+      if (!label) return null;
+      const key = normalizeRouteText(label);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: customRouteId(label),
+          label,
+          short: label.replace(/流程$/, "").slice(0, 6) || label,
+          nodeIds: new Set(),
+          edgeKeys: new Set()
+        });
+      }
+      return groups.get(key);
+    };
+
+    state.nodes.forEach((node) => {
+      const group = ensureGroup(node.route);
+      if (group) group.nodeIds.add(node.id);
+    });
+    state.edges.forEach((edge) => {
+      const group = ensureGroup(edge.route);
+      if (!group) return;
+      group.edgeKeys.add(routeEdgeKey(edge));
+      group.nodeIds.add(edge.from);
+      group.nodeIds.add(edge.to);
+    });
+    groups.forEach((group) => {
+      state.edges.forEach((edge) => {
+        if (group.nodeIds.has(edge.from) && group.nodeIds.has(edge.to)) {
+          group.edgeKeys.add(routeEdgeKey(edge));
+        }
+      });
+    });
+    return Array.from(groups.values())
+      .filter((group) => group.nodeIds.size > 0)
+      .map((group) => ({ ...group, pathText: routePathText(group.nodeIds) }));
+  }
+
+  function customRouteId(routeName) {
+    let hash = 0;
+    Array.from(routeName).forEach((char) => {
+      hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+    });
+    return `custom-route-${Math.abs(hash)}`;
+  }
+
+  function routeMatchForRule(rule) {
+    const nodeIds = new Set();
+    const edgeKeys = new Set();
+    const includeEdge = (edge) => {
+      edgeKeys.add(routeEdgeKey(edge));
+      nodeIds.add(edge.from);
+      nodeIds.add(edge.to);
+    };
+    const includeNodePath = (nodeId) => {
+      nodeIds.add(nodeId);
+      state.edges.filter((edge) => edge.to === nodeId).forEach((edge) => {
+        includeEdge(edge);
+        const fromNode = state.nodes.find((node) => node.id === edge.from);
+        if (fromNode?.type === "condition" || fromNode?.type === "parallel" || fromNode?.type === "loop") nodeIds.add(edge.from);
+      });
+      collectRouteChain(nodeId, nodeIds, edgeKeys);
+    };
+    state.edges.forEach((edge) => {
+      const fromNode = state.nodes.find((node) => node.id === edge.from);
+      const toNode = state.nodes.find((node) => node.id === edge.to);
+      const edgeText = [edge.condition, edge.label, edge.route, edge.from, edge.to, nodeCorpus(fromNode), nodeCorpus(toNode)].join(" ");
+      if (matchesRouteRule(edgeText, rule)) {
+        includeEdge(edge);
+        collectRouteChain(edge.to, nodeIds, edgeKeys, new Set([edge.from]));
+      }
+    });
+    state.nodes.forEach((node) => {
+      if (rule.typeHints?.includes(node.type) || matchesRouteRule(nodeCorpus(node), rule)) includeNodePath(node.id);
+    });
+    return { nodeIds, edgeKeys };
+  }
+
+  function selectedRouteHighlight() {
+    if (!state.routeFilters || state.routeFilters.size === 0) return { active: false, nodeIds: new Set(), edgeKeys: new Set() };
+    const nodeIds = new Set();
+    const edgeKeys = new Set();
+    routeSummaries().forEach((route) => {
+      if (!state.routeFilters.has(route.id)) return;
+      route.nodeIds.forEach((id) => nodeIds.add(id));
+      route.edgeKeys.forEach((key) => edgeKeys.add(key));
+    });
+    return { active: nodeIds.size > 0 || edgeKeys.size > 0, nodeIds, edgeKeys };
+  }
+
+  function collectRouteChain(startId, nodeIds, edgeKeys, visited = new Set()) {
+    let current = startId;
+    let guard = 0;
+    while (current && !visited.has(current) && guard < 32) {
+      guard += 1;
+      visited.add(current);
+      nodeIds.add(current);
+      const outgoing = state.edges.filter((edge) => edge.from === current);
+      if (outgoing.length !== 1) break;
+      const edge = outgoing[0];
+      edgeKeys.add(routeEdgeKey(edge));
+      current = edge.to;
+    }
+  }
+
+  function routePathText(nodeIds) {
+    const ordered = state.nodes
+      .filter((node) => nodeIds.has(node.id))
+      .map((node) => nodeDisplayName(node));
+    if (ordered.length === 0) return "未配置";
+    const head = ordered.slice(0, 5).join(" → ");
+    return ordered.length > 5 ? `${head} → +${ordered.length - 5}` : head;
+  }
+
+  function routeEdgeKey(edge) {
+    return `${edge.from}=>${edge.to}:${edge.condition || ""}:${edge.label || ""}:${edge.route || ""}`;
+  }
+
+  function matchesRouteRule(value, rule) {
+    const text = normalizeRouteText(value);
+    return (rule.keywords || []).some((keyword) => text.includes(normalizeRouteText(keyword)));
+  }
+
+  function nodeCorpus(node) {
+    if (!node) return "";
+    return [node.id, node.type, node.label, node.route, nodeLabel(node.type), safeStringify(node.config)].join(" ");
+  }
+
+  function normalizeRouteText(value) {
+    return String(value || "").toLowerCase();
   }
 
   // 节点端口的世界坐标（与缩放无关，使用未缩放布局尺寸 offsetWidth/Height）
@@ -717,7 +964,7 @@
     const canvas = els.workflowCanvas;
     // 平移（在背景按下拖动）
     canvas.addEventListener("pointerdown", (event) => {
-      if (event.target.closest(".canvas-node") || event.target.closest(".canvas-controls")) return;
+      if (event.target.closest(".canvas-node") || event.target.closest(".canvas-controls") || event.target.closest(".route-map-panel")) return;
       const origin = { x: event.clientX, y: event.clientY, panX: state.view.panX, panY: state.view.panY };
       canvas.classList.add("panning");
       canvas.setPointerCapture(event.pointerId);
@@ -827,14 +1074,38 @@
     els.deleteNode.disabled = node.type === "start" || node.type === "end";
     els.inspectorForm.innerHTML = "";
 
-    const idField = fieldShell("节点 ID");
+    const labelField = fieldShell("显示名称");
+    const labelInput = textControl(node.label || "");
+    labelInput.placeholder = inferredNodeDisplayName(node);
+    labelInput.addEventListener("change", () => {
+      node.label = cleanText(labelInput.value);
+      renderRouteMap(); renderNodes(); renderEdges(); renderInspector();
+    });
+    labelField.appendChild(labelInput);
+    els.inspectorForm.appendChild(labelField);
+
+    const routeField = fieldShell("所属流程");
+    const routeInput = textControl(node.route || "");
+    routeInput.placeholder = "例如：退货流程";
+    routeInput.addEventListener("change", () => {
+      node.route = cleanText(routeInput.value);
+      renderRouteMap(); renderNodes(); renderEdges(); renderInspector();
+    });
+    routeField.appendChild(routeInput);
+    els.inspectorForm.appendChild(routeField);
+
+    const idField = fieldShell("技术 ID（高级）");
     const idInput = textControl(node.id);
     idInput.addEventListener("change", () => renameNode(node.id, idInput.value.trim()));
     idField.appendChild(idInput);
+    const idHint = document.createElement("div");
+    idHint.className = "config-hint";
+    idHint.textContent = "用于模板变量和连线；改名后请检查 {{nodes.xxx}} 引用。";
+    idField.appendChild(idHint);
     els.inspectorForm.appendChild(idField);
 
     const schema = schemaForType(node.type);
-    const typeField = fieldShell("类型");
+    const typeField = fieldShell("节点类型");
     const typeValue = document.createElement("input");
     typeValue.className = "text-input";
     typeValue.value = nodeLabel(node.type);
@@ -849,7 +1120,7 @@
         control = subgraphDefinitionControl(node.config.definitionId || "");
         control.addEventListener("change", () => {
           node.config.definitionId = control.value; node.config.version = null;
-          renderInspector(); renderNodes();
+          renderInspector(); renderRouteMap(); renderNodes(); renderEdges();
         });
       } else if (node.type === "subgraph" && field.name === "version") {
         control = document.createElement("select");
@@ -860,10 +1131,10 @@
           control.value = String(node.config.version);
         }
         void populateSubgraphVersionOptions(control, node.config.definitionId, node.config.version);
-        control.addEventListener("change", () => { node.config.version = control.value ? Number.parseInt(control.value, 10) : null; renderNodes(); });
+        control.addEventListener("change", () => { node.config.version = control.value ? Number.parseInt(control.value, 10) : null; renderRouteMap(); renderNodes(); renderEdges(); });
       } else {
         control = controlForField(field, node.config[field.name]);
-        control.addEventListener("change", () => { node.config[field.name] = parseControlValue(control.value, field.type); renderNodes(); });
+        control.addEventListener("change", () => { node.config[field.name] = parseControlValue(control.value, field.type); renderRouteMap(); renderNodes(); renderEdges(); });
       }
       shell.appendChild(control);
       els.inspectorForm.appendChild(shell);
@@ -913,13 +1184,21 @@
       const fromNode = state.nodes.find((n) => n.id === edge.from);
       const condition = edgeConditionControl(fromNode, edge.condition || "");
       condition.classList.add("edge-condition");
+      const labelInput = textControl(edge.label || "");
+      labelInput.classList.add("edge-condition");
+      labelInput.placeholder = "连线显示名（如：是退货）";
+      const routeInput = textControl(edge.route || "");
+      routeInput.classList.add("edge-condition");
+      routeInput.placeholder = "所属流程（如：退货流程）";
       const remove = document.createElement("button");
       remove.type = "button"; remove.className = "edge-remove"; remove.textContent = "删除连线";
-      from.addEventListener("change", () => { edge.from = from.value; renderInspector(); renderEdges(); });
-      to.addEventListener("change", () => { edge.to = to.value; renderInspector(); renderEdges(); });
-      condition.addEventListener("change", () => { edge.condition = condition.value.trim(); renderEdges(); });
-      remove.addEventListener("click", () => { state.edges.splice(index, 1); renderInspector(); renderEdges(); });
-      row.append(from, arrow, to, condition, remove);
+      from.addEventListener("change", () => { edge.from = from.value; renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
+      to.addEventListener("change", () => { edge.to = to.value; renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
+      condition.addEventListener("change", () => { edge.condition = condition.value.trim(); renderRouteMap(); renderNodes(); renderEdges(); });
+      labelInput.addEventListener("change", () => { edge.label = cleanText(labelInput.value); renderRouteMap(); renderNodes(); renderEdges(); renderInspector(); });
+      routeInput.addEventListener("change", () => { edge.route = cleanText(routeInput.value); renderRouteMap(); renderNodes(); renderEdges(); renderInspector(); });
+      remove.addEventListener("click", () => { state.edges.splice(index, 1); renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
+      row.append(from, arrow, to, condition, labelInput, routeInput, remove);
       els.edgeList.appendChild(row);
     });
   }
@@ -929,8 +1208,8 @@
     if (!node) return;
     const target = state.nodes.find((n) => n.id !== node.id);
     if (!target) return;
-    state.edges.push({ from: node.id, to: target.id, condition: "" });
-    renderInspector(); renderEdges();
+    state.edges.push({ from: node.id, to: target.id, condition: "", label: "", route: cleanText(node.route) });
+    renderInspector(); renderRouteMap(); renderNodes(); renderEdges();
   }
 
   function edgeConditionControl(fromNode, value) {
@@ -961,22 +1240,22 @@
     const loopSchema = schemaForType("loop");
     const toolSchema = schemaForType("tool");
     state.nodes.push(
-      { id: loopId, type: "loop", config: defaultConfig(loopSchema) },
-      { id: bodyId, type: "tool", config: defaultConfig(toolSchema) },
-      { id: loopBackId, type: "loop_back", config: {} },
-      { id: afterId, type: "tool", config: defaultConfig(toolSchema) }
+      { id: loopId, type: "loop", label: "循环判断", route: "循环流程", config: defaultConfig(loopSchema) },
+      { id: bodyId, type: "tool", label: "循环体工具", route: "循环流程", config: defaultConfig(toolSchema) },
+      { id: loopBackId, type: "loop_back", label: "回到循环", route: "循环流程", config: {} },
+      { id: afterId, type: "tool", label: "循环后处理", route: "循环流程", config: defaultConfig(toolSchema) }
     );
     const startNode = state.nodes.find((n) => n.type === "start");
     const endNode = state.nodes.find((n) => n.type === "end");
     if (startNode && !state.edges.some((e) => e.from === startNode.id && e.to === loopId)) {
-      state.edges.push({ from: startNode.id, to: loopId, condition: "" });
+      state.edges.push({ from: startNode.id, to: loopId, condition: "", label: "进入循环", route: "循环流程" });
     }
     state.edges.push(
-      { from: loopId, to: bodyId, condition: "body" },
-      { from: bodyId, to: loopBackId, condition: "" },
-      { from: loopBackId, to: loopId, condition: "" },
-      { from: loopId, to: afterId, condition: "exit" },
-      { from: afterId, to: endNode.id, condition: "" }
+      { from: loopId, to: bodyId, condition: "body", label: "继续循环", route: "循环流程" },
+      { from: bodyId, to: loopBackId, condition: "", label: "完成本轮", route: "循环流程" },
+      { from: loopBackId, to: loopId, condition: "", label: "回到判断", route: "循环流程" },
+      { from: loopId, to: afterId, condition: "exit", label: "退出循环", route: "循环流程" },
+      { from: afterId, to: endNode.id, condition: "", label: "输出循环结果", route: "循环流程" }
     );
     const baseY = 90 + Math.floor(state.nodes.length / 4) * 170;
     state.positions.set(loopId, { x: 200, y: baseY });
@@ -991,8 +1270,8 @@
   }
 
   function ensureStartEndNodes() {
-    if (!state.nodes.some((n) => n.type === "start")) state.nodes.unshift({ id: uniqueNodeId("start"), type: "start", config: {} });
-    if (!state.nodes.some((n) => n.type === "end")) state.nodes.push({ id: uniqueNodeId("end"), type: "end", config: {} });
+    if (!state.nodes.some((n) => n.type === "start")) state.nodes.unshift({ id: uniqueNodeId("start"), type: "start", label: "开始入口", route: "", config: {} });
+    if (!state.nodes.some((n) => n.type === "end")) state.nodes.push({ id: uniqueNodeId("end"), type: "end", label: "结束输出", route: "", config: {} });
   }
 
   function uniqueNodeId(base) {
@@ -1004,7 +1283,7 @@
   function addNode(type) {
     const baseId = type.replace(/[^a-zA-Z0-9_]/g, "_") || "node";
     const id = uniqueNodeId(baseId);
-    const node = { id, type, config: defaultConfig(schemaForType(type)) };
+    const node = { id, type, label: defaultNodeLabel(type), route: "", config: defaultConfig(schemaForType(type)) };
     state.nodes.push(node);
     // 落在视口中心的世界坐标
     const rect = els.workflowCanvas.getBoundingClientRect();
@@ -1020,7 +1299,11 @@
   function selectOrConnectNode(nodeId) {
     if (state.connectSourceId && state.connectSourceId !== nodeId) {
       const duplicate = state.edges.some((e) => e.from === state.connectSourceId && e.to === nodeId);
-      if (!duplicate) { state.edges.push({ from: state.connectSourceId, to: nodeId, condition: "" }); toast("已连线"); }
+      if (!duplicate) {
+        const sourceNode = state.nodes.find((node) => node.id === state.connectSourceId);
+        state.edges.push({ from: state.connectSourceId, to: nodeId, condition: "", label: "", route: cleanText(sourceNode?.route) });
+        toast("已连线");
+      }
       state.connectSourceId = null;
     }
     state.selectedNodeId = nodeId;
@@ -1472,7 +1755,7 @@
     if (keys.length === 0) { obj.message = ""; keys.push("message"); }
     els.runInputForm.innerHTML = "";
     keys.forEach((key) => {
-      const shell = fieldShell(key);
+      const shell = fieldShell(variableLabel(key));
       const value = obj[key];
       let control;
       if (value && typeof value === "object") {
@@ -2321,10 +2604,17 @@
   // ============================================================
   function buildWorkflowDefinition() {
     return {
-      nodes: state.nodes.map((node) => ({ id: node.id, type: node.type, config: cleanConfig(node.config) })),
+      nodes: state.nodes.map((node) => {
+        const payload = { id: node.id, type: node.type, config: cleanConfig(node.config) };
+        if (cleanText(node.label)) payload.label = cleanText(node.label);
+        if (cleanText(node.route)) payload.route = cleanText(node.route);
+        return payload;
+      }),
       edges: state.edges.map((edge) => {
         const payload = { from: edge.from, to: edge.to };
         if (edge.condition) payload.condition = edge.condition;
+        if (cleanText(edge.label)) payload.label = cleanText(edge.label);
+        if (cleanText(edge.route)) payload.route = cleanText(edge.route);
         return payload;
       })
     };
@@ -2337,6 +2627,11 @@
       cleaned[key] = value;
     });
     return cleaned;
+  }
+
+  function cleanText(value) {
+    const text = String(value || "").trim();
+    return text ? text : "";
   }
 
   // ============================================================
@@ -2362,13 +2657,28 @@
   }
 
   const FIELD_LABELS = {
-    topK: "检索条数 topK", prompt: "提示词", model: "模型", toolName: "工具名",
-    left: "左值", operator: "运算符", right: "右值", maxIterations: "最大迭代",
-    itemsFrom: "数据来源", action: "动作", definitionId: "子图定义", version: "版本"
+    topK: "检索条数", prompt: "提示词模板", model: "模型名称", toolName: "调用工具",
+    left: "判断左值", operator: "判断条件", right: "判断右值", maxIterations: "最大循环次数",
+    itemsFrom: "动态数据来源", action: "执行动作", definitionId: "子工作流", version: "子工作流版本",
+    timeoutMs: "超时时间", retryCount: "重试次数", idempotent: "可安全重试"
   };
-  function configFieldLabel(name) { return FIELD_LABELS[name] || name; }
+
+  const VARIABLE_LABELS = {
+    message: "用户消息", input: "输入内容", context: "检索上下文", output: "输出结果", answer: "回答内容",
+    conversationId: "会话编号", history: "上下文历史", currentOrderIds: "本轮订单号",
+    recentOrderIds: "历史订单号", referencedOrderIds: "实际查询订单号", orderLookupReady: "订单查询就绪",
+    orderLookupCount: "订单查询数量", orderToolCalls: "订单工具调用", user_query: "用户查询内容",
+    orderId: "订单号", customerName: "客户姓名", status: "订单状态", amount: "订单金额",
+    currency: "币种", paid: "是否支付", carrier: "承运商", trackingNumber: "运单号",
+    estimatedDelivery: "预计送达", latestEvent: "最新动态", nextAction: "下一步动作",
+    toolCalls: "工具调用", retrievedContext: "引用知识", runId: "运行编号", found: "是否找到"
+  };
+
+  function configFieldLabel(name) { return FIELD_LABELS[name] || variableLabel(name); }
+  function variableLabel(name) { return VARIABLE_LABELS[name] || FIELD_LABELS[name] || `自定义变量（${name}）`; }
 
   function nodeSummary(node) {
+    if (cleanText(node.route)) return cleanText(node.route);
     if (node.type === "llm") return String(node.config.prompt || "提示词").slice(0, 54);
     if (node.type === "tool") return String(node.config.toolName || "getCurrentTime");
     if (node.type === "retriever") return `topK ${node.config.topK || 3}`;
@@ -2377,6 +2687,39 @@
     if (node.type === "loop") return `最多 ${node.config.maxIterations || 10} 次`;
     if (node.type === "dynamic") return String(node.config.itemsFrom || "items").slice(0, 40);
     return nodeLabel(node.type);
+  }
+
+  function nodeDisplayName(node) {
+    const label = cleanText(node?.label);
+    if (label) return label;
+    return inferredNodeDisplayName(node);
+  }
+
+  function inferredNodeDisplayName(node) {
+    if (!node) return "未知节点";
+    const corpus = nodeCorpus(node);
+    const route = ROUTE_RULES.find((rule) => matchesRouteRule(corpus, rule));
+    if (node.type === "start") return "开始入口";
+    if (node.type === "end") return "结束输出";
+    if (node.type === "retriever") return "知识库检索";
+    if (node.type === "llm") return route ? `${route.short}回答生成` : "大模型生成";
+    if (node.type === "condition") return route ? `${route.short}判断` : "条件判断";
+    if (node.type === "tool") return route ? `${route.short}工具调用` : "工具调用";
+    if (node.type === "parallel") return "并行分发";
+    if (node.type === "join") return "结果汇合";
+    if (node.type === "loop") return "循环判断";
+    if (node.type === "loop_back") return "循环回到判断";
+    if (node.type === "subgraph") return "子工作流";
+    if (node.type === "dynamic") return "动态分配";
+    return nodeLabel(node.type);
+  }
+
+  function defaultNodeLabel(type) {
+    return inferredNodeDisplayName({ id: "", type, label: "", route: "", config: {} });
+  }
+
+  function edgeDisplayName(edge) {
+    return cleanText(edge.label) || cleanText(edge.condition);
   }
 
   function fieldShell(label) {
@@ -2419,7 +2762,7 @@
 
   function selectNodeControl(value) {
     const select = document.createElement("select"); select.className = "select";
-    state.nodes.forEach((node) => appendOption(select, node.id, node.id));
+    state.nodes.forEach((node) => appendOption(select, node.id, `${nodeDisplayName(node)}（${node.id}）`));
     select.value = value; return select;
   }
 
@@ -2475,6 +2818,9 @@
   }
 
   function formatJson(value) { return JSON.stringify(value ?? {}, null, 2); }
+  function safeStringify(value) {
+    try { return JSON.stringify(value ?? {}); } catch (error) { return String(value ?? ""); }
+  }
   function short(value) { return value ? String(value).slice(0, 8) : ""; }
   function truncate(value, n) { const s = String(value || ""); return s.length > n ? s.slice(0, n) + "…" : s; }
   function nullableText(value) {

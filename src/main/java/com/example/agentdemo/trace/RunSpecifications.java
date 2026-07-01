@@ -11,9 +11,10 @@ final class RunSpecifications {
     private RunSpecifications() {
     }
 
-    static Specification<RunEntity> filter(RunType type, RunStatus status) {
+    static Specification<RunEntity> filter(String ownerId, RunType type, RunStatus status) {
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(builder.equal(root.get("ownerId"), ownerId));
             if (type != null) {
                 predicates.add(builder.equal(root.get("type"), type));
             }

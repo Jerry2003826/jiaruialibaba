@@ -9,6 +9,8 @@ public class WorkflowRuntimeProperties {
 
     private boolean requirePublishedForRun = true;
 
+    private boolean allowInlineRun = false;
+
     private int maxNodes = 100;
 
     private int maxEdges = 200;
@@ -20,15 +22,14 @@ public class WorkflowRuntimeProperties {
     /**
      * Maximum number of node executions allowed for a single run (across the main path, parallel
      * branches, loop iterations, dynamic fan-out and nested subgraphs). Guards against runaway runs
-     * that per-loop {@code maxIterations} cannot bound globally. Non-positive disables the guard.
+     * that per-loop {@code maxIterations} cannot bound globally.
      */
     private int maxStepExecutions = 1000;
 
     /**
-     * Wall-clock budget for a single run, in milliseconds. Non-positive (the default) disables the
-     * deadline so long-running model calls are never interrupted unless an operator opts in.
+     * Wall-clock budget for a single run, in milliseconds.
      */
-    private long runDeadlineMs = 0;
+    private long runDeadlineMs = 120_000L;
 
     public String getRuntime() {
         return runtime;
@@ -44,6 +45,14 @@ public class WorkflowRuntimeProperties {
 
     public void setRequirePublishedForRun(boolean requirePublishedForRun) {
         this.requirePublishedForRun = requirePublishedForRun;
+    }
+
+    public boolean isAllowInlineRun() {
+        return allowInlineRun;
+    }
+
+    public void setAllowInlineRun(boolean allowInlineRun) {
+        this.allowInlineRun = allowInlineRun;
     }
 
     public int getMaxNodes() {

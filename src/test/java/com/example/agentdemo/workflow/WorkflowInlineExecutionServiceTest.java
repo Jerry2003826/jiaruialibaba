@@ -42,7 +42,9 @@ class WorkflowInlineExecutionServiceTest {
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),
@@ -69,6 +71,7 @@ class WorkflowInlineExecutionServiceTest {
                         new WorkflowNode("start", "start", Map.of()),
                         new WorkflowNode("dyn_1", "dynamic", Map.of(
                                 "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"),
                                 "action", "llm")),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
@@ -88,6 +91,49 @@ class WorkflowInlineExecutionServiceTest {
     }
 
     @Test
+    void executeDynamicRejectsInputSuppliedToolWhenNotExplicitlyAllowed() {
+        InlineServiceStack stack = inlineServiceStack();
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "dyn_1"),
+                        new WorkflowEdge("dyn_1", "end")));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("allowedTools");
+    }
+
+    @Test
+    void executeDynamicAllowsOnlyConfiguredToolNames() {
+        InlineServiceStack stack = inlineServiceStack();
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "dyn_1"),
+                        new WorkflowEdge("dyn_1", "end"))));
+        stack.inlineService().bindPlan(plan);
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("tools", List.of("queryOrderAPI")));
+
+        try {
+            assertThatThrownBy(() -> stack.inlineService().executeDynamic("run-1", plan.node("dyn_1"), state))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("not allowed");
+        }
+        finally {
+            stack.inlineService().clearPlan();
+        }
+    }
+
+    @Test
     void executeDynamicRejectsItemsOverBudget() {
         WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
         properties.setMaxDynamicItems(1);
@@ -95,7 +141,9 @@ class WorkflowInlineExecutionServiceTest {
         WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
                 List.of(
                         new WorkflowNode("start", "start", Map.of()),
-                        new WorkflowNode("dyn_1", "dynamic", Map.of("itemsFrom", "{{input.tools}}")),
+                        new WorkflowNode("dyn_1", "dynamic", Map.of(
+                                "itemsFrom", "{{input.tools}}",
+                                "allowedTools", List.of("getCurrentTime"))),
                         new WorkflowNode("end", "end", Map.of())),
                 List.of(
                         new WorkflowEdge("start", "dyn_1"),

@@ -47,7 +47,8 @@ class DemoDataSeederTest {
         RagService ragService = mock(RagService.class);
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        when(orderRepository.existsById(anyString())).thenReturn(false);
+        when(orderRepository.existsByOrderIdAndOwnerId(anyString(), org.mockito.ArgumentMatchers.eq("workbench-dev")))
+                .thenReturn(false);
         DemoDataSeeder seeder = new DemoDataSeeder(orderRepository, documentRepository, ragService,
                 transactionManager);
 

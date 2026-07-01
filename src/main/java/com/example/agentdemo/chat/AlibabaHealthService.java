@@ -4,9 +4,11 @@ import com.example.agentdemo.chat.dto.HealthResponse;
 import com.example.agentdemo.config.AlibabaProperties;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import com.example.agentdemo.rag.DocumentIndexStatus;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.DocumentRetriever;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,7 +57,8 @@ public class AlibabaHealthService {
                 alibabaProperties.isStrictMode(),
                 alibabaRuntimePolicy.isFallbackEnabled(),
                 alibabaRuntimePolicy.isKeywordFallbackAllowed(),
-                documentRepository.count(),
+                documentRepository.countByOwnerIdAndIndexStatusNot(SecurityIdentity.currentOwnerId(),
+                        DocumentIndexStatus.DELETED),
                 mcpEnabled,
                 workflowRuntimeProperties.getRuntime(),
                 workflowRuntimeProperties.isRequirePublishedForRun());

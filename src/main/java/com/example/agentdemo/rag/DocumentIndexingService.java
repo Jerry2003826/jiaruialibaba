@@ -11,6 +11,9 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +30,7 @@ public class DocumentIndexingService {
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
     private final VectorOutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate nonTransactionalTemplate;
 
     @Autowired
     public DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
@@ -35,9 +39,10 @@ public class DocumentIndexingService {
             RagProperties ragProperties,
             AlibabaRuntimePolicy alibabaRuntimePolicy,
             VectorOutboxEventRepository outboxEventRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this(chunkPersistenceService, embeddingModelProvider::getIfAvailable, vectorStoreGateway, ragProperties,
-                alibabaRuntimePolicy, outboxEventRepository, objectMapper);
+                alibabaRuntimePolicy, outboxEventRepository, objectMapper, nonTransactionalTemplate(transactionManager));
     }
 
     DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
@@ -46,7 +51,7 @@ public class DocumentIndexingService {
             RagProperties ragProperties,
             AlibabaRuntimePolicy alibabaRuntimePolicy) {
         this(chunkPersistenceService, () -> embeddingModel, vectorStoreGateway, ragProperties, alibabaRuntimePolicy,
-                null, new ObjectMapper());
+                null, new ObjectMapper(), null);
     }
 
     DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
@@ -56,6 +61,18 @@ public class DocumentIndexingService {
             AlibabaRuntimePolicy alibabaRuntimePolicy,
             VectorOutboxEventRepository outboxEventRepository,
             ObjectMapper objectMapper) {
+        this(chunkPersistenceService, embeddingModelSupplier, vectorStoreGateway, ragProperties, alibabaRuntimePolicy,
+                outboxEventRepository, objectMapper, null);
+    }
+
+    private DocumentIndexingService(DocumentChunkPersistenceService chunkPersistenceService,
+            Supplier<EmbeddingModel> embeddingModelSupplier,
+            VectorStoreGateway vectorStoreGateway,
+            RagProperties ragProperties,
+            AlibabaRuntimePolicy alibabaRuntimePolicy,
+            VectorOutboxEventRepository outboxEventRepository,
+            ObjectMapper objectMapper,
+            TransactionTemplate nonTransactionalTemplate) {
         this.chunkPersistenceService = chunkPersistenceService;
         this.embeddingModelSupplier = embeddingModelSupplier;
         this.vectorStoreGateway = vectorStoreGateway;
@@ -63,6 +80,7 @@ public class DocumentIndexingService {
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
         this.outboxEventRepository = outboxEventRepository;
         this.objectMapper = objectMapper;
+        this.nonTransactionalTemplate = nonTransactionalTemplate;
     }
 
     public List<DocumentChunkEntity> index(DocumentEntity document) {
@@ -93,7 +111,7 @@ public class DocumentIndexingService {
 
         List<float[]> embeddings;
         try {
-            embeddings = embeddingModel.embed(chunks);
+            embeddings = embedOutsideCurrentTransaction(embeddingModel, chunks);
         }
         catch (RuntimeException ex) {
             throw new BusinessException("EMBEDDING_FAILED", "Failed to embed document chunks", ex);
@@ -132,6 +150,19 @@ public class DocumentIndexingService {
             throw new BusinessException("VECTOR_OUTBOX_SERIALIZATION_FAILED",
                     "Failed to serialize vector outbox payload", ex);
         }
+    }
+
+    private List<float[]> embedOutsideCurrentTransaction(EmbeddingModel embeddingModel, List<String> chunks) {
+        if (nonTransactionalTemplate == null) {
+            return embeddingModel.embed(chunks);
+        }
+        return nonTransactionalTemplate.execute(status -> embeddingModel.embed(chunks));
+    }
+
+    private static TransactionTemplate nonTransactionalTemplate(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+        return template;
     }
 
 }

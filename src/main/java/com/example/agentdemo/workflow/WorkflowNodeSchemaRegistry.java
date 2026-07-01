@@ -161,7 +161,8 @@ public class WorkflowNodeSchemaRegistry {
                                 "contains",
                                 "Comparison operator.",
                                 orderedMap("allowedValues", List.of("equals", "notEquals", "contains", "notContains",
-                                        "startsWith", "endsWith", "exists", "notExists"))),
+                                        "startsWith", "endsWith", "exists", "notExists", "greaterThan",
+                                        "lessThan"))),
                         new WorkflowNodeConfigField(
                                 "right",
                                 "any",
@@ -251,7 +252,9 @@ public class WorkflowNodeSchemaRegistry {
                         new WorkflowNodeConfigField("itemsFrom", "string", true, null,
                                 "Template resolving to a list of tool names or maps.", Map.of()),
                         new WorkflowNodeConfigField("action", "string", false, "tool",
-                                "Dynamic action type.", Map.of()))),
+                                "Dynamic action type.", Map.of()),
+                        new WorkflowNodeConfigField("allowedTools", "array", true, List.of(),
+                                "Explicit tool allowlist for dynamic execution.", Map.of()))),
                 TEMPLATE_VARIABLES,
                 "Dynamic execution outputs list.");
     }

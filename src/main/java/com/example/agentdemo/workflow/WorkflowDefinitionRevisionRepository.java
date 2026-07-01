@@ -9,8 +9,16 @@ public interface WorkflowDefinitionRevisionRepository extends JpaRepository<Work
 
     List<WorkflowDefinitionRevisionEntity> findAllByDefinitionIdOrderByVersionDesc(String definitionId);
 
+    List<WorkflowDefinitionRevisionEntity> findAllByDefinitionIdAndOwnerIdOrderByVersionDesc(String definitionId,
+            String ownerId);
+
     Optional<WorkflowDefinitionRevisionEntity> findByDefinitionIdAndVersion(String definitionId, Integer version);
 
+    Optional<WorkflowDefinitionRevisionEntity> findByDefinitionIdAndVersionAndOwnerId(String definitionId,
+            Integer version, String ownerId);
+
     void deleteAllByDefinitionId(String definitionId);
+
+    void deleteAllByDefinitionIdAndOwnerId(String definitionId, String ownerId);
 
 }

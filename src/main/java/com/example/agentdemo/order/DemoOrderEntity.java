@@ -1,5 +1,6 @@
 package com.example.agentdemo.order;
 
+import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -33,6 +34,9 @@ public class DemoOrderEntity {
 
     @Column(length = 64)
     private String customerName;
+
+    @Column(name = "owner_id", nullable = false, length = 128)
+    private String ownerId;
 
     @Column(length = 64)
     private String carrier;
@@ -68,6 +72,7 @@ public class DemoOrderEntity {
             String currency, String carrier, String trackingNumber, LocalDate estimatedDelivery, String latestEvent,
             String nextAction) {
         this.orderId = orderId;
+        this.ownerId = SecurityIdentity.currentOwnerId();
         update(customerName, status, paid, amount, currency, carrier, trackingNumber, estimatedDelivery, latestEvent,
                 nextAction);
     }
@@ -93,6 +98,9 @@ public class DemoOrderEntity {
         if (createdAt == null) {
             createdAt = now;
         }
+        if (!org.springframework.util.StringUtils.hasText(ownerId)) {
+            ownerId = SecurityIdentity.DEFAULT_OWNER_ID;
+        }
         updatedAt = now;
     }
 
@@ -111,6 +119,10 @@ public class DemoOrderEntity {
 
     public String getCustomerName() {
         return customerName;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 
     public boolean isPaid() {

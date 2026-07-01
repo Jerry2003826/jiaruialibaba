@@ -21,7 +21,8 @@ class DatabaseOrderLookupServiceTest {
 
     @Test
     void readsOrderFactsFromRepository() {
-        when(repository.findById("20260630001")).thenReturn(Optional.of(order()));
+        when(repository.findByOrderIdAndOwnerId("20260630001", "workbench-dev"))
+                .thenReturn(Optional.of(order()));
 
         Map<String, Object> output = service.lookup("请查订单 20260630001");
 
@@ -32,7 +33,7 @@ class DatabaseOrderLookupServiceTest {
                 .containsEntry("carrier", "SF Express")
                 .containsEntry("trackingNumber", "SF20260630001")
                 .containsEntry("source", "database:demo_orders");
-        verify(repository).findById("20260630001");
+        verify(repository).findByOrderIdAndOwnerId("20260630001", "workbench-dev");
     }
 
     @Test
@@ -44,7 +45,8 @@ class DatabaseOrderLookupServiceTest {
 
     @Test
     void returnsStructuredResultWhenOrderIsMissing() {
-        when(repository.findById("20260630002")).thenReturn(Optional.empty());
+        when(repository.findByOrderIdAndOwnerId("20260630002", "workbench-dev"))
+                .thenReturn(Optional.empty());
 
         Map<String, Object> output = service.lookup("订单 20260630002");
 
@@ -57,7 +59,8 @@ class DatabaseOrderLookupServiceTest {
 
     @Test
     void normalisesAmountTrailingZeros() {
-        when(repository.findById("20260630001")).thenReturn(Optional.of(order()));
+        when(repository.findByOrderIdAndOwnerId("20260630001", "workbench-dev"))
+                .thenReturn(Optional.of(order()));
 
         Map<String, Object> output = service.lookup("Order id: 20260630001");
 
@@ -68,7 +71,8 @@ class DatabaseOrderLookupServiceTest {
     void toleratesNullAmount() {
         DemoOrderEntity order = new DemoOrderEntity("20260630003", "Mina Zhang", "PROCESSING", false, null,
                 "CNY", null, null, null, "Order created", "Ask for payment");
-        when(repository.findById("20260630003")).thenReturn(Optional.of(order));
+        when(repository.findByOrderIdAndOwnerId("20260630003", "workbench-dev"))
+                .thenReturn(Optional.of(order));
 
         Map<String, Object> output = service.lookup("Order id: 20260630003");
 

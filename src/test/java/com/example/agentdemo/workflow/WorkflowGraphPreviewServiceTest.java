@@ -66,6 +66,36 @@ class WorkflowGraphPreviewServiceTest {
     }
 
     @Test
+    void previewsBusinessLabelsForCustomerBuiltWorkflow() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.<String, Object>of(), "开始", null),
+                        new WorkflowNode("return_check", "condition", Map.of("left", "{{input.message}}"),
+                                "退货判断", "退货流程"),
+                        new WorkflowNode("return_llm", "llm", Map.of("prompt", "处理退货：{{input}}"),
+                                "退货答复", "退货流程"),
+                        new WorkflowNode("end", "end", Map.<String, Object>of(), "结束", null)),
+                List.of(
+                        new WorkflowEdge("start", "return_check", null, "进入退货判断", "退货流程"),
+                        new WorkflowEdge("return_check", "return_llm", "true", "是退货", "退货流程"),
+                        new WorkflowEdge("return_check", "end", "false", "不是退货", null),
+                        new WorkflowEdge("return_llm", "end", null, "输出结果", "退货流程")));
+
+        WorkflowGraphPreviewResponse response = service.preview(new WorkflowGraphPreviewRequest(definition));
+
+        assertThat(response.valid()).isTrue();
+        assertThat(response.nodes())
+                .extracting(WorkflowGraphNodeView::label)
+                .containsExactly("开始", "退货判断", "退货答复", "结束");
+        assertThat(response.edges())
+                .contains(
+                        new WorkflowGraphEdgeView("return_check", "return_llm", "true", "是退货"));
+        assertThat(response.mermaid())
+                .contains("n1[\"退货判断\"]")
+                .contains("n1 -- \"是退货\" --> n2");
+    }
+
+    @Test
     void escapesMermaidLabelsAndUsesStableAliases() {
         String unsafeNodeId = "llm \"quoted\" [A]\nnode";
         WorkflowDefinition definition = new WorkflowDefinition(

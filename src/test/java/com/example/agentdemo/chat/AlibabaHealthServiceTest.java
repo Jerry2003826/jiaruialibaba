@@ -5,6 +5,7 @@ import com.example.agentdemo.config.AlibabaProperties;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
+import com.example.agentdemo.rag.DocumentIndexStatus;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.DocumentRetriever;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
@@ -42,7 +43,8 @@ class AlibabaHealthServiceTest {
         when(embeddingModelProvider.getIfAvailable()).thenReturn(mock(EmbeddingModel.class));
         when(vectorStoreGateway.isConfigured()).thenReturn(true);
         when(documentRetriever.name()).thenReturn("DashVectorDocumentRetriever");
-        when(documentRepository.count()).thenReturn(0L);
+        when(documentRepository.countByOwnerIdAndIndexStatusNot("workbench-dev", DocumentIndexStatus.DELETED))
+                .thenReturn(0L);
 
         AlibabaHealthService service = new AlibabaHealthService(aiModelService, embeddingModelProvider,
                 vectorStoreGateway, documentRetriever, documentRepository, alibabaProperties, policy,

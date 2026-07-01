@@ -34,11 +34,14 @@ public class WorkflowGenerationService {
               "description": "一句话描述",
               "workflowDefinition": {
                 "nodes": [
-                  {"id":"start","type":"start","config":{}},
-                  {"id":"llm_1","type":"llm","config":{"prompt":"..."}},
-                  {"id":"end","type":"end","config":{}}
+                  {"id":"start","type":"start","label":"开始入口","config":{}},
+                  {"id":"llm_1","type":"llm","label":"回答生成","route":"默认流程","config":{"prompt":"..."}},
+                  {"id":"end","type":"end","label":"结束输出","config":{}}
                 ],
-                "edges": [{"from":"start","to":"llm_1"},{"from":"llm_1","to":"end"}]
+                "edges": [
+                  {"from":"start","to":"llm_1","label":"进入回答","route":"默认流程"},
+                  {"from":"llm_1","to":"end","label":"输出结果","route":"默认流程"}
+                ]
               },
               "notes": ["一句中文说明"]
             }
@@ -54,12 +57,15 @@ public class WorkflowGenerationService {
             - loop: 循环；config 可用 maxIterations、left、operator、right。
             - loop_back: 循环回边；config 通常为空。
             - subgraph: 子工作流；config 可用 definitionId、version。
-            - dynamic: 动态工具/动作；config 可用 itemsFrom、action。
+            - dynamic: 动态工具/动作；config 必须包含 itemsFrom、allowedTools，可选 action。
             - end: 工作流结束，只能有一个。
 
             约束：
             - 节点 id 只能用英文、数字和下划线，例如 retriever_1、llm_summary。
-            - 不要输出坐标、label、displayName、ui、position 等非 config 字段。
+            - 节点 label 必须是简洁中文业务名，例如“退货判断”“物流答复”；route 可填写同一业务流程名，例如“退货流程”。
+            - 边 label 应描述业务走向，例如“是退货”“不是退货”“进入检索”；相关边也应填写相同 route，方便前端高亮整条路径。
+            - label 和 route 是节点/边的顶层字段，不要放进 config。
+            - 不要输出坐标、displayName、ui、position 等展示布局字段。
             - 不确定工具名时，优先使用 getCurrentTime；计算需求使用 calculate，并设置 expression。
             - 涉及知识库、文档、RAG、向量、检索时必须使用 retriever，再让 llm 使用 {{context}}。
             - llm prompt 应该明确引用 {{input}}，需要检索时引用 {{context}}，需要工具结果时引用 {{lastOutput}}。

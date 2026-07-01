@@ -8,6 +8,11 @@ spring:
     hibernate:
       ddl-auto: update
 
+demo:
+  security:
+    dev-token:
+      enabled: ${DEMO_SECURITY_DEV_TOKEN_ENABLED:true}
+
 logging:
   level:
     com.example.agentdemo: DEBUG

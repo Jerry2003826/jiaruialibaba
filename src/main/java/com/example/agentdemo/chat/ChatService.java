@@ -196,7 +196,7 @@ public class ChatService {
     private String requireModelAnswer(AiModelResult result, String context) {
         if (result.fallback()) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "Alibaba LLM returned a fallback answer for " + context + ": " + result.errorMessage());
+                    "Alibaba LLM returned a fallback answer for " + context);
         }
         if (!StringUtils.hasText(result.answer())) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",

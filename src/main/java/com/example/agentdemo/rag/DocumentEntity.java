@@ -1,5 +1,6 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -23,6 +24,9 @@ public class DocumentEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "owner_id", nullable = false, length = 128)
+    private String ownerId;
+
     @Column(length = 256)
     private String title;
 
@@ -41,12 +45,16 @@ public class DocumentEntity {
     }
 
     public DocumentEntity(String title, String content) {
+        this.ownerId = SecurityIdentity.currentOwnerId();
         this.title = title;
         this.content = content;
     }
 
     @PrePersist
     void prePersist() {
+        if (!org.springframework.util.StringUtils.hasText(ownerId)) {
+            ownerId = SecurityIdentity.DEFAULT_OWNER_ID;
+        }
         if (createdAt == null) {
             createdAt = Instant.now();
         }
@@ -57,6 +65,10 @@ public class DocumentEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 
     public String getTitle() {

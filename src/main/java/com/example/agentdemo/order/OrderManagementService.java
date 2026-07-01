@@ -4,6 +4,7 @@ import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.order.dto.OrderPageResponse;
 import com.example.agentdemo.order.dto.OrderRequest;
 import com.example.agentdemo.order.dto.OrderResponse;
+import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -27,7 +28,7 @@ public class OrderManagementService {
     public OrderPageResponse listOrders(int page, int size) {
         validatePageRequest(page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt"));
-        Page<DemoOrderEntity> orderPage = repository.findAll(pageable);
+        Page<DemoOrderEntity> orderPage = repository.findAllByOwnerId(SecurityIdentity.currentOwnerId(), pageable);
         List<OrderResponse> content = orderPage.getContent().stream()
                 .map(this::toResponse)
                 .toList();
@@ -42,7 +43,7 @@ public class OrderManagementService {
 
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
-        if (repository.existsById(request.orderId())) {
+        if (repository.existsByOrderIdAndOwnerId(request.orderId(), SecurityIdentity.currentOwnerId())) {
             throw new BusinessException("ORDER_ALREADY_EXISTS", "Order already exists: " + request.orderId());
         }
         return toResponse(repository.save(newEntity(request)));
@@ -62,17 +63,18 @@ public class OrderManagementService {
 
     @Transactional
     public void deleteOrder(String orderId) {
-        if (!repository.existsById(orderId)) {
+        String ownerId = SecurityIdentity.currentOwnerId();
+        if (!repository.existsByOrderIdAndOwnerId(orderId, ownerId)) {
             throw new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId);
         }
-        repository.deleteById(orderId);
+        repository.deleteByOrderIdAndOwnerId(orderId, ownerId);
     }
 
     private DemoOrderEntity findOrder(String orderId) {
         if (orderId == null || orderId.isBlank()) {
             throw new BusinessException("ORDER_NOT_FOUND", "Order not found");
         }
-        return repository.findById(orderId)
+        return repository.findByOrderIdAndOwnerId(orderId, SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId));
     }
 

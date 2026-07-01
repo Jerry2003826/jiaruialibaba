@@ -1,6 +1,10 @@
 package com.example.agentdemo.rag;
 
 import com.example.agentdemo.rag.dto.RetrievedContext;
+import com.example.agentdemo.security.SecurityIdentity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -8,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -15,6 +20,16 @@ import java.util.regex.Pattern;
 public class KeywordDocumentRetriever implements DocumentRetriever {
 
     private static final Pattern TOKEN_SPLITTER = Pattern.compile("[^\\p{IsHan}\\p{Alnum}]+");
+    private static final int DOCUMENT_SCAN_PAGE_SIZE = 200;
+    private static final int MAX_QUERY_CHARS = 512;
+    private static final int MAX_TERMS = 16;
+    private static final int MAX_SCANNED_DOCUMENTS = 5_000;
+    private static final Comparator<RetrievedContext> BEST_CONTEXT_FIRST =
+            Comparator.comparingDouble(RetrievedContext::score).reversed()
+                    .thenComparing(RetrievedContext::documentId);
+    private static final Comparator<RetrievedContext> WORST_CONTEXT_FIRST =
+            Comparator.comparingDouble(RetrievedContext::score)
+                    .thenComparing(RetrievedContext::documentId, Comparator.reverseOrder());
 
     private final DocumentRepository documentRepository;
 
@@ -36,14 +51,40 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
 
     @Override
     public List<RetrievedContext> retrieve(String query, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
         Set<String> terms = tokenize(query);
-        return documentRepository.findByIndexStatusNotIn(NON_RETRIEVABLE_STATUSES)
-                .stream()
-                .map(document -> score(document, terms))
-                .filter(context -> context.score() > 0)
-                .sorted(Comparator.comparingDouble(RetrievedContext::score).reversed()
-                        .thenComparing(RetrievedContext::documentId))
-                .limit(limit)
+        if (terms.isEmpty()) {
+            return List.of();
+        }
+        PriorityQueue<RetrievedContext> bestContexts = new PriorityQueue<>(WORST_CONTEXT_FIRST);
+        int pageNumber = 0;
+        int scannedDocuments = 0;
+        String ownerId = SecurityIdentity.currentOwnerId();
+        Page<DocumentEntity> page;
+        do {
+            page = documentRepository.findByOwnerIdAndIndexStatusNotIn(ownerId, NON_RETRIEVABLE_STATUSES,
+                    PageRequest.of(pageNumber++, DOCUMENT_SCAN_PAGE_SIZE, Sort.by("id").ascending()));
+            for (DocumentEntity document : page.getContent()) {
+                if (scannedDocuments++ >= MAX_SCANNED_DOCUMENTS) {
+                    return bestContexts.stream()
+                            .sorted(BEST_CONTEXT_FIRST)
+                            .toList();
+                }
+                RetrievedContext context = score(document, terms);
+                if (context.score() <= 0) {
+                    continue;
+                }
+                bestContexts.offer(context);
+                if (bestContexts.size() > limit) {
+                    bestContexts.poll();
+                }
+            }
+        }
+        while (page.hasNext());
+        return bestContexts.stream()
+                .sorted(BEST_CONTEXT_FIRST)
                 .toList();
     }
 
@@ -61,9 +102,16 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
 
     private Set<String> tokenize(String query) {
         Set<String> terms = new LinkedHashSet<>();
-        for (String raw : TOKEN_SPLITTER.split(query.toLowerCase(Locale.ROOT))) {
+        String boundedQuery = query == null ? "" : query;
+        if (boundedQuery.length() > MAX_QUERY_CHARS) {
+            boundedQuery = boundedQuery.substring(0, MAX_QUERY_CHARS);
+        }
+        for (String raw : TOKEN_SPLITTER.split(boundedQuery.toLowerCase(Locale.ROOT))) {
             if (StringUtils.hasText(raw) && raw.length() >= 2) {
                 terms.add(raw);
+                if (terms.size() >= MAX_TERMS) {
+                    break;
+                }
             }
         }
         return terms;

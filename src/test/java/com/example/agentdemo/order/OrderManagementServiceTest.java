@@ -26,7 +26,7 @@ class OrderManagementServiceTest {
     @Test
     void createsOrderForToolLookup() {
         OrderRequest request = orderRequest("20260630009", "NEW");
-        when(repository.existsById("20260630009")).thenReturn(false);
+        when(repository.existsByOrderIdAndOwnerId("20260630009", "workbench-dev")).thenReturn(false);
         when(repository.save(org.mockito.Mockito.any(DemoOrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -41,7 +41,7 @@ class OrderManagementServiceTest {
     @Test
     void updatesOrderFactsUsedByToolLookup() {
         DemoOrderEntity existing = order("20260630001", "SHIPPED");
-        when(repository.findById("20260630001")).thenReturn(Optional.of(existing));
+        when(repository.findByOrderIdAndOwnerId("20260630001", "workbench-dev")).thenReturn(Optional.of(existing));
         when(repository.save(existing)).thenReturn(existing);
 
         var response = service.updateOrder("20260630001", orderRequest("20260630001", "RETURN_REQUESTED"));
@@ -61,8 +61,8 @@ class OrderManagementServiceTest {
     @Test
     void listsOrdersWithPagination() {
         PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "updatedAt"));
-        when(repository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(order("20260630001", "SHIPPED")),
-                pageable, 1));
+        when(repository.findAllByOwnerId("workbench-dev", pageable))
+                .thenReturn(new PageImpl<>(List.of(order("20260630001", "SHIPPED")), pageable, 1));
 
         var page = service.listOrders(0, 20);
 

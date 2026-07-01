@@ -153,6 +153,20 @@ class WorkflowControllerWebTest {
         verify(generationService).generate(argThat(request -> request.prompt().equals(longPrompt)));
     }
 
+    @Test
+    void generateRouteRejectsPromptOverRequestLimit() throws Exception {
+        WorkflowGenerationService generationService = mock(WorkflowGenerationService.class);
+        MockMvc mockMvc = mockMvc(mock(WorkflowService.class), mock(WorkflowGraphPreviewService.class),
+                mock(WorkflowRunGraphService.class), generationService);
+
+        mockMvc.perform(post("/api/workflows/generate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("prompt", "x".repeat(4001)))))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(generationService);
+    }
+
     private MockMvc mockMvc(WorkflowGraphPreviewService previewService) {
         return mockMvc(mock(WorkflowService.class), previewService, mock(WorkflowRunGraphService.class));
     }

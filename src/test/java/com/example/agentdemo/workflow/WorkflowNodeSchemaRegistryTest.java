@@ -55,6 +55,8 @@ class WorkflowNodeSchemaRegistryTest {
         assertThat(field(condition, "left").defaultValue()).isEqualTo("{{input}}");
         assertThat(field(condition, "operator").constraints())
                 .containsKey("allowedValues");
+        assertThat(field(condition, "operator").constraints().get("allowedValues").toString())
+                .contains("greaterThan", "lessThan");
         assertThat(field(condition, "caseSensitive").defaultValue()).isEqualTo(false);
     }
 
@@ -77,6 +79,7 @@ class WorkflowNodeSchemaRegistryTest {
 
         WorkflowNodeSchema dynamic = schema("dynamic");
         assertThat(field(dynamic, "itemsFrom").required()).isTrue();
+        assertThat(field(dynamic, "allowedTools").required()).isTrue();
         assertThat(field(dynamic, "action").defaultValue()).isEqualTo("tool");
 
         assertThat(schema("loop_back").configFields())

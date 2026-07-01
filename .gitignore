@@ -6,6 +6,9 @@ var/
 
 .idea/
 .vscode/
+.claude/
+.qwen/
+.playwright-mcp/
 *.iml
 
 .DS_Store

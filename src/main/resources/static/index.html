@@ -118,6 +118,19 @@
               <span>从左侧节点面板点击添加，或点「插入循环模板」</span>
             </div>
 
+            <section class="route-map-panel" id="route-map-panel" aria-label="路由分配概览">
+              <div class="route-map-head">
+                <div>
+                  <span class="route-map-kicker">路由分配</span>
+                  <strong id="route-map-title">当前画布</strong>
+                </div>
+                <button id="route-map-toggle" class="icon-btn-sm" type="button" title="折叠路由概览" aria-label="折叠路由概览">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </div>
+              <div class="route-map-list" id="route-map-list"></div>
+            </section>
+
             <div class="canvas-controls">
               <button id="zoom-out" class="zoom-btn" type="button" aria-label="缩小">−</button>
               <button id="zoom-label" class="zoom-label" type="button" title="重置缩放">100%</button>

@@ -9,6 +9,10 @@ public interface WorkflowDefinitionRepository extends JpaRepository<WorkflowDefi
 
     Optional<WorkflowDefinitionEntity> findByDefinitionId(String definitionId);
 
+    Optional<WorkflowDefinitionEntity> findByDefinitionIdAndOwnerId(String definitionId, String ownerId);
+
     List<WorkflowDefinitionEntity> findAllByOrderByCreatedAtDesc();
+
+    List<WorkflowDefinitionEntity> findAllByOwnerIdOrderByCreatedAtDesc(String ownerId);
 
 }

@@ -14,6 +14,7 @@ import com.example.agentdemo.chat.memory.SpringMessageConverter;
 import com.example.agentdemo.order.OrderIdExtractor;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.trace.RunType;
@@ -27,6 +28,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -55,7 +57,9 @@ public class ToolCallingAgentService {
             "order", "return", "refund", "tracking", "shipment", "delivery");
     private static final List<String> ORDER_POLICY_KEYWORDS = List.of(
             "流程", "政策", "规则", "指南", "说明", "是什么", "怎么办", "如何", "怎么",
-            "process", "policy", "procedure", "guide", "how to");
+            "一般", "通常", "大概", "多久", "几天", "多长时间",
+            "process", "policy", "procedure", "guide", "how to", "how long", "how many days",
+            "usually", "typically");
     private static final List<String> SPECIFIC_ORDER_REFERENCE_KEYWORDS = List.of(
             "我", "我的", "这个", "这单", "该订单", "当前", "刚才", "刚刚", "上面", "上一",
             "订单号", "包裹", "快递员", "my", "mine", "this order", "current order", "order id", "order number");
@@ -211,6 +215,9 @@ public class ToolCallingAgentService {
             throw new BusinessException("ASSISTANT_WORKFLOW_UNAVAILABLE",
                     "Workflow-backed assistant chat is not available");
         }
+        if (!SecurityIdentity.hasAuthority("SCOPE_workflow.run")) {
+            throw new AccessDeniedException("workflow.run scope is required for workflow-backed assistant chat");
+        }
         String conversationId = conversationMemoryService.resolveConversationId(request.conversationId());
         List<ConversationMessage> history = conversationMemoryService.loadRecentMessages(conversationId);
         WorkflowRunResponse workflowResponse = workflowService.run(new WorkflowRunRequest(
@@ -253,30 +260,45 @@ public class ToolCallingAgentService {
     }
 
     private List<String> recentValidOrderIds(List<ConversationMessage> history) {
+        // History is already bounded by ConversationMemoryService; this keeps the workflow input name stable.
+        return historicalValidOrderIds(history);
+    }
+
+    private List<String> historicalValidOrderIds(List<ConversationMessage> history) {
         LinkedHashSet<String> orderIds = new LinkedHashSet<>();
         Set<String> invalidOrderIds = new LinkedHashSet<>();
         for (ConversationMessage message : history) {
-            if (message.role() != ConversationRole.ASSISTANT) {
-                continue;
-            }
             List<String> extractedOrderIds = OrderIdExtractor.extractAll(message.content());
             if (extractedOrderIds.isEmpty()) {
                 continue;
             }
-            if (reportsUnavailableOrder(message.content())) {
+            if (message.role() == ConversationRole.ASSISTANT && reportsUnavailableOrder(message.content())) {
                 invalidOrderIds.addAll(extractedOrderIds);
                 orderIds.removeAll(extractedOrderIds);
             }
-            else if (mentionsConcreteOrder(message.content())) {
+            else if (message.role() == ConversationRole.ASSISTANT && mentionsConcreteOrder(message.content())) {
                 for (String orderId : extractedOrderIds) {
                     // The latest mention wins: a later concrete confirmation clears an earlier
                     // "not found" verdict for the same order id.
                     invalidOrderIds.remove(orderId);
-                    orderIds.add(orderId);
+                    rememberOrderId(orderIds, orderId);
+                }
+            }
+            else if (message.role() == ConversationRole.USER && containsOrderIntent(message.content())) {
+                for (String orderId : extractedOrderIds) {
+                    if (!invalidOrderIds.contains(orderId)) {
+                        rememberOrderId(orderIds, orderId);
+                    }
                 }
             }
         }
         return List.copyOf(orderIds);
+    }
+
+    private void rememberOrderId(LinkedHashSet<String> orderIds, String orderId) {
+        // remove+add moves an existing id to the tail; LinkedHashSet.add alone would not.
+        orderIds.remove(orderId);
+        orderIds.add(orderId);
     }
 
     private boolean reportsUnavailableOrder(String content) {
@@ -316,7 +338,7 @@ public class ToolCallingAgentService {
         if (!currentOrderIds.isEmpty()) {
             return currentOrderIds;
         }
-        if (recentOrderIds.isEmpty() || !referencesHistoryOrder(message)) {
+        if (recentOrderIds.isEmpty() || !shouldBindHistoricalOrder(message)) {
             return List.of();
         }
         if (referencesTwoOrders(message)) {
@@ -326,6 +348,13 @@ public class ToolCallingAgentService {
             return recentOrderIds;
         }
         return lastOrderIds(recentOrderIds, 1);
+    }
+
+    private boolean shouldBindHistoricalOrder(String message) {
+        if (referencesHistoryOrder(message)) {
+            return true;
+        }
+        return containsOrderIntent(message) && !isGenericOrderPolicyQuestion(message);
     }
 
     private boolean referencesHistoryOrder(String message) {
@@ -803,37 +832,8 @@ public class ToolCallingAgentService {
     }
 
     private Optional<String> latestOrderId(List<ConversationMessage> history) {
-        // First collect the order ids the assistant reported as unavailable, honouring "latest
-        // mention wins": a later concrete confirmation clears an earlier "not found" verdict.
-        Set<String> invalidOrderIds = new LinkedHashSet<>();
-        for (ConversationMessage message : history) {
-            if (message.role() != ConversationRole.ASSISTANT) {
-                continue;
-            }
-            List<String> extractedOrderIds = OrderIdExtractor.extractAll(message.content());
-            if (extractedOrderIds.isEmpty()) {
-                continue;
-            }
-            if (reportsUnavailableOrder(message.content())) {
-                invalidOrderIds.addAll(extractedOrderIds);
-            }
-            else if (mentionsConcreteOrder(message.content())) {
-                invalidOrderIds.removeAll(extractedOrderIds);
-            }
-        }
-        // Then scan every turn -- including the user's -- from newest to oldest, so an order id the
-        // user supplied is still recoverable even if the assistant never repeated it, while never
-        // re-binding an id that was reported unavailable.
-        for (int i = history.size() - 1; i >= 0; i--) {
-            List<String> extractedOrderIds = OrderIdExtractor.extractAll(history.get(i).content());
-            for (int j = extractedOrderIds.size() - 1; j >= 0; j--) {
-                String orderId = extractedOrderIds.get(j);
-                if (!invalidOrderIds.contains(orderId)) {
-                    return Optional.of(orderId);
-                }
-            }
-        }
-        return Optional.empty();
+        List<String> orderIds = historicalValidOrderIds(history);
+        return orderIds.isEmpty() ? Optional.empty() : Optional.of(orderIds.getLast());
     }
 
     private List<ToolPlan> plan(String message, List<ConversationMessage> history, String runId) {
@@ -916,7 +916,7 @@ public class ToolCallingAgentService {
     private String requireModelAnswer(AiModelResult result, String context) {
         if (result.fallback()) {
             throw new BusinessException("ALIBABA_LLM_UNAVAILABLE",
-                    "Alibaba LLM returned a fallback answer for " + context + ": " + result.errorMessage());
+                    "Alibaba LLM returned a fallback answer for " + context);
         }
         return requireTextAnswer(result.answer(), context);
     }
