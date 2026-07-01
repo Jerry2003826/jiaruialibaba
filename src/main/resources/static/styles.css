@@ -1116,3 +1116,4 @@ button { font-family: inherit; }
 .badge-ok { background: rgba(16,185,129,.14); color: #059669; }
 .app-detail-tabs { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
 @media (max-width: 900px) { .app-detail-tabs { grid-template-columns: 1fr; } }
+.badge-danger { background: rgba(239,68,68,.14); color: #dc2626; }

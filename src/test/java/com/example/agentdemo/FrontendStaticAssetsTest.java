@@ -71,6 +71,11 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("create-app")))
                 .andExpect(content().string(containsString("app-api-keys")))
                 .andExpect(content().string(containsString("view-settings")))
+                // Knowledge Base product view (new /api/knowledge-bases model).
+                .andExpect(content().string(containsString("data-view=\"kb\"")))
+                .andExpect(content().string(containsString("view-kb")))
+                .andExpect(content().string(containsString("create-kb")))
+                .andExpect(content().string(containsString("kb-doc-list")))
                 .andExpect(content().string(containsString("/app.js")))
                 .andExpect(content().string(containsString("/styles.css")));
     }
@@ -127,7 +132,11 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("loadApps")))
                 .andExpect(content().string(containsString("createApiKey")))
                 .andExpect(content().string(containsString("plaintextKey")))
-                .andExpect(content().string(containsString("runSelectedApp")));
+                .andExpect(content().string(containsString("runSelectedApp")))
+                // Knowledge Base view wiring.
+                .andExpect(content().string(containsString("/api/knowledge-bases")))
+                .andExpect(content().string(containsString("loadKnowledgeBases")))
+                .andExpect(content().string(containsString("uploadKbFile")));
     }
 
     @Test
