@@ -19,10 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -228,16 +226,13 @@ public class WorkflowController {
     }
 
     private void streamRunEvents(String runId, SseEmitter emitter, AtomicBoolean terminal) {
-        Set<String> sent = new HashSet<>();
+        WorkflowRunEventCursor cursor = new WorkflowRunEventCursor();
         long deadlineMs = System.currentTimeMillis() + sseProperties.timeoutMs();
         try {
             while (true) {
-                WorkflowRunEventsSnapshot snapshot = workflowRunEventService.snapshot(runId);
+                WorkflowRunEventsSnapshot snapshot = workflowRunEventService.delta(runId, cursor);
                 for (WorkflowRunEvent event : snapshot.events()) {
-                    Object id = event.data().getOrDefault("stepId", event.data().get("runId"));
-                    if (sent.add(event.event() + ":" + id)) {
-                        send(emitter, event.event(), event.data());
-                    }
+                    send(emitter, event.event(), event.data());
                 }
                 if (snapshot.terminal()) {
                     terminal.set(true);

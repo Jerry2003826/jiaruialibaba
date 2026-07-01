@@ -68,7 +68,8 @@ public class VectorOutboxWorker {
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${demo.rag.outbox.poll-ms:1000}")
+    @Scheduled(fixedDelayString = "${demo.rag.outbox.poll-ms:1000}",
+            initialDelayString = "${demo.rag.outbox.initial-delay-ms:0}")
     public void processPending() {
         Instant now = Instant.now();
         List<Long> candidateIds = outboxEventRepository.findClaimableEventIds(

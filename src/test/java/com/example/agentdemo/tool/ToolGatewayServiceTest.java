@@ -9,6 +9,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -54,6 +55,18 @@ class ToolGatewayServiceTest {
         assertThat(log.succeeded()).isFalse();
         assertThat(log.toolName()).isEqualTo("missingTool");
         assertThat(log.errorMessage()).contains("Tool not found");
+    }
+
+    @Test
+    void executesToolSupportedByProviderEvenWhenMissingFromCachedToolsSnapshot() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new SupportsOnlyProvider()));
+
+        ToolExecutionLog log = gateway.execute("legacy_only", Map.of("text", "compat"));
+
+        assertThat(log.succeeded()).isTrue();
+        assertThat(log.toolName()).isEqualTo("legacy_only");
+        assertThat(log.output()).isEqualTo("compat");
+        assertThat(log.provider()).isEqualTo("local");
     }
 
     @Test
@@ -201,6 +214,18 @@ class ToolGatewayServiceTest {
         assertThat(log.succeeded()).isFalse();
         assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
         assertThat(log.errorMessage()).contains("MCP tool argument mode must be one of");
+    }
+
+    @Test
+    void validatesRemoteToolSchemaBeforeDelegatingToProvider() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new UnvalidatedRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("github:unvalidated_remote"));
+
+        ToolExecutionLog log = gateway.execute("unvalidated_remote", Map.of());
+
+        assertThat(log.succeeded()).isFalse();
+        assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
+        assertThat(log.errorMessage()).isEqualTo("Missing required MCP tool argument: text");
     }
 
     @Test
@@ -523,6 +548,66 @@ class ToolGatewayServiceTest {
                 Thread.currentThread().interrupt();
             }
             return "late";
+        }
+
+    }
+
+    private static final class UnvalidatedRemoteProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "mcp";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "unvalidated_remote".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            return ToolExecutionLog.success(toolName, arguments, "provider-executed", now, now, tools().getFirst());
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("unvalidated_remote", "Remote provider without inline validation",
+                    "mcp", true, "github", """
+                            {
+                              "type": "object",
+                              "properties": {
+                                "text": {"type": "string"}
+                              },
+                              "required": ["text"]
+                            }
+                            """));
+        }
+
+    }
+
+    private static final class SupportsOnlyProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "local";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "legacy_only".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            return ToolExecutionLog.success(toolName, arguments, arguments.get("text"), now, now,
+                    new ToolDescriptor(toolName, "Legacy compatibility tool", providerName(), false));
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of();
         }
 
     }

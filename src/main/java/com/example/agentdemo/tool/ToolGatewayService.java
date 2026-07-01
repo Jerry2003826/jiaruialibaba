@@ -1,5 +1,6 @@
 package com.example.agentdemo.tool;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,39 +13,54 @@ import java.util.Map;
 @Service
 public class ToolGatewayService {
 
-    private final List<ToolProvider> providers;
     private final ToolExecutionPolicy toolExecutionPolicy;
+    private final ToolRegistryCache toolRegistryCache;
+    private final ToolSchemaValidator toolSchemaValidator;
 
     @Autowired
-    public ToolGatewayService(List<ToolProvider> providers, ToolExecutionPolicy toolExecutionPolicy) {
-        this.providers = List.copyOf(providers);
-        this.toolExecutionPolicy = toolExecutionPolicy;
+    public ToolGatewayService(List<ToolProvider> providers, ToolExecutionPolicy toolExecutionPolicy,
+            ToolSchemaValidator toolSchemaValidator) {
+        this(toolExecutionPolicy, toolSchemaValidator, new ToolRegistryCache(providers));
     }
 
     public ToolGatewayService(List<ToolProvider> providers) {
         this(providers, new ToolExecutionPolicy());
     }
 
+    public ToolGatewayService(List<ToolProvider> providers, ToolExecutionPolicy toolExecutionPolicy) {
+        this(toolExecutionPolicy, new ToolSchemaValidator(new ObjectMapper()),
+                new ToolRegistryCache(providers));
+    }
+
+    ToolGatewayService(ToolExecutionPolicy toolExecutionPolicy, ToolSchemaValidator toolSchemaValidator,
+            ToolRegistryCache toolRegistryCache) {
+        this.toolExecutionPolicy = toolExecutionPolicy;
+        this.toolSchemaValidator = toolSchemaValidator;
+        this.toolRegistryCache = toolRegistryCache;
+    }
+
     public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
         Map<String, Object> safeArguments = safeArguments(arguments);
-        ToolProvider provider = providers.stream()
-                .filter(candidate -> candidate.supports(toolName))
-                .findFirst()
-                .orElse(null);
+        ToolProvider provider = toolRegistryCache.findProvider(toolName).orElse(null);
         if (provider == null) {
             return toolNotFound(toolName, safeArguments);
         }
-        ToolDescriptor descriptor = descriptor(provider, toolName);
+        ToolDescriptor descriptor = toolRegistryCache.find(toolName).orElseGet(() -> descriptor(provider, toolName));
         if (!toolExecutionPolicy.canExecute(descriptor)) {
             return toolNotAllowed(descriptor, safeArguments);
+        }
+        String validationError = toolSchemaValidator.validateForGateway(descriptor.inputSchema(), safeArguments)
+                .orElse(null);
+        if (validationError != null) {
+            Instant now = Instant.now();
+            return ToolExecutionLog.failure(toolName, safeArguments, validationError, now, now, descriptor,
+                    ToolExecutionLog.ERROR_VALIDATION);
         }
         return provider.execute(toolName, safeArguments).withDescriptor(descriptor);
     }
 
     public List<ToolDescriptor> listTools() {
-        return providers.stream()
-                .flatMap(provider -> provider.tools().stream())
-                .toList();
+        return toolRegistryCache.list();
     }
 
     public List<ToolDescriptor> listExecutableTools() {
@@ -55,16 +71,12 @@ public class ToolGatewayService {
 
     /** Tool listing enriched with executability (allowlist status) for the console. */
     public List<ToolView> listToolViews() {
-        return listTools().stream()
-                .map(descriptor -> new ToolView(descriptor.name(), descriptor.description(), descriptor.provider(),
-                        descriptor.remote(), descriptor.serverName(), descriptor.inputSchema(),
-                        toolExecutionPolicy.canExecute(descriptor)))
-                .toList();
+        return toolRegistryCache.views(toolExecutionPolicy::canExecute);
     }
 
     /** Finds a tool descriptor by name (for validation / inspection). */
     public java.util.Optional<ToolDescriptor> findTool(String toolName) {
-        return listTools().stream().filter(tool -> tool.name().equals(toolName)).findFirst();
+        return toolRegistryCache.find(toolName);
     }
 
     static ToolExecutionLog toolNotFound(String toolName, Map<String, Object> arguments) {

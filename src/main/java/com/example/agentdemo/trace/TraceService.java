@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -170,6 +171,34 @@ public class TraceService {
     public List<RunStepResponse> listSteps(String runId) {
         ensureRunExists(runId);
         return runStepRepository.findByOwnerIdAndRunIdOrderByStartedAtAsc(SecurityIdentity.currentOwnerId(), runId)
+                .stream()
+                .map(this::toRunStepResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<RunStepResponse> listStepsAfter(String runId, Instant lastStartedAt, String lastStepId) {
+        ensureRunExists(runId);
+        return runStepRepository.findAfterCursor(SecurityIdentity.currentOwnerId(), runId, lastStartedAt, lastStepId)
+                .stream()
+                .map(this::toRunStepResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public long countSteps(String runId) {
+        ensureRunExists(runId);
+        return runStepRepository.countByOwnerIdAndRunId(SecurityIdentity.currentOwnerId(), runId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<RunStepResponse> findSteps(String runId, Set<String> stepIds) {
+        if (stepIds == null || stepIds.isEmpty()) {
+            return List.of();
+        }
+        ensureRunExists(runId);
+        return runStepRepository.findByOwnerIdAndRunIdAndStepIdInOrderByStartedAtAscStepIdAsc(
+                        SecurityIdentity.currentOwnerId(), runId, stepIds)
                 .stream()
                 .map(this::toRunStepResponse)
                 .toList();

@@ -40,6 +40,7 @@ class PostgresFlywayMigrationIntegrationTest {
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.flyway.baseline-on-migrate", () -> "true");
         registry.add("spring.flyway.baseline-version", () -> "1");
+        registry.add("demo.rag.outbox.initial-delay-ms", () -> "3600000");
     }
 
     @Autowired

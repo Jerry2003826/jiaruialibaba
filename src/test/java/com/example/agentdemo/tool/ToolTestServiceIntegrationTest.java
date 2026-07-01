@@ -10,6 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -40,9 +43,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "demo.rag.retriever=keyword"
 })
 @AutoConfigureMockMvc
+@Import(ToolTestServiceIntegrationTest.ToolSchemaValidationTestConfiguration.class)
 class ToolTestServiceIntegrationTest {
 
     private static final String TEST_SECRET = "test-security-secret-32-bytes-minimum-value";
+    private static final String TOOL_TEST_ENDPOINT = "/api/tools/getCurrentTime/test";
+    private static final String SCHEMA_VALIDATED_REMOTE = "schemaValidatedRemote";
 
     @Autowired
     private ToolTestService toolTestService;
@@ -65,15 +71,24 @@ class ToolTestServiceIntegrationTest {
     }
 
     @Test
+    void dryRunReusesSharedSchemaValidatorForRemoteToolDescriptors() {
+        ToolExecutionLog log = toolTestService.test(SCHEMA_VALIDATED_REMOTE, Map.of());
+
+        assertThat(log.succeeded()).isFalse();
+        assertThat(log.errorCategory()).isEqualTo(ToolExecutionLog.ERROR_VALIDATION);
+        assertThat(log.errorMessage()).isEqualTo("Missing required tool argument: text");
+    }
+
+    @Test
     void testEndpointRequiresToolExecuteScope() throws Exception {
-        mockMvc.perform(post("/api/tools/getCurrentTime/test")
+        mockMvc.perform(post(TOOL_TEST_ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/tools/getCurrentTime/test")
+        mockMvc.perform(post(TOOL_TEST_ENDPOINT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(List.of("tool.read")))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/tools/getCurrentTime/test")
+        mockMvc.perform(post(TOOL_TEST_ENDPOINT)
                         .header(HttpHeaders.AUTHORIZATION, bearer(List.of("tool.execute")))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"arguments\":{}}"))
                 .andExpect(status().isOk());
@@ -91,6 +106,48 @@ class ToolTestServiceIntegrationTest {
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(TEST_SECRET.getBytes(StandardCharsets.UTF_8)));
         return "Bearer " + jwt.serialize();
+    }
+
+    @TestConfiguration
+    static class ToolSchemaValidationTestConfiguration {
+
+        @Bean
+        ToolProvider schemaValidatedRemoteToolProvider() {
+            return new ToolProvider() {
+                @Override
+                public String providerName() {
+                    return "mcp";
+                }
+
+                @Override
+                public boolean supports(String toolName) {
+                    return SCHEMA_VALIDATED_REMOTE.equals(toolName);
+                }
+
+                @Override
+                public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+                    Instant now = Instant.now();
+                    return ToolExecutionLog.success(toolName, arguments, "provider-executed", now, now,
+                            tools().getFirst());
+                }
+
+                @Override
+                public List<ToolDescriptor> tools() {
+                    return List.of(new ToolDescriptor(SCHEMA_VALIDATED_REMOTE,
+                            "Remote tool used to verify shared schema validation in dry-run mode",
+                            "mcp", true, "integration-test", """
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "text": {"type": "string"}
+                                      },
+                                      "required": ["text"]
+                                    }
+                                    """));
+                }
+            };
+        }
+
     }
 
 }
