@@ -3,6 +3,8 @@ package com.example.agentdemo.config;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
+import com.example.agentdemo.app.apikey.AppApiKeyAuthenticationFilter;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,9 +57,31 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Health/observability chain. {@code /healthz} and {@code /actuator/health} (plus liveness /
+     * readiness groups) are anonymous UP/DOWN probes; every other actuator endpoint
+     * (metrics, prometheus, info) is locked behind {@code SCOPE_health.read} so operational data is
+     * never exposed anonymously.
+     */
     @Bean
     @Order(1)
-    SecurityFilterChain apiSecurity(HttpSecurity http, ApiRateLimitFilter apiRateLimitFilter) throws Exception {
+    SecurityFilterChain observabilitySecurity(HttpSecurity http) throws Exception {
+        return http
+                .securityMatcher("/healthz", "/actuator/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/healthz").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .anyRequest().hasAuthority("SCOPE_health.read"))
+                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
+                .build();
+    }
+
+    @Bean
+    @Order(2)
+    SecurityFilterChain apiSecurity(HttpSecurity http, ApiRateLimitFilter apiRateLimitFilter,
+            AppApiKeyAuthenticationFilter appApiKeyAuthenticationFilter) throws Exception {
         return http
                 .securityMatcher("/api/**")
                 .csrf(AbstractHttpConfigurer::disable)
@@ -66,20 +90,49 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/health").hasAuthority("SCOPE_health.read")
                         .requestMatchers(HttpMethod.GET, "/api/auth/dev-token").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/runs/**").hasAuthority("SCOPE_trace.read")
+                        .requestMatchers(HttpMethod.GET, "/api/audit-logs", "/api/audit-logs/**")
+                        .hasAuthority("SCOPE_audit.read")
+                        // App runtime endpoints: reachable with SCOPE_app.run (console JWT or app API key).
+                        // Declared before management rules so the specific runtime paths win.
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/run", "/api/apps/*/chat",
+                                "/api/apps/*/chat/stream").hasAuthority("SCOPE_app.run")
+                        // API key management (console JWT only; app API keys can never reach these).
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/api-keys").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.DELETE, "/api/apps/*/api-keys/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.GET, "/api/apps/*/api-keys", "/api/apps/*/api-keys/**")
+                        .hasAuthority("SCOPE_app.read")
+                        // App management endpoints (console JWT only).
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/publish", "/api/apps/*/rollback/**")
+                        .hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.POST, "/api/apps").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.PUT, "/api/apps/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.DELETE, "/api/apps/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.GET, "/api/apps", "/api/apps/**").hasAuthority("SCOPE_app.read")
                         .requestMatchers(HttpMethod.POST, "/api/rag/documents").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.PUT, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.DELETE, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.GET, "/api/rag/documents/**").hasAuthority("SCOPE_rag.read")
                         .requestMatchers(HttpMethod.GET, "/api/rag/documents").hasAuthority("SCOPE_rag.read")
                         .requestMatchers(HttpMethod.POST, "/api/rag/chat").hasAuthority("SCOPE_rag.query")
+                        // Knowledge base (reuses RAG scopes): search=rag.query, mutations=rag.write, reads=rag.read.
+                        .requestMatchers(HttpMethod.POST, "/api/knowledge-bases/*/search")
+                        .hasAuthority("SCOPE_rag.query")
+                        .requestMatchers(HttpMethod.POST, "/api/knowledge-bases", "/api/knowledge-bases/**")
+                        .hasAuthority("SCOPE_rag.write")
+                        .requestMatchers(HttpMethod.DELETE, "/api/knowledge-bases/**").hasAuthority("SCOPE_rag.write")
+                        .requestMatchers(HttpMethod.GET, "/api/knowledge-bases", "/api/knowledge-bases/**")
+                        .hasAuthority("SCOPE_rag.read")
                         .requestMatchers(HttpMethod.GET, "/api/orders", "/api/orders/**")
                         .hasAuthority("SCOPE_order.read")
                         .requestMatchers(HttpMethod.POST, "/api/orders").hasAuthority("SCOPE_order.write")
                         .requestMatchers(HttpMethod.PUT, "/api/orders/**").hasAuthority("SCOPE_order.write")
                         .requestMatchers(HttpMethod.DELETE, "/api/orders/**").hasAuthority("SCOPE_order.write")
+                        .requestMatchers(HttpMethod.POST, "/api/tools/*/test").hasAuthority("SCOPE_tool.execute")
                         .requestMatchers(HttpMethod.GET, "/api/tools", "/api/tools/**")
                         .hasAuthority("SCOPE_tool.read")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/run").hasAuthority("SCOPE_workflow.run")
+                        .requestMatchers(HttpMethod.POST, "/api/workflows/runs/*/cancel")
+                        .hasAuthority("SCOPE_workflow.run")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/definitions/*/publish")
                         .hasAuthority("SCOPE_workflow.publish")
                         .requestMatchers(HttpMethod.GET, "/api/workflows/**").hasAuthority("SCOPE_workflow.read")
@@ -88,8 +141,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/chat/**", "/api/chat").hasAuthority("SCOPE_chat.execute")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
+                .addFilterBefore(appApiKeyAuthenticationFilter, BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(apiRateLimitFilter, BearerTokenAuthenticationFilter.class)
                 .build();
+    }
+
+    @Bean
+    FilterRegistrationBean<AppApiKeyAuthenticationFilter> appApiKeyFilterRegistration(
+            AppApiKeyAuthenticationFilter filter) {
+        // Registered manually in the API security chain; disable the servlet-container auto-registration
+        // that @Component filters otherwise receive so it does not also run for non-API requests.
+        FilterRegistrationBean<AppApiKeyAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

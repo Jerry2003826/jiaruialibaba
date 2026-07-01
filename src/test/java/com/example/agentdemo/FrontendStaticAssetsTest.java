@@ -64,6 +64,18 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("reset-document-editor")))
                 .andExpect(content().string(containsString("order-id")))
                 .andExpect(content().string(containsString("order-list")))
+                // Dify-like product surfaces: Apps (with API access) and Settings.
+                .andExpect(content().string(containsString("data-view=\"apps\"")))
+                .andExpect(content().string(containsString("view-apps")))
+                .andExpect(content().string(containsString("apps-list")))
+                .andExpect(content().string(containsString("create-app")))
+                .andExpect(content().string(containsString("app-api-keys")))
+                .andExpect(content().string(containsString("view-settings")))
+                // Knowledge Base product view (new /api/knowledge-bases model).
+                .andExpect(content().string(containsString("data-view=\"kb\"")))
+                .andExpect(content().string(containsString("view-kb")))
+                .andExpect(content().string(containsString("create-kb")))
+                .andExpect(content().string(containsString("kb-doc-list")))
                 .andExpect(content().string(containsString("/app.js")))
                 .andExpect(content().string(containsString("/styles.css")));
     }
@@ -114,7 +126,31 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("tokenUsageSummary")))
                 .andExpect(content().string(containsString("tokenUsage")))
                 .andExpect(content().string(containsString("loadDefinitionHistory")))
-                .andExpect(content().string(containsString("runsPage?.content")));
+                .andExpect(content().string(containsString("runsPage?.content")))
+                // Apps product surface wiring.
+                .andExpect(content().string(containsString("/api/apps")))
+                .andExpect(content().string(containsString("loadApps")))
+                .andExpect(content().string(containsString("createApiKey")))
+                .andExpect(content().string(containsString("plaintextKey")))
+                .andExpect(content().string(containsString("runSelectedApp")))
+                // Knowledge Base view wiring.
+                .andExpect(content().string(containsString("/api/knowledge-bases")))
+                .andExpect(content().string(containsString("loadKnowledgeBases")))
+                .andExpect(content().string(containsString("uploadKbFile")))
+                // Trace-driven highlighting / event replay wording in static assets.
+                .andExpect(content().string(containsString("/events")))
+                .andExpect(content().string(containsString("animateRunOnCanvas")))
+                .andExpect(content().string(containsString("applyRunEventToCanvas")))
+                .andExpect(content().string(containsString("trace-driven highlighting")));
+    }
+
+    @Test
+    void servesReplayHighlightingCopyOnWorkbenchHomePage() throws Exception {
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("运行后节点状态回放", "事件回放式高亮", "trace-driven highlighting")
+                        .doesNotContain("实时逐节点高亮"));
     }
 
     @Test

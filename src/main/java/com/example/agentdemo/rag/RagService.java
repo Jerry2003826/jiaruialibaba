@@ -1,5 +1,6 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.chat.memory.ConversationMemoryService;
@@ -12,10 +13,13 @@ import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.trace.RunContext;
 import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
 import com.example.agentdemo.trace.RunType;
+import com.example.agentdemo.usage.UsageRecordingService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -41,11 +45,14 @@ public class RagService {
     private final TraceService traceService;
     private final RagProperties ragProperties;
     private final AlibabaRuntimePolicy alibabaRuntimePolicy;
+    private final UsageRecordingService usageRecordingService;
 
+    @Autowired
     public RagService(DocumentPersistenceService documentPersistenceService, DocumentRetriever documentRetriever,
             KeywordDocumentRetriever keywordDocumentRetriever, DocumentIndexingService documentIndexingService,
             AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
-            TraceService traceService, RagProperties ragProperties, AlibabaRuntimePolicy alibabaRuntimePolicy) {
+            TraceService traceService, RagProperties ragProperties, AlibabaRuntimePolicy alibabaRuntimePolicy,
+            UsageRecordingService usageRecordingService) {
         this.documentPersistenceService = documentPersistenceService;
         this.documentRetriever = documentRetriever;
         this.keywordDocumentRetriever = keywordDocumentRetriever;
@@ -55,9 +62,19 @@ public class RagService {
         this.traceService = traceService;
         this.ragProperties = ragProperties;
         this.alibabaRuntimePolicy = alibabaRuntimePolicy;
+        this.usageRecordingService = usageRecordingService;
+    }
+
+    public RagService(DocumentPersistenceService documentPersistenceService, DocumentRetriever documentRetriever,
+            KeywordDocumentRetriever keywordDocumentRetriever, DocumentIndexingService documentIndexingService,
+            AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
+            TraceService traceService, RagProperties ragProperties, AlibabaRuntimePolicy alibabaRuntimePolicy) {
+        this(documentPersistenceService, documentRetriever, keywordDocumentRetriever, documentIndexingService,
+                aiModelService, conversationMemoryService, traceService, ragProperties, alibabaRuntimePolicy, null);
     }
 
     @Transactional
+    @Audited(action = "document.create", resourceType = "document", resourceId = "#result.id()")
     public DocumentResponse saveDocument(DocumentRequest request) {
         DocumentEntity document = documentPersistenceService.save(request);
         documentIndexingService.index(document);
@@ -92,6 +109,9 @@ public class RagService {
                     Map.of("prompt", prompt, "contextCount", contexts.size(), "historySize", history.size()));
             AiModelResult modelResult = aiModelService.generate(RAG_SYSTEM_PROMPT, history, prompt);
             String answer = resolveAnswer(request.message(), contexts, modelResult);
+            if (usageRecordingService != null) {
+                usageRecordingService.record(run.runId(), RunContext.currentAppId(), modelResult.tokenUsage());
+            }
             conversationMemoryService.appendUserMessage(conversationId, request.message());
             conversationMemoryService.appendAssistantMessage(conversationId, answer);
             RagChatResponse response = new RagChatResponse(answer, conversationId, run.runId(), contexts);

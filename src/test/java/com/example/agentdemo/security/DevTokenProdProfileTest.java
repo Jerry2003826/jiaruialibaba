@@ -29,7 +29,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.url=jdbc:h2:mem:agent_backend_prod_devtoken_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
         "demo.dashvector.endpoint=",
         "demo.dashvector.api-key=",
-        "demo.rag.retriever=keyword"
+        "demo.rag.retriever=keyword",
+        // This test exercises prod security wiring with a lightweight H2 context; the production
+        // hardening validator (which would reject H2/non-strict) is covered by its own tests.
+        "demo.production-validation.enabled=false"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")

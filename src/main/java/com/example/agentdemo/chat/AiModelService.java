@@ -62,7 +62,7 @@ public class AiModelService {
         return generate(systemPrompt, history, userMessage, null);
     }
 
-    private AiModelResult generate(String systemPrompt, List<ConversationMessage> history, String userMessage,
+    public AiModelResult generate(String systemPrompt, List<ConversationMessage> history, String userMessage,
             String modelOverride) {
         if (!isModelConfigured()) {
             throw unavailableLlmException("AI_DASHSCOPE_API_KEY is not configured");

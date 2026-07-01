@@ -1,0 +1,10 @@
+# Explicit direct-access override for trusted internal testing only.
+# Usage:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.direct.yml up --build -d
+
+services:
+  app:
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      DEMO_AUDIT_TRUST_FORWARDED_HEADERS: "false"

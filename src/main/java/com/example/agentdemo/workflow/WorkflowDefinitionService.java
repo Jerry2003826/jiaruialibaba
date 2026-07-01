@@ -1,9 +1,11 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +41,7 @@ public class WorkflowDefinitionService {
         workflowCompiler.compile(request.workflowDefinition());
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity(newId(), request.name().trim(),
                 normalizeDescription(request.description()), toJson(request.workflowDefinition()));
+        applyMetadata(entity, request);
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
         saveRevision(saved);
         return toResponse(saved);
@@ -50,12 +53,14 @@ public class WorkflowDefinitionService {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.updateDraft(request.name().trim(), normalizeDescription(request.description()),
                 toJson(request.workflowDefinition()));
+        applyMetadata(entity, request);
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
         saveRevision(saved);
         return toResponse(saved);
     }
 
     @Transactional
+    @Audited(action = "workflow.publish", resourceType = "workflow", resourceId = "#definitionId")
     public WorkflowDefinitionResponse publish(String definitionId) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.publish();
@@ -70,6 +75,7 @@ public class WorkflowDefinitionService {
     }
 
     @Transactional
+    @Audited(action = "workflow.rollback", resourceType = "workflow", resourceId = "#definitionId")
     public WorkflowDefinitionResponse rollback(String definitionId, Integer version) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         WorkflowDefinitionRevisionEntity revision = findRevision(definitionId, version);
@@ -167,7 +173,51 @@ public class WorkflowDefinitionService {
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinitionEntity entity) {
         return new WorkflowDefinitionResponse(entity.getDefinitionId(), entity.getName(), entity.getDescription(),
-                fromJson(entity), entity.getVersion(), entity.getStatus(), entity.getCreatedAt(), entity.getUpdatedAt());
+                fromJson(entity), layoutOf(entity), variablesOf(entity), entity.getVersion(), entity.getStatus(),
+                entity.getCreatedAt(), entity.getUpdatedAt());
+    }
+
+    private void applyMetadata(WorkflowDefinitionEntity entity, WorkflowDefinitionSaveRequest request) {
+        if (request.layout() != null) {
+            entity.setLayoutJson(request.layout().toString());
+        }
+        if (request.variables() != null) {
+            entity.setVariablesJson(toJson(request.variables()));
+        }
+    }
+
+    private JsonNode layoutOf(WorkflowDefinitionEntity entity) {
+        if (!StringUtils.hasText(entity.getLayoutJson())) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(entity.getLayoutJson());
+        }
+        catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    private WorkflowVariableSchema variablesOf(WorkflowDefinitionEntity entity) {
+        if (!StringUtils.hasText(entity.getVariablesJson())) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(entity.getVariablesJson(), WorkflowVariableSchema.class);
+        }
+        catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    private String toJson(WorkflowVariableSchema variables) {
+        try {
+            return objectMapper.writeValueAsString(variables);
+        }
+        catch (JsonProcessingException ex) {
+            throw new BusinessException("WORKFLOW_VARIABLES_SERIALIZATION_FAILED",
+                    "Failed to serialize workflow variables", ex);
+        }
     }
 
     private WorkflowDefinitionRevisionResponse toRevisionResponse(WorkflowDefinitionRevisionEntity entity) {

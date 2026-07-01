@@ -55,14 +55,46 @@ spring:
   # Hibernate ddl-auto, so Flyway is disabled by default and turned on only under postgres.
   flyway:
     enabled: false
+  servlet:
+    multipart:
+      # Knowledge-base file uploads. Keep in sync with demo.knowledge.max-file-bytes.
+      max-file-size: ${DEMO_KNOWLEDGE_MAX_FILE_SIZE:10MB}
+      max-request-size: ${DEMO_KNOWLEDGE_MAX_REQUEST_SIZE:12MB}
+
+# Actuator: /actuator/health and /healthz are public liveness/readiness probes that only expose
+# UP/DOWN (show-details=never / show-components=never keeps model, vector store and configuration
+# state out of the public response). metrics/prometheus/info are exposed but locked behind
+# SCOPE_health.read by the actuator security filter chain, so they are never anonymous.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 logging:
+  pattern:
+    # Surface the per-request correlation id (see CorrelationIdFilter) in every log line.
+    level: "%5p [${spring.application.name:agent-backend-demo},%X{requestId:-}]"
   level:
     root: INFO
     com.example.agentdemo: INFO
     org.springframework.ai: INFO
 
 demo:
+  audit:
+    trust-forwarded-headers: ${DEMO_AUDIT_TRUST_FORWARDED_HEADERS:false}
   security:
     # hmac: validate HS256 tokens with demo.security.jwt-secret (local/demo default).
     # issuer: back off the local decoder and let Spring Boot auto-configure an
@@ -88,6 +120,19 @@ demo:
   chat:
     memory:
       max-messages: ${DEMO_CHAT_MEMORY_MAX_MESSAGES:20}
+  knowledge:
+    max-file-bytes: ${DEMO_KNOWLEDGE_MAX_FILE_BYTES:10485760}
+    max-content-chars: ${DEMO_KNOWLEDGE_MAX_CONTENT_CHARS:500000}
+    allowed-mime-types:
+      - text/plain
+      - text/markdown
+      - text/csv
+      - text/html
+      - application/pdf
+      - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      - application/vnd.openxmlformats-officedocument.presentationml.presentation
+      - application/msword
+      - application/vnd.ms-powerpoint
   rag:
     retriever: ${DEMO_RAG_RETRIEVER:dashvector}
     keyword-fallback-enabled: ${DEMO_RAG_KEYWORD_FALLBACK_ENABLED:true}
@@ -100,6 +145,13 @@ demo:
     collection: ${DASHVECTOR_COLLECTION:agent_rag_docs}
     dimension: ${DASHVECTOR_DIMENSION:1024}
     metric: ${DASHVECTOR_METRIC:cosine}
+  app:
+    # Runtime invocations (run/chat/chat-stream) must use the published, immutable app revision.
+    # Set false only for local/dev iteration on unpublished drafts.
+    require-published-for-run: ${DEMO_APP_REQUIRE_PUBLISHED_FOR_RUN:true}
+    max-run-input-bytes: ${DEMO_APP_MAX_RUN_INPUT_BYTES:65536}
+    api-key:
+      last-used-update-interval-seconds: ${DEMO_APP_API_KEY_LAST_USED_UPDATE_INTERVAL_SECONDS:60}
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
     require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}

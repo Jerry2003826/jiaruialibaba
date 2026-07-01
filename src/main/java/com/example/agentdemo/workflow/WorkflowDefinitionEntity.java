@@ -42,6 +42,14 @@ public class WorkflowDefinitionEntity {
     @Column(nullable = false, length = Integer.MAX_VALUE)
     private String definitionJson;
 
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "layout_json", length = Integer.MAX_VALUE)
+    private String layoutJson;
+
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "variables_json", length = Integer.MAX_VALUE)
+    private String variablesJson;
+
     @Column(nullable = false)
     private Integer version;
 
@@ -135,6 +143,22 @@ public class WorkflowDefinitionEntity {
 
     public String getDefinitionJson() {
         return definitionJson;
+    }
+
+    public String getLayoutJson() {
+        return layoutJson;
+    }
+
+    public void setLayoutJson(String layoutJson) {
+        this.layoutJson = layoutJson;
+    }
+
+    public String getVariablesJson() {
+        return variablesJson;
+    }
+
+    public void setVariablesJson(String variablesJson) {
+        this.variablesJson = variablesJson;
     }
 
     public Integer getVersion() {

@@ -1,5 +1,6 @@
 package com.example.agentdemo.config;
 
+import com.example.agentdemo.app.apikey.AppApiKeyAuthenticationToken;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,11 +17,13 @@ import java.time.Instant;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 final class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static final long WINDOW_MS = 60_000L;
     private static final int MAX_TRACKED_WINDOWS = 10_000;
+    private static final Pattern APP_RUNTIME_ENDPOINT = Pattern.compile("^/api/apps/[^/]+/(run|chat|chat/stream)$");
 
     private final boolean enabled;
     private final int requestsPerMinute;
@@ -69,9 +72,14 @@ final class ApiRateLimitFilter extends OncePerRequestFilter {
                 || path.equals("/api/rag/chat")
                 || path.equals("/api/rag/documents")
                 || path.startsWith("/api/agent/")
+                || isAppRuntimeEndpoint(path)
                 || path.equals("/api/workflows/run")
                 || path.equals("/api/workflows/generate")
                 || path.equals("/api/workflows/generate/stream");
+    }
+
+    private boolean isAppRuntimeEndpoint(String path) {
+        return APP_RUNTIME_ENDPOINT.matcher(path).matches();
     }
 
     private String rateLimitKey(HttpServletRequest request) {
@@ -80,6 +88,11 @@ final class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private String principalKey(HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication instanceof AppApiKeyAuthenticationToken appApiKeyAuthentication
+                && authentication.isAuthenticated()
+                && StringUtils.hasText(appApiKeyAuthentication.getKeyId())) {
+            return "principal:app-key:" + appApiKeyAuthentication.getKeyId();
+        }
         if (authentication != null && authentication.isAuthenticated()
                 && StringUtils.hasText(authentication.getName())) {
             return "principal:" + authentication.getName();

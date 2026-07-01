@@ -1,0 +1,81 @@
+# Production-oriented single-tenant deployment: app + postgres (+ optional redis, nginx).
+# Usage:
+#   cp .env.prod.example .env.prod   # then fill real values (never commit .env.prod)
+#   docker compose -f docker-compose.prod.yml --profile proxy up --build -d
+#
+# The app runs with SPRING_PROFILES_ACTIVE=prod,postgres. The prod profile enables the
+# ProductionStartupValidator, which refuses to boot on unsafe config (H2, dev-token, insecure
+# JWT secret, missing DashScope/DashVector, etc.). See SECURITY.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-demo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-agent_demo}
+      POSTGRES_USER: ${DB_USERNAME:-agent_demo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me-strong-db-password}
+    volumes:
+      - agent_demo_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-agent_demo} -d ${DB_NAME:-agent_demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent-demo-app
+    restart: unless-stopped
+    env_file:
+      - path: .env.prod
+        required: false
+    environment:
+      SPRING_PROFILES_ACTIVE: prod,postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DEMO_AUDIT_TRUST_FORWARDED_HEADERS: ${DEMO_AUDIT_TRUST_FORWARDED_HEADERS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # Recommended reverse proxy / TLS terminator. Front the app with this in production and let it
+  # inject X-Forwarded-For / X-Request-Id. Enable with: --profile proxy
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: agent-demo-nginx
+    restart: unless-stopped
+    profiles: ["proxy"]
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # Optional cache/rate-limit backing store (not yet wired into the app; placeholder for future
+  # distributed rate limiting / session storage). Enable with: --profile cache
+  redis:
+    image: redis:7-alpine
+    container_name: agent-demo-redis
+    restart: unless-stopped
+    profiles: ["cache"]
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - agent_demo_redis_data:/data
+
+volumes:
+  agent_demo_pg_data:
+  agent_demo_redis_data:

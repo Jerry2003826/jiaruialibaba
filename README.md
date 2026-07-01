@@ -2,7 +2,28 @@
 
 ## 项目目标
 
-这是一个最小可运行、可扩展的 Spring AI Alibaba Agent 平台 demo。它不是完整 Dify，而是提供一个后端骨架和最小 Dify-like 工作台：Chat、SSE streaming、tool calling、RAG、workflow canvas、run trace。
+这是一个**单租户、可上线内测/小规模生产**的 Java 版 Dify-like 工业 MVP。它不是完整 Dify，聚焦于：产品闭环（应用/知识库/发布）、生产安全、部署运维、可观测性。
+
+安全与运维专项文档：[SECURITY.md](SECURITY.md)、[OPERATIONS.md](OPERATIONS.md)。
+
+## 工业 MVP 功能矩阵
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| App 产品层（CHAT/WORKFLOW/AGENT） | 已支持 | 创建/发布/回滚/归档，published 使用不可变 revision snapshot |
+| Runtime API Key | 已支持 | 面向业务系统，仅 runtime 端点、仅本 app、hash-at-rest、一次性明文 |
+| 审计日志 + 敏感信息脱敏 | 已支持 | 管理动作审计；统一 `SecretRedactor`；trace/error 不泄密 |
+| 生产启动硬门槛 | 已支持 | prod 下禁 H2/dev-token/内置 secret，强制 issuer/strict/DashScope/DashVector |
+| 可观测性 | 已支持 | `/healthz`、Actuator health/metrics/prometheus、`X-Request-Id`、token usage 落库 |
+| 部署（Docker/Compose/CI） | 已支持 | 多阶段非 root 镜像、`docker-compose.prod.yml`、GitHub Actions |
+| Workflow DSL / 画布 / trace | 已支持 | validate/preview/run/publish/rollback/run-graph；layout+变量 schema 持久化、run cancel、run events SSE、节点分组 |
+| RAG（DashVector indexing + 关键词检索兜底） | 已支持 | 文档保存/问答，DashVector outbox exactly-once；KB 检索当前为 keyword-first |
+| 知识库产品层 / 文件 ingestion（PDF/docx…） | 已支持 | Knowledge Base 模型、Tika 解析（txt/md/html/pdf/docx/pptx/csv）、MIME allowlist、按 KB 检索 + citations、reindex/chunk 预览 |
+| Tool / MCP 管理 | 已支持 | catalog（可执行状态）、控制台 dry-run（tool.execute，脱敏 trace） |
+| KB ↔ App 绑定（CHAT 默认检索源） | 已支持 | CHAT app `config.knowledgeBaseIds` 绑定 KB，chat 自动检索并返回 citations |
+| Dify-like 前端产品台 | 部分支持 | 已加 Apps（含 API Access、KB 绑定）、Settings；Knowledge/Workflow 画布沿用现有工作台，支持运行后节点状态回放与事件回放式高亮 |
+| 多租户 / workspace / RBAC | 不支持 | 按设计保持单租户（owner 隔离） |
+| 计费 / 插件市场 / 多 provider 市场 | 不支持 | 保留 provider 抽象口 |
 
 ## 技术栈
 
@@ -58,7 +79,16 @@ DEMO_RAG_KEYWORD_FALLBACK_ENABLED=false
 DEMO_RAG_RETRIEVER=dashvector
 ```
 
-`GET /api/health` 返回 `embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled`、`workflowRuntime`、`workflowRequirePublishedForRun` 等字段，便于确认当前是否走阿里栈与 workflow runtime。
+### 健康检查（公开 vs 受保护）
+
+| 端点 | 认证 | 用途 |
+| --- | --- | --- |
+| `GET /healthz` | 公开 | 轻量存活探针，仅返回 `{"status":"UP"}`，供负载均衡 / 上线探活使用，不暴露任何模型、向量库或配置状态。 |
+| `GET /actuator/health` | 公开 | 标准存活/就绪探针，`show-details=never`，同样只返回 `UP/DOWN`。 |
+| `GET /actuator/metrics`、`GET /actuator/prometheus`、`GET /actuator/info` | 需 `SCOPE_health.read` | 运维指标 / Prometheus 抓取，默认不对匿名开放（生产可再叠加 reverse proxy / 独立管理端口）。 |
+| `GET /api/health` | 需 `SCOPE_health.read` | 控制台受保护诊断接口，返回 `modelConfigured`、`embeddingConfigured`、`vectorStoreConfigured`、`ragRetriever`、`strictMode`、`fallbackEnabled`、`keywordFallbackEnabled`、`workflowRuntime`、`workflowRequirePublishedForRun` 等字段，便于确认当前是否走阿里栈与 workflow runtime。 |
+
+每个请求都会分配 `X-Request-Id`（可由入站同名头透传），写入日志 MDC 与响应头，便于跨日志/trace 关联。
 
 本地 dev 可通过 `DEMO_ALIBABA_STRICT_MODE=false` 关闭严格模式（`application-alibaba-strict.yml` 已改为读取该 env）。CI/单测请设 `DEMO_ALIBABA_STRICT_MODE=false` 且 `DEMO_AI_FALLBACK_ENABLED=true`，或使用 `spring.profiles.group.dev=dev` 去掉 profile group 中的 `alibaba-strict`。
 
@@ -94,7 +124,7 @@ export DASHVECTOR_METRIC=cosine
 
 `AI_DASHSCOPE_BASE_URL` 只用于 Chat。`AI_DASHSCOPE_EMBEDDING_BASE_URL` 默认留空，让 embedding 使用 DashScope SDK 默认地址；只有 embedding 也需要专属 endpoint 时才设置它。
 
-RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，DashVector 保存向量。`DEMO_RAG_RETRIEVER=dashvector` 且 DashVector 已配置时使用向量检索；否则在非 strict 场景下降级为 naive keyword retrieval。向量检索失败时，若 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true` 且未开启 strict，会回退到 keyword retrieval 并在 trace 中记录 `rag_keyword_fallback_retrieve`；strict 或 `DEMO_AI_FALLBACK_ENABLED=false` 时禁用该降级。
+RAG 文档写入时，PostgreSQL 保存 source documents 和 chunk metadata，DashVector 保存向量。当前 **Knowledge Base 检索语义** 是「KB 隔离的 keyword retrieval + reranker extension point」；DashVector indexing / outbox 已复用到位，但 **KB-aware vector retrieval 仍是后续增强项**。因此 `KnowledgeBaseService.search()` 目前不会声称已完成按 KB 过滤的向量检索。非 strict 场景下，运行时问答若未接好 DashVector 仍可走 keyword retrieval；向量检索失败时，若 `DEMO_RAG_KEYWORD_FALLBACK_ENABLED=true` 且未开启 strict，会回退到 keyword retrieval 并在 trace 中记录 `rag_keyword_fallback_retrieve`；strict 或 `DEMO_AI_FALLBACK_ENABLED=false` 时禁用该降级。
 
 每个文档带有 `indexStatus`（保存与列表响应都会返回）：
 
@@ -251,7 +281,7 @@ http://localhost:8080/
 ./mvnw spring-boot:run
 ```
 
-`/api/**` 默认开启 JWT 鉴权（仅 `/api/health` 与 `/api/auth/dev-token` 公开）。内置工作台在加载时
+`/api/**` 默认开启 JWT 鉴权（`/api/health` 需 `SCOPE_health.read`，`/api/auth/dev-token` 仅本地/演示公开；公开探针为 `/healthz` 与 `/actuator/health`）。内置工作台在加载时
 会自动向 `/api/auth/dev-token` 申请一个短期开发令牌并附加到所有请求与 SSE 调用，因此本地直接可用。
 HS256 secret 未设置时使用内置的不安全默认值，仅供本机演示，任何共享环境务必通过
 `DEMO_SECURITY_JWT_SECRET` 覆盖或改用 issuer 模式。
@@ -303,7 +333,7 @@ http://localhost:8080/
 当前工作台包含：
 
 - Workflow canvas：节点 palette、拖拽节点、连线、节点配置 inspector、edge 编辑；**Insert Loop** 一键插入标准 loop 拓扑；subgraph 节点可通过下拉选择已保存 definition 与 revision。
-- Workflow execution：调用 `/api/workflows/validate`、`/api/workflows/preview-graph`、`/api/workflows/run`，并读取 run graph 和 run steps；graph 不可用时 trace 仍会对 subgraph/dynamic/loop/parallel 做启发式分组。
+- Workflow execution：调用 `/api/workflows/validate`、`/api/workflows/preview-graph`、`/api/workflows/run`，并读取 run graph 和 run steps；`/api/workflows/run` 为同步执行，前端在 run 完成后通过 run events / steps 做运行后节点状态回放与 trace-driven highlighting；graph 不可用时 trace 仍会对 subgraph/dynamic/loop/parallel 做启发式分组。
 - Definition 管理：保存、更新、加载、**Publish**、**Revisions 列表 / Rollback / Load revision**、当前 definition 的 **运行历史**（点击加载 trace）。
 - 画布布局：节点坐标保存在浏览器 **localStorage**（按 definitionId 或 draft），刷新页面后布局保留。
 - Chat：同步 `/api/chat` 与 SSE **Stream** `/api/chat/stream`。
@@ -347,9 +377,25 @@ http://localhost:8080/
 - `GET /api/workflows/runs?definitionId={definitionId}&definitionVersion={version}&status={status}&page=0&size=20`
 - `GET /api/workflows/runs/{runId}`
 - `GET /api/workflows/runs/{runId}/graph`
+- `POST /api/workflows/runs/{runId}/cancel`（best-effort 取消，标记 CANCELED）
+- `GET /api/workflows/runs/{runId}/events`（SSE：node_started/node_succeeded/node_failed/run_done）
+- `POST /api/knowledge-bases` / `GET /api/knowledge-bases` / `GET /api/knowledge-bases/{kbId}`
+- `POST /api/knowledge-bases/{kbId}/documents/text` / `POST /api/knowledge-bases/{kbId}/documents/files`（multipart）
+- `GET /api/knowledge-bases/{kbId}/documents` / `GET /api/knowledge-bases/{kbId}/documents/{documentId}`
+- `GET /api/knowledge-bases/{kbId}/documents/{documentId}/chunks` / `POST /api/knowledge-bases/{kbId}/documents/{documentId}/reindex`
+- `DELETE /api/knowledge-bases/{kbId}/documents/{documentId}` / `POST /api/knowledge-bases/{kbId}/search`
+- `GET /api/tools/catalog`（含可执行状态）/ `POST /api/tools/{toolName}/test`（dry-run，需 `tool.execute`）
 - `GET /api/runs?type={type}&status={status}&page=0&size=20`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/steps`
+- `GET /api/runs/{runId}/usage`（token 用量汇总）
+- `POST /api/apps` / `GET /api/apps?page=0&size=20` / `GET /api/apps/{appId}` / `PUT /api/apps/{appId}`
+- `GET /api/apps/{appId}/revisions`
+- `POST /api/apps/{appId}/publish` / `POST /api/apps/{appId}/rollback/{version}` / `DELETE /api/apps/{appId}`
+- `POST /api/apps/{appId}/run` / `POST /api/apps/{appId}/chat` / `POST /api/apps/{appId}/chat/stream`（runtime，`app.run` 或 API Key）
+- `POST /api/apps/{appId}/api-keys` / `GET /api/apps/{appId}/api-keys` / `DELETE /api/apps/{appId}/api-keys/{keyId}`
+- `GET /api/audit-logs?resourceType={type}&page=0&size=20`
+- 公开探针：`GET /healthz`、`GET /actuator/health`
 
 除 SSE 外，所有 API 都返回 `ApiResponse`。
 
@@ -894,6 +940,116 @@ curl -X POST http://localhost:8080/api/workflows/run \
   }'
 ```
 
+## 生产部署（Docker Compose）
+
+多阶段构建、Java 21 runtime、非 root 用户、内置 `/healthz` HEALTHCHECK。
+
+```bash
+cp .env.prod.example .env.prod   # 填入真实 DB / JWT issuer / DashScope / DashVector
+DEMO_AUDIT_TRUST_FORWARDED_HEADERS=true docker compose -f docker-compose.prod.yml --profile proxy up --build -d
+curl -fsS http://localhost/healthz                               # {"status":"UP"}
+```
+
+默认生产模式下 app 仅在 compose 内网 `expose: 8080`，由 nginx 代理访问；不会默认向宿主机发布端口。app 以 `SPRING_PROFILES_ACTIVE=prod,postgres` 运行，启动即执行[生产硬门槛校验](SECURITY.md)。运维细节见 [OPERATIONS.md](OPERATIONS.md)。
+
+仅用于可信内网直连 / 调试时，可显式启用直连 override：
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.direct.yml up --build -d
+curl -fsS http://localhost:8080/healthz
+```
+
+### 生产安全 checklist
+
+- [ ] `DEMO_SECURITY_JWT_MODE=issuer` 且配置 `issuer-uri`/`jwk-set-uri`（不用内置 secret）
+- [ ] `DEMO_SECURITY_DEV_TOKEN_ENABLED=false`
+- [ ] PostgreSQL（非 H2），`.env.prod` 未提交、DB 密码为强口令
+- [ ] `DEMO_ALIBABA_STRICT_MODE=true`、`DEMO_AI_FALLBACK_ENABLED=false`、`DEMO_RAG_KEYWORD_FALLBACK_ENABLED=false`、`DEMO_RAG_RETRIEVER=dashvector`
+- [ ] DashScope / DashVector 密钥已配置
+- [ ] 前置 TLS（nginx/网关），透传 `X-Forwarded-For` / `X-Request-Id`，并仅在受信代理部署时开启 `DEMO_AUDIT_TRUST_FORWARDED_HEADERS=true`
+- [ ] 定期备份 PostgreSQL
+
+## App 与 Runtime API Key 使用
+
+以下示例假设已有一个控制台 JWT（`$TOKEN`，含相应 scope；本地演示可用 dev-token）。
+
+```bash
+# 1) 创建一个 WORKFLOW app（先有一个已发布的 workflow definition）
+curl -X POST http://localhost:8080/api/apps \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Support Flow","type":"WORKFLOW","workflowDefinitionId":"<wf-id>"}'
+# → data.appId，例如 app-xxxx
+
+# 2) 发布 app（WORKFLOW app 会校验并 pin 绑定 workflow 的已发布版本）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/publish -H "Authorization: Bearer $TOKEN"
+
+# 3) 为 app 创建 Runtime API Key（明文仅此一次返回）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/api-keys \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"prod-integration"}'
+# → data.plaintextKey，例如 app_xxxxxxxx
+
+# 4) 业务系统用 API Key 调用 runtime（无需控制台 JWT）
+curl -X POST http://localhost:8080/api/apps/app-xxxx/run \
+  -H "X-App-API-Key: app_xxxxxxxx" -H 'Content-Type: application/json' \
+  -d '{"input":{"message":"你好"}}'
+
+# CHAT app 用 chat（同样支持 Authorization: Bearer app_xxxxxxxx）
+curl -X POST http://localhost:8080/api/apps/app-yyyy/chat \
+  -H "Authorization: Bearer app_xxxxxxxx" -H 'Content-Type: application/json' \
+  -d '{"message":"你好"}'
+
+# 5) 在 Runs 里查看 token 用量
+curl http://localhost:8080/api/runs/<runId>/usage -H "Authorization: Bearer $TOKEN"
+
+# 撤销 API Key
+curl -X DELETE http://localhost:8080/api/apps/app-xxxx/api-keys/<keyId> -H "Authorization: Bearer $TOKEN"
+```
+
+> API Key 只能调用所属 app 的 `/run`、`/chat`、`/chat/stream`，不能访问控制台管理 API，也不能跨 app。
+
+## 知识库（Knowledge Base）
+
+按 KB 组织文档，支持文本与文件（Tika 解析 txt/md/html/pdf/docx/pptx/csv），按 KB 隔离检索并返回 citations。
+
+```bash
+# 创建知识库
+curl -X POST http://localhost:8080/api/knowledge-bases \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"产品文档","retrievalConfig":{"topK":5}}'
+# → data.kbId，例如 kb-xxxx
+
+# 写入文本文档
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/documents/text \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"退货政策","content":"支持 30 天无理由退货……"}'
+
+# 上传文件（PDF/docx 等）
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/documents/files \
+  -H "Authorization: Bearer $TOKEN" -F 'file=@policy.pdf'
+
+# 查看索引状态
+curl http://localhost:8080/api/knowledge-bases/kb-xxxx/documents -H "Authorization: Bearer $TOKEN"
+
+# 按 KB 检索（返回 citations）
+curl -X POST http://localhost:8080/api/knowledge-bases/kb-xxxx/search \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"query":"退货 多少天","topK":5}'
+```
+
+> KB↔App 绑定：CHAT app 可在 `config.knowledgeBaseIds`（前端「创建应用」表单亦可填）绑定一个或多个 KB，chat 时会先按 KB 检索、把上下文注入提示词，并在响应 `citations` 返回引用（documentId/title/chunkIndex/snippet/score）。WORKFLOW app 通过工作流中的 `retriever` 节点检索。检索管理需 `rag.write`/`rag.read`，检索需 `rag.query`。
+
+```bash
+# 创建绑定了知识库的 CHAT app
+curl -X POST http://localhost:8080/api/apps \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"文档助手","type":"CHAT","config":{"systemPrompt":"基于知识库回答","knowledgeBaseIds":["kb-xxxx"]}}'
+# 发布后 chat，响应含 citations
+curl -X POST http://localhost:8080/api/apps/app-xxxx/chat \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"message":"退货政策是几天？"}'
+```
+
 ## PostgreSQL
 
 dev 使用 `application-postgres.yml`，默认连接：
@@ -919,7 +1075,7 @@ Password: agent_demo
 
 ## 后续扩展方向
 
-- 当前已接入 DashVector + DashScope `EmbeddingModel`；后续可继续替换为 Spring AI `VectorStore` 标准抽象或增加 hybrid retrieval / rerank。
+- 当前已接入 DashVector + DashScope `EmbeddingModel`，并复用了向量 indexing outbox；KB 检索仍以 keyword-first 为主，后续再补 KB-aware vector retrieval / hybrid retrieval。
 - 扩展 Spring AI Alibaba Graph runtime：原生子图映射、循环防护策略、更完整的状态合并策略。
 - 扩展 MCP：增加鉴权配置、工具 schema 同步、调用审计和熔断策略。
 - 接入 Cairn Memory，为 coding-agent 或长会话场景补充行为记忆和连续性。

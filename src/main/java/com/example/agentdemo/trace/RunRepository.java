@@ -22,4 +22,6 @@ public interface RunRepository extends JpaRepository<RunEntity, String>, JpaSpec
 
     boolean existsByRunIdAndOwnerId(String runId, String ownerId);
 
+    boolean existsByOwnerIdAndAppId(String ownerId, String appId);
+
 }

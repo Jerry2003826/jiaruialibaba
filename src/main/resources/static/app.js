@@ -19,6 +19,8 @@
     workflowRuns: (id) => `/api/workflows/runs?definitionId=${encodeURIComponent(id)}&page=0&size=20`,
     publishDefinition: (id) => `/api/workflows/definitions/${encodeURIComponent(id)}/publish`,
     workflowRunGraph: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/graph`,
+    workflowRunEvents: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/events`,
+    cancelWorkflowRun: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/cancel`,
     runSteps: (runId) => `/api/runs/${encodeURIComponent(runId)}/steps`,
     runs: "/api/runs",
     tools: "/api/tools",
@@ -33,7 +35,20 @@
     deleteDocument: (id) => `/api/rag/documents/${encodeURIComponent(id)}`,
     listOrders: "/api/orders",
     saveOrderEndpoint: "/api/orders",
-    orderDetail: (id) => `/api/orders/${encodeURIComponent(id)}`
+    orderDetail: (id) => `/api/orders/${encodeURIComponent(id)}`,
+    apps: "/api/apps",
+    appDetail: (id) => `/api/apps/${encodeURIComponent(id)}`,
+    publishApp: (id) => `/api/apps/${encodeURIComponent(id)}/publish`,
+    appRun: (id) => `/api/apps/${encodeURIComponent(id)}/run`,
+    appChat: (id) => `/api/apps/${encodeURIComponent(id)}/chat`,
+    appApiKeys: (id) => `/api/apps/${encodeURIComponent(id)}/api-keys`,
+    revokeAppApiKey: (id, keyId) => `/api/apps/${encodeURIComponent(id)}/api-keys/${encodeURIComponent(keyId)}`,
+    runUsage: (runId) => `/api/runs/${encodeURIComponent(runId)}/usage`,
+    knowledgeBases: "/api/knowledge-bases",
+    kbTextDoc: (kbId) => `/api/knowledge-bases/${encodeURIComponent(kbId)}/documents/text`,
+    kbFileDoc: (kbId) => `/api/knowledge-bases/${encodeURIComponent(kbId)}/documents/files`,
+    kbDocs: (kbId) => `/api/knowledge-bases/${encodeURIComponent(kbId)}/documents`,
+    kbSearch: (kbId) => `/api/knowledge-bases/${encodeURIComponent(kbId)}/search`
   };
 
   const fallbackSchemas = [
@@ -131,11 +146,14 @@
   let authToken = null; // 每次 API/SSE 调用的 Bearer，由 bootstrapAuth() 在本地/demo 模式填充
 
   const viewRoutes = {
+    apps: () => void loadApps(),
     workflow: () => {},
     chat: () => renderChat(),
+    kb: () => void loadKnowledgeBases(),
     library: () => void loadLibraryData(),
     runs: () => void loadRuns(),
-    tools: () => void loadTools()
+    tools: () => void loadTools(),
+    settings: () => void loadSettings()
   };
 
   // ============================================================
@@ -154,6 +172,9 @@
       bindLibrary();
       bindRuns();
       bindTools();
+      bindApps();
+      bindKnowledge();
+      bindSettings();
       resetWorkflow();
       renderAll();
       renderChat();
@@ -192,7 +213,15 @@
       "order-currency", "order-estimated-delivery", "order-paid", "order-carrier", "order-tracking-number",
       "order-latest-event", "order-next-action", "save-order", "reset-order-editor", "order-list",
       "refresh-runs", "run-list", "run-detail",
-      "refresh-tools", "tool-list", "mcp-server-list", "toast"
+      "refresh-tools", "tool-list", "mcp-server-list", "toast",
+      "refresh-apps", "create-app-name", "create-app-type", "create-app-workflow-id",
+      "create-app-system-prompt", "create-app-model", "create-app-kb-ids", "create-app", "apps-list",
+      "app-detail", "app-detail-title", "app-detail-status", "app-run-input", "app-run",
+      "app-run-result", "create-api-key", "api-key-reveal", "app-api-keys", "app-curl",
+      "refresh-settings", "settings-runtime", "settings-mcp", "settings-security",
+      "refresh-kb", "create-kb-name", "create-kb", "kb-list", "kb-detail", "kb-detail-title",
+      "kb-doc-title", "kb-doc-content", "upload-kb-text", "kb-file", "upload-kb-file",
+      "refresh-kb-docs", "kb-doc-list", "kb-search-query", "kb-search", "kb-search-results"
     ];
     ids.forEach((id) => { els[toCamel(id)] = document.getElementById(id); });
   }
@@ -1540,10 +1569,11 @@
         state.lastRunId = response.runId;
         setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
         renderRunResult(response);
-        await refreshRunTrace(response.runId);
+        setRunStatus(`回放中 · ${response.runId ? response.runId.slice(0, 8) : ""}`);
+        await animateRunOnCanvas(response.runId);
         setRunStatus(`完成 · ${response.runId ? response.runId.slice(0, 8) : ""}`);
         await loadDefinitionHistory();
-        toast("工作流运行完成");
+        toast("工作流运行完成，已刷新运行后节点状态回放");
       },
       onError: (error) => {
         setWorkflowStatus("Run failed");
@@ -1575,6 +1605,53 @@
   // ============================================================
   // 运行轨迹
   // ============================================================
+  // trace-driven highlighting / 事件回放式高亮: replay run-events after the synchronous run
+  // completes, then settle the authoritative statuses + steps panel via refreshRunTrace. Falls
+  // back to a plain refresh if the events stream is unavailable.
+  async function animateRunOnCanvas(runId) {
+    if (!runId) return;
+    clearCanvasNodeStatuses();
+    const events = [];
+    try {
+      const response = await fetch(API.workflowRunEvents(runId),
+        { headers: authHeaders({ Accept: "text/event-stream" }) });
+      if (response.ok && response.body) {
+        await consumeSse(response, (event, data) => events.push({ event, data }));
+      }
+    } catch (error) { /* fall back to the plain trace refresh below */ }
+    for (const { event, data } of events) {
+      applyRunEventToCanvas(event, data);
+      if (event === "node_started") await sleep(180);
+    }
+    await refreshRunTrace(runId);
+  }
+
+  function clearCanvasNodeStatuses() {
+    document.querySelectorAll(".canvas-node").forEach((element) =>
+      element.classList.remove("status-success", "status-failed", "status-running"));
+  }
+
+  function applyRunEventToCanvas(event, data) {
+    if (event === "run_done") return;
+    const nodeName = data && data.nodeName ? String(data.nodeName) : "";
+    const nodeId = nodeName.startsWith("workflow_node_") ? nodeName.slice("workflow_node_".length) : nodeName;
+    const element = els.nodeLayer?.querySelector(`[data-node-id="${cssEscape(nodeId)}"]`);
+    if (!element) return;
+    if (event === "node_started") {
+      element.classList.add("status-running");
+    } else if (event === "node_succeeded") {
+      element.classList.remove("status-running");
+      element.classList.add("status-success");
+    } else if (event === "node_failed") {
+      element.classList.remove("status-running");
+      element.classList.add("status-failed");
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function refreshRunTrace(runId) {
     if (!runId) return;
     try {
@@ -2306,6 +2383,360 @@
   // ============================================================
   // HTTP / SSE
   // ============================================================
+  // ============================================================
+  // 应用（Apps）与 API Key —— Dify-like 产品台
+  // ============================================================
+  const appsState = { selectedAppId: null, selectedType: null };
+
+  function bindApps() {
+    els.refreshApps?.addEventListener("click", () => void loadApps());
+    els.createApp?.addEventListener("click", () => void createApp());
+    els.createApiKey?.addEventListener("click", () => void createApiKey());
+    els.appRun?.addEventListener("click", () => void runSelectedApp());
+    els.createAppType?.addEventListener("change", () => syncCreateAppFields());
+    syncCreateAppFields();
+    els.appsList?.addEventListener("click", (event) => {
+      const card = event.target.closest("[data-app-id]");
+      if (!card) return;
+      const action = event.target.closest("[data-app-action]")?.dataset.appAction;
+      if (action === "publish") void publishApp(card.dataset.appId);
+      else if (action === "delete") void deleteApp(card.dataset.appId);
+      else void selectApp(card.dataset.appId);
+    });
+    els.appApiKeys?.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-key-revoke]");
+      if (btn) void revokeApiKey(appsState.selectedAppId, btn.dataset.keyRevoke);
+    });
+  }
+
+  function syncCreateAppFields() {
+    const type = els.createAppType?.value || "CHAT";
+    document.querySelectorAll("[data-app-field]").forEach((field) => {
+      const show = field.dataset.appField === "workflow" ? type === "WORKFLOW" : type !== "WORKFLOW";
+      field.classList.toggle("hidden", !show);
+    });
+  }
+
+  async function loadApps() {
+    if (!els.appsList) return;
+    try {
+      const page = await requestJson(`${API.apps}?page=0&size=50`);
+      const apps = page?.content || [];
+      els.appsList.innerHTML = apps.length ? "" : '<div class="empty-state">还没有应用，先在左侧创建。</div>';
+      apps.forEach((app) => els.appsList.appendChild(renderAppCard(app)));
+    } catch (error) { toast(error.message, true); }
+  }
+
+  function renderAppCard(app) {
+    const card = document.createElement("div");
+    card.className = "data-item";
+    card.dataset.appId = app.appId;
+    card.innerHTML = `
+      <div class="data-item-main">
+        <strong>${escAppHtml(app.name)}</strong>
+        <span class="badge badge-soft">${escAppHtml(app.type)}</span>
+        <span class="badge ${app.status === "PUBLISHED" ? "badge-ok" : "badge-draft"}">${escAppHtml(app.status)}</span>
+        <span class="muted">v${app.version}${app.publishedVersion ? " · 已发布 v" + app.publishedVersion : ""}</span>
+      </div>
+      <div class="data-item-actions">
+        <button class="btn btn-ghost btn-sm" type="button" data-app-action="open">详情</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-app-action="publish">发布</button>
+        <button class="btn btn-danger btn-sm" type="button" data-app-action="delete">删除</button>
+      </div>`;
+    return card;
+  }
+
+  async function createApp() {
+    const name = (els.createAppName?.value || "").trim();
+    if (!name) { toast("请输入应用名称", true); return; }
+    const type = els.createAppType?.value || "CHAT";
+    const body = { name, type };
+    if (type === "WORKFLOW") {
+      body.workflowDefinitionId = (els.createAppWorkflowId?.value || "").trim();
+    } else {
+      const kbIds = (els.createAppKbIds?.value || "").split(",").map((s) => s.trim()).filter(Boolean);
+      body.config = {
+        systemPrompt: (els.createAppSystemPrompt?.value || "").trim() || null,
+        model: (els.createAppModel?.value || "").trim() || null,
+        knowledgeBaseIds: kbIds.length ? kbIds : null
+      };
+    }
+    try {
+      const app = await requestJson(API.apps, { method: "POST", body });
+      toast(`已创建应用「${app.name}」`);
+      if (els.createAppName) els.createAppName.value = "";
+      await loadApps();
+      await selectApp(app.appId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function publishApp(appId) {
+    try {
+      const app = await requestJson(API.publishApp(appId), { method: "POST" });
+      toast(`已发布「${app.name}」`);
+      await loadApps();
+      if (appsState.selectedAppId === appId) await selectApp(appId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function deleteApp(appId) {
+    if (!window.confirm("确认删除该应用？有运行历史将改为归档。")) return;
+    try {
+      await requestJson(API.appDetail(appId), { method: "DELETE" });
+      toast("已删除 / 归档应用");
+      if (appsState.selectedAppId === appId && els.appDetail) { appsState.selectedAppId = null; els.appDetail.hidden = true; }
+      await loadApps();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function selectApp(appId) {
+    try {
+      const app = await requestJson(API.appDetail(appId));
+      appsState.selectedAppId = app.appId;
+      appsState.selectedType = app.type;
+      if (els.appDetail) els.appDetail.hidden = false;
+      if (els.appDetailTitle) els.appDetailTitle.textContent = `${app.name} · ${app.type}`;
+      if (els.appDetailStatus) els.appDetailStatus.textContent = app.status;
+      if (els.appRunInput) els.appRunInput.value = app.type === "WORKFLOW" ? '{"input":{"message":"你好"}}' : '{"message":"你好"}';
+      if (els.appRunResult) { els.appRunResult.textContent = "发布后可测试 run/chat。"; els.appRunResult.classList.add("empty-result"); }
+      if (els.apiKeyReveal) els.apiKeyReveal.classList.add("hidden");
+      await loadApiKeys(appId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function loadApiKeys(appId) {
+    if (!els.appApiKeys) return;
+    try {
+      const keys = await requestJson(API.appApiKeys(appId));
+      els.appApiKeys.innerHTML = (keys && keys.length) ? "" : '<div class="empty-state">还没有 API Key。</div>';
+      (keys || []).forEach((key) => {
+        const item = document.createElement("div");
+        item.className = "data-item";
+        item.innerHTML = `
+          <div class="data-item-main">
+            <code>${escAppHtml(key.keyId)}</code>
+            <span class="badge ${key.status === "ACTIVE" ? "badge-ok" : "badge-draft"}">${escAppHtml(key.status)}</span>
+            <span class="muted">${escAppHtml(key.name || "")}</span>
+          </div>
+          <div class="data-item-actions">
+            <button class="btn btn-danger btn-sm" type="button" data-key-revoke="${escAppHtml(key.keyId)}">撤销</button>
+          </div>`;
+        els.appApiKeys.appendChild(item);
+      });
+      if (els.appCurl) {
+        els.appCurl.textContent = `curl -X POST ${location.origin}${API.appChat(appId)} \\\n  -H "X-App-API-Key: app_xxx" -H 'Content-Type: application/json' \\\n  -d '{"message":"你好"}'`;
+      }
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function createApiKey() {
+    const appId = appsState.selectedAppId;
+    if (!appId) { toast("请先选择一个应用", true); return; }
+    try {
+      const created = await requestJson(API.appApiKeys(appId), { method: "POST", body: { name: "console" } });
+      if (els.apiKeyReveal) {
+        els.apiKeyReveal.classList.remove("hidden");
+        els.apiKeyReveal.innerHTML = `明文密钥仅显示一次，请立即复制：<code>${escAppHtml(created.plaintextKey)}</code>`;
+      }
+      toast("已创建 API Key（明文仅显示一次）");
+      await loadApiKeys(appId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function revokeApiKey(appId, keyId) {
+    if (!appId || !keyId) return;
+    if (!window.confirm(`撤销 API Key ${keyId}？`)) return;
+    try {
+      await requestJson(API.revokeAppApiKey(appId, keyId), { method: "DELETE" });
+      toast("已撤销 API Key");
+      await loadApiKeys(appId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function runSelectedApp() {
+    const appId = appsState.selectedAppId;
+    if (!appId) { toast("请先选择一个应用", true); return; }
+    let body;
+    try { body = JSON.parse(els.appRunInput?.value || "{}"); }
+    catch (error) { toast("输入不是合法 JSON", true); return; }
+    const isWorkflow = appsState.selectedType === "WORKFLOW";
+    try {
+      const result = await requestJson(isWorkflow ? API.appRun(appId) : API.appChat(appId), { method: "POST", body });
+      if (els.appRunResult) {
+        els.appRunResult.classList.remove("empty-result");
+        const answer = isWorkflow ? JSON.stringify(result.output) : result.answer;
+        els.appRunResult.innerHTML = `<div>${escAppHtml(String(answer ?? ""))}</div><div class="muted">runId: ${escAppHtml(result.runId || "")}</div>`;
+      }
+    } catch (error) { toast(error.message, true); }
+  }
+
+  // ============================================================
+  // 设置（Settings）
+  // ============================================================
+  function bindSettings() {
+    els.refreshSettings?.addEventListener("click", () => void loadSettings());
+  }
+
+  async function loadSettings() {
+    try {
+      const health = await requestJson(API.health);
+      if (els.settingsRuntime) {
+        els.settingsRuntime.innerHTML = Object.entries(health || {})
+          .map(([k, v]) => `<div class="data-item"><span>${escAppHtml(k)}</span><code>${escAppHtml(String(v))}</code></div>`)
+          .join("") || '<div class="empty-state">无运行时信息</div>';
+      }
+    } catch (error) {
+      if (els.settingsRuntime) els.settingsRuntime.innerHTML = `<div class="empty-state">${escAppHtml(error.message)}</div>`;
+    }
+    try {
+      const servers = await requestJson(API.mcpServers);
+      if (els.settingsMcp) {
+        els.settingsMcp.innerHTML = (servers && servers.length)
+          ? servers.map((s) => `<div class="data-item"><strong>${escAppHtml(s.name)}</strong><span class="muted">${escAppHtml((s.registeredTools || []).join(", "))}</span></div>`).join("")
+          : '<div class="empty-state">未启用 MCP 服务</div>';
+      }
+    } catch (error) {
+      if (els.settingsMcp) els.settingsMcp.innerHTML = `<div class="empty-state">${escAppHtml(error.message)}</div>`;
+    }
+    if (els.settingsSecurity) {
+      els.settingsSecurity.innerHTML = [
+        "生产请用 issuer 模式对接真实 IdP，禁用 dev-token",
+        "API Key 明文仅创建时显示一次，仅可访问所属应用 runtime",
+        "敏感信息经 SecretRedactor 脱敏，不入库/日志/前端",
+        "详见 SECURITY.md / OPERATIONS.md"
+      ].map((t) => `<div class="data-item"><span>${escAppHtml(t)}</span></div>`).join("");
+    }
+  }
+
+  // ============================================================
+  // 知识库（Knowledge Base 产品模型）
+  // ============================================================
+  const kbState = { selectedKbId: null };
+
+  function bindKnowledge() {
+    els.refreshKb?.addEventListener("click", () => void loadKnowledgeBases());
+    els.createKb?.addEventListener("click", () => void createKnowledgeBase());
+    els.uploadKbText?.addEventListener("click", () => void uploadKbText());
+    els.uploadKbFile?.addEventListener("click", () => void uploadKbFile());
+    els.refreshKbDocs?.addEventListener("click", () => { if (kbState.selectedKbId) void loadKbDocs(kbState.selectedKbId); });
+    els.kbSearch?.addEventListener("click", () => void searchKb());
+    els.kbList?.addEventListener("click", (event) => {
+      const card = event.target.closest("[data-kb-id]");
+      if (card) void selectKb(card.dataset.kbId);
+    });
+  }
+
+  async function loadKnowledgeBases() {
+    if (!els.kbList) return;
+    try {
+      const list = await requestJson(API.knowledgeBases);
+      els.kbList.innerHTML = (list && list.length) ? "" : '<div class="empty-state">还没有知识库。</div>';
+      (list || []).forEach((kb) => {
+        const item = document.createElement("div");
+        item.className = "data-item";
+        item.dataset.kbId = kb.kbId;
+        item.innerHTML = `<div class="data-item-main"><strong>${escAppHtml(kb.name)}</strong>
+          <span class="muted">${kb.documentCount} 篇</span></div>
+          <div class="data-item-actions"><button class="btn btn-ghost btn-sm" type="button">打开</button></div>`;
+        els.kbList.appendChild(item);
+      });
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function createKnowledgeBase() {
+    const name = (els.createKbName?.value || "").trim();
+    if (!name) { toast("请输入知识库名称", true); return; }
+    try {
+      const kb = await requestJson(API.knowledgeBases, { method: "POST", body: { name } });
+      toast(`已创建知识库「${kb.name}」`);
+      if (els.createKbName) els.createKbName.value = "";
+      await loadKnowledgeBases();
+      await selectKb(kb.kbId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function selectKb(kbId) {
+    kbState.selectedKbId = kbId;
+    if (els.kbDetail) els.kbDetail.hidden = false;
+    if (els.kbDetailTitle) els.kbDetailTitle.textContent = `知识库 ${kbId}`;
+    if (els.kbSearchResults) els.kbSearchResults.innerHTML = "";
+    await loadKbDocs(kbId);
+  }
+
+  async function loadKbDocs(kbId) {
+    if (!els.kbDocList) return;
+    try {
+      const page = await requestJson(`${API.kbDocs(kbId)}?page=0&size=50`);
+      const docs = page?.content || [];
+      els.kbDocList.innerHTML = docs.length ? "" : '<div class="empty-state">还没有文档。</div>';
+      docs.forEach((doc) => {
+        const item = document.createElement("div");
+        item.className = "data-item";
+        const statusClass = doc.indexStatus === "READY" ? "badge-ok" : (doc.indexStatus === "FAILED" ? "badge-danger" : "badge-draft");
+        item.innerHTML = `<div class="data-item-main"><strong>${escAppHtml(doc.title)}</strong>
+          <span class="badge ${statusClass}">${escAppHtml(doc.indexStatus)}</span>
+          <span class="muted">${escAppHtml(doc.sourceType || "")} ${doc.contentLength || 0} 字${doc.errorMessage ? " · " + escAppHtml(doc.errorMessage) : ""}</span></div>`;
+        els.kbDocList.appendChild(item);
+      });
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function uploadKbText() {
+    const kbId = kbState.selectedKbId;
+    if (!kbId) { toast("请先选择知识库", true); return; }
+    const content = (els.kbDocContent?.value || "").trim();
+    if (!content) { toast("请输入文本内容", true); return; }
+    try {
+      await requestJson(API.kbTextDoc(kbId), { method: "POST",
+        body: { title: (els.kbDocTitle?.value || "").trim() || null, content } });
+      toast("已保存文本文档");
+      await loadKbDocs(kbId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function uploadKbFile() {
+    const kbId = kbState.selectedKbId;
+    if (!kbId) { toast("请先选择知识库", true); return; }
+    const file = els.kbFile?.files?.[0];
+    if (!file) { toast("请选择文件", true); return; }
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(API.kbFileDoc(kbId), { method: "POST", headers: authHeaders({}), body: form });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+      if (!response.ok || payload?.success === false) throw new Error(payload?.message || `HTTP ${response.status}`);
+      toast("已上传并解析文件");
+      if (els.kbFile) els.kbFile.value = "";
+      await loadKbDocs(kbId);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function searchKb() {
+    const kbId = kbState.selectedKbId;
+    if (!kbId) { toast("请先选择知识库", true); return; }
+    const query = (els.kbSearchQuery?.value || "").trim();
+    if (!query) { toast("请输入查询", true); return; }
+    try {
+      const result = await requestJson(API.kbSearch(kbId), { method: "POST", body: { query } });
+      const citations = result?.citations || [];
+      els.kbSearchResults.innerHTML = citations.length ? "" : '<div class="empty-state">无匹配结果。</div>';
+      citations.forEach((c) => {
+        const item = document.createElement("div");
+        item.className = "data-item";
+        item.innerHTML = `<div class="data-item-main"><strong>${escAppHtml(c.title)}</strong>
+          <span class="muted">score ${Number(c.score).toFixed(2)} · #${c.chunkIndex}</span>
+          <div class="muted">${escAppHtml(c.snippet)}</div></div>`;
+        els.kbSearchResults.appendChild(item);
+      });
+    } catch (error) { toast(error.message, true); }
+  }
+
+  function escAppHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  }
+
   async function requestJson(url, options = {}) {
     const init = { method: options.method || "GET", headers: authHeaders({ Accept: "application/json" }) };
     if (options.body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }

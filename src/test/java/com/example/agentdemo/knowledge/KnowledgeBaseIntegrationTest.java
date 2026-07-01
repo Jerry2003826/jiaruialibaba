@@ -1,0 +1,216 @@
+package com.example.agentdemo.knowledge;
+
+import com.example.agentdemo.AgentBackendDemoApplication;
+import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
+import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
+import com.example.agentdemo.knowledge.dto.KnowledgeDocumentResponse;
+import com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse;
+import com.example.agentdemo.knowledge.dto.TextDocumentRequest;
+import com.example.agentdemo.rag.DocumentIndexStatus;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.mock.web.MockMultipartFile;
+
+import java.io.ByteArrayOutputStream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * P1-1 knowledge base: KB CRUD, text + file (PDF/docx via Tika) ingestion, index status,
+ * per-KB search isolation with citations, parse-failure handling, reindex and delete.
+ */
+@SpringBootTest(classes = AgentBackendDemoApplication.class, properties = {
+        "spring.profiles.group.dev=dev",
+        "demo.alibaba.strict-mode=false",
+        "demo.ai.fallback-enabled=true",
+        "demo.rag.keyword-fallback-enabled=true",
+        "spring.ai.dashscope.api-key=",
+        "spring.datasource.url=jdbc:h2:mem:agent_backend_kb_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
+        "demo.dashvector.endpoint=",
+        "demo.dashvector.api-key=",
+        "demo.rag.retriever=keyword"
+})
+class KnowledgeBaseIntegrationTest {
+
+    @Autowired
+    private KnowledgeBaseService knowledgeBaseService;
+
+    @Test
+    void createAndListKnowledgeBase() {
+        KnowledgeBaseResponse kb = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Docs", "product docs", null));
+        assertThat(kb.kbId()).startsWith("kb-");
+        assertThat(knowledgeBaseService.listKnowledgeBases()).extracting(KnowledgeBaseResponse::kbId)
+                .contains(kb.kbId());
+    }
+
+    @Test
+    void textIngestionIsRetrievableWithCitations() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Policies", null, null)).kbId();
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Returns", "Our returns policy allows refunds within 30 days."));
+        // Keyword-only deployment marks documents READY immediately (no vector store).
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(doc.sourceType()).isEqualTo("TEXT");
+
+        KnowledgeSearchResponse result = knowledgeBaseService.search(kbId, "returns refund", null);
+        assertThat(result.citations()).isNotEmpty();
+        assertThat(result.citations().get(0).documentId()).isEqualTo(doc.documentId());
+        assertThat(result.citations().get(0).title()).isEqualTo("Returns");
+        assertThat(result.citations().get(0).score()).isGreaterThan(0);
+    }
+
+    @Test
+    void searchIsIsolatedPerKnowledgeBase() {
+        String kbA = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("A", null, null)).kbId();
+        String kbB = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("B", null, null)).kbId();
+        knowledgeBaseService.addTextDocument(kbA, new TextDocumentRequest("A doc", "alpha returns policy"));
+        knowledgeBaseService.addTextDocument(kbB, new TextDocumentRequest("B doc", "beta shipping policy"));
+
+        assertThat(knowledgeBaseService.search(kbA, "returns", null).citations()).hasSize(1);
+        assertThat(knowledgeBaseService.search(kbB, "returns", null).citations()).isEmpty();
+    }
+
+    @Test
+    void pdfIngestionExtractsText() throws Exception {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        byte[] pdf = pdfBytes("Hello PDF knowledge base about returns policy");
+        MockMultipartFile file = new MockMultipartFile("file", "policy.pdf", "application/pdf", pdf);
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(doc.sourceType()).isEqualTo("FILE");
+        assertThat(doc.fileName()).isEqualTo("policy.pdf");
+        assertThat(doc.contentLength()).isGreaterThan(0);
+        assertThat(knowledgeBaseService.search(kbId, "returns policy", null).citations()).isNotEmpty();
+    }
+
+    @Test
+    void docxIngestionExtractsText() throws Exception {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        byte[] docx = docxBytes("Hello DOCX knowledge base about shipping timelines");
+        MockMultipartFile file = new MockMultipartFile("file", "shipping.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx);
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(knowledgeBaseService.search(kbId, "shipping", null).citations()).isNotEmpty();
+    }
+
+    @Test
+    void txtIngestionSanitizesDangerousFileName() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "../../notes.txt", "text/plain",
+                "returns and refunds".getBytes());
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.READY);
+        assertThat(doc.fileName()).isEqualTo("notes.txt");
+        assertThat(doc.title()).isEqualTo("notes.txt");
+    }
+
+    @Test
+    void zipFileIsRejectedBeforeParsing() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "archive.zip", "application/zip",
+                new byte[] { 'P', 'K', 3, 4, 20, 0 });
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
+    }
+
+    @Test
+    void octetStreamFileIsRejectedBeforeParsing() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "blob.bin", "application/octet-stream",
+                new byte[] { 1, 2, 3, 4 });
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_MIME_NOT_ALLOWED"));
+    }
+
+    @Test
+    void unparseableFileIsRecordedAsFailed() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        // Whitespace-only text yields no extractable content.
+        MockMultipartFile file = new MockMultipartFile("file", "blank.txt", "text/plain",
+                "    \n\t  ".getBytes());
+
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addFileDocument(kbId, file);
+
+        assertThat(doc.indexStatus()).isEqualTo(DocumentIndexStatus.FAILED);
+        assertThat(doc.errorMessage()).contains("No extractable text");
+    }
+
+    @Test
+    void emptyFileIsRejected() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Files", null, null))
+                .kbId();
+        MockMultipartFile file = new MockMultipartFile("file", "empty.txt", "text/plain", new byte[0]);
+
+        assertThatThrownBy(() -> knowledgeBaseService.addFileDocument(kbId, file))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("DOCUMENT_FILE_EMPTY"));
+    }
+
+    @Test
+    void reindexAndDelete() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(new CreateKnowledgeBaseRequest("Ops", null, null))
+                .kbId();
+        KnowledgeDocumentResponse doc = knowledgeBaseService.addTextDocument(kbId,
+                new TextDocumentRequest("Doc", "some content to index"));
+
+        assertThat(knowledgeBaseService.reindex(kbId, doc.documentId()).indexStatus())
+                .isEqualTo(DocumentIndexStatus.READY);
+
+        knowledgeBaseService.deleteDocument(kbId, doc.documentId());
+        assertThatThrownBy(() -> knowledgeBaseService.getDocument(kbId, doc.documentId()))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    private byte[] pdfBytes(String text) throws Exception {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
+                stream.beginText();
+                stream.setFont(PDType1Font.HELVETICA, 12);
+                stream.newLineAtOffset(50, 700);
+                stream.showText(text);
+                stream.endText();
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            document.save(out);
+            return out.toByteArray();
+        }
+    }
+
+    private byte[] docxBytes(String text) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText(text);
+            document.write(out);
+            return out.toByteArray();
+        }
+    }
+
+}

@@ -9,12 +9,15 @@ import com.example.agentdemo.chat.memory.ConversationMemoryService;
 import com.example.agentdemo.chat.memory.ConversationMessage;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.SseConfig;
+import com.example.agentdemo.trace.RunContext;
 import com.example.agentdemo.trace.RunType;
 import com.example.agentdemo.trace.TraceRun;
 import com.example.agentdemo.trace.TraceService;
 import com.example.agentdemo.trace.TraceStep;
+import com.example.agentdemo.usage.UsageRecordingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -41,14 +44,23 @@ public class ChatService {
     private final TraceService traceService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
+    private final UsageRecordingService usageRecordingService;
 
+    @Autowired
     public ChatService(AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
-            TraceService traceService, Executor sseExecutor, SseConfig.SseProperties sseProperties) {
+            TraceService traceService, Executor sseExecutor, SseConfig.SseProperties sseProperties,
+            UsageRecordingService usageRecordingService) {
         this.aiModelService = aiModelService;
         this.conversationMemoryService = conversationMemoryService;
         this.traceService = traceService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
+        this.usageRecordingService = usageRecordingService;
+    }
+
+    public ChatService(AiModelService aiModelService, ConversationMemoryService conversationMemoryService,
+            TraceService traceService, Executor sseExecutor, SseConfig.SseProperties sseProperties) {
+        this(aiModelService, conversationMemoryService, traceService, sseExecutor, sseProperties, null);
     }
 
     public ChatResponse chat(ChatRequest request) {
@@ -60,6 +72,7 @@ public class ChatService {
         try {
             AiModelResult result = aiModelService.generate(SYSTEM_PROMPT, history, request.message());
             String answer = requireModelAnswer(result, "chat");
+            recordUsage(run.runId(), result);
             conversationMemoryService.appendUserMessage(conversationId, request.message());
             conversationMemoryService.appendAssistantMessage(conversationId, answer);
             ChatResponse response = new ChatResponse(answer, conversationId, run.runId());
@@ -207,6 +220,12 @@ public class ChatService {
 
     private String nullable(String value) {
         return value == null ? "" : value;
+    }
+
+    private void recordUsage(String runId, AiModelResult result) {
+        if (usageRecordingService != null && result != null) {
+            usageRecordingService.record(runId, RunContext.currentAppId(), result.tokenUsage());
+        }
     }
 
 }

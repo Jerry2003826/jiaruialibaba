@@ -18,6 +18,10 @@
       </div>
 
       <nav class="rail-nav">
+        <button class="rail-item" type="button" data-view="apps">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /></svg>
+          <span>应用</span>
+        </button>
         <button class="rail-item active" type="button" data-view="workflow">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4M16 11v2" /></svg>
           <span>工作流</span>
@@ -26,9 +30,13 @@
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>
           <span>对话</span>
         </button>
-        <button class="rail-item" type="button" data-view="library">
+        <button class="rail-item" type="button" data-view="kb">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M5 4h10l4 4v12H5zM15 4v4h4" /></svg>
           <span>知识库</span>
+        </button>
+        <button class="rail-item" type="button" data-view="library">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+          <span>文档 / 订单</span>
         </button>
         <button class="rail-item" type="button" data-view="runs">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M12 7v5l3 2M5 12a7 7 0 1 0 14 0 7 7 0 0 0-14 0z" /></svg>
@@ -38,6 +46,10 @@
         <button class="rail-item rail-item-muted" type="button" data-view="tools">
           <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M14 6a3 3 0 0 1 4 4l-8 8-4 1 1-4z" /></svg>
           <span>工具</span>
+        </button>
+        <button class="rail-item rail-item-muted" type="button" data-view="settings">
+          <svg viewBox="0 0 24 24" class="rail-icon" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+          <span>设置</span>
         </button>
       </nav>
 
@@ -231,7 +243,11 @@
             <div class="run-output">
               <div class="run-output-head">
                 <h4>结果</h4>
-                <button id="refresh-run-graph" class="btn btn-ghost btn-sm" type="button">刷新轨迹</button>
+                <button id="refresh-run-graph" class="btn btn-ghost btn-sm" type="button"
+                        title="按事件与运行步骤刷新运行后节点状态回放">刷新轨迹</button>
+              </div>
+              <div class="run-hint" title="trace-driven highlighting / 事件回放式高亮">
+                运行后节点状态回放：基于 trace-driven highlighting / 事件回放式高亮恢复节点状态，不承诺实时逐节点执行。
               </div>
               <div id="run-result" class="result-card empty-result">运行后在这里查看友好结果与每一步轨迹。</div>
               <div class="trace-wrap">
@@ -397,6 +413,164 @@
           <section class="card">
             <h3 class="card-title">MCP 服务</h3>
             <div id="mcp-server-list" class="data-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 应用（Dify-like 产品台） ===== -->
+      <section class="view view-apps" id="view-apps" data-view-panel="apps">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>应用</h2>
+            <span class="badge badge-soft">Chat · Workflow · Agent</span>
+          </div>
+          <button id="refresh-apps" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="library-grid">
+          <section class="card">
+            <h3 class="card-title">创建应用</h3>
+            <label class="field"><span>名称</span>
+              <input id="create-app-name" class="text-input" type="text" placeholder="客服助手">
+            </label>
+            <label class="field"><span>类型</span>
+              <select id="create-app-type" class="select">
+                <option value="CHAT">CHAT（对话）</option>
+                <option value="WORKFLOW">WORKFLOW（工作流）</option>
+                <option value="AGENT">AGENT（工具智能体）</option>
+              </select>
+            </label>
+            <label class="field" data-app-field="workflow"><span>绑定工作流 definitionId（WORKFLOW）</span>
+              <input id="create-app-workflow-id" class="text-input" type="text" placeholder="已发布的 workflow definitionId">
+            </label>
+            <label class="field" data-app-field="chat"><span>系统提示词（CHAT/AGENT）</span>
+              <textarea id="create-app-system-prompt" class="text-area text-area-sm" placeholder="你是一个乐于助人的助手"></textarea>
+            </label>
+            <label class="field" data-app-field="chat"><span>模型（可选）</span>
+              <input id="create-app-model" class="text-input" type="text" placeholder="qwen-plus">
+            </label>
+            <label class="field" data-app-field="chat"><span>绑定知识库 kbId（逗号分隔，可选）</span>
+              <input id="create-app-kb-ids" class="text-input" type="text" placeholder="kb-xxxx,kb-yyyy">
+            </label>
+            <div class="form-actions">
+              <button id="create-app" class="btn btn-primary" type="button">创建应用</button>
+            </div>
+          </section>
+          <section class="card">
+            <h3 class="card-title">应用列表</h3>
+            <div id="apps-list" class="data-list"></div>
+          </section>
+          <section class="card card-wide" id="app-detail" hidden>
+            <div class="card-title-row">
+              <h3 class="card-title" id="app-detail-title">应用详情</h3>
+              <span id="app-detail-status" class="badge badge-soft"></span>
+            </div>
+            <div class="app-detail-tabs">
+              <div class="run-input">
+                <div class="run-input-head"><h4>Preview / 运行</h4></div>
+                <textarea id="app-run-input" class="code-input" spellcheck="false" placeholder='{"message":"你好"}'></textarea>
+                <button id="app-run" class="btn btn-primary btn-block" type="button">运行 / 对话</button>
+                <div id="app-run-result" class="result-card empty-result">发布后可在此测试 run/chat，并返回 runId。</div>
+              </div>
+              <div class="run-output">
+                <div class="run-output-head">
+                  <h4>API Access</h4>
+                  <button id="create-api-key" class="btn btn-ghost btn-sm" type="button">+ 新建 API Key</button>
+                </div>
+                <div id="api-key-reveal" class="hint-banner hidden"></div>
+                <div id="app-api-keys" class="data-list"></div>
+                <details class="raw-details">
+                  <summary>curl 示例</summary>
+                  <pre id="app-curl" class="result-box"></pre>
+                </details>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 知识库（Knowledge Base 产品模型） ===== -->
+      <section class="view view-kb" id="view-kb" data-view-panel="kb">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>知识库</h2>
+            <span class="badge badge-soft">文件解析 + 检索 + citations</span>
+          </div>
+          <button id="refresh-kb" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="library-grid">
+          <section class="card">
+            <h3 class="card-title">知识库</h3>
+            <label class="field"><span>新建知识库名称</span>
+              <input id="create-kb-name" class="text-input" type="text" placeholder="产品文档">
+            </label>
+            <div class="form-actions">
+              <button id="create-kb" class="btn btn-primary" type="button">创建知识库</button>
+            </div>
+            <div id="kb-list" class="data-list"></div>
+          </section>
+          <section class="card card-wide" id="kb-detail" hidden>
+            <div class="card-title-row">
+              <h3 class="card-title" id="kb-detail-title">知识库</h3>
+            </div>
+            <div class="app-detail-tabs">
+              <div class="run-input">
+                <div class="run-input-head"><h4>写入文档</h4></div>
+                <label class="field"><span>标题</span>
+                  <input id="kb-doc-title" class="text-input" type="text" placeholder="退货政策">
+                </label>
+                <label class="field"><span>文本内容</span>
+                  <textarea id="kb-doc-content" class="text-area">支持 30 天无理由退货，运费由买家承担。</textarea>
+                </label>
+                <div class="form-actions">
+                  <button id="upload-kb-text" class="btn btn-primary" type="button">保存文本</button>
+                </div>
+                <label class="field"><span>上传文件（txt/md/html/pdf/docx/pptx/csv）</span>
+                  <input id="kb-file" class="text-input" type="file">
+                </label>
+                <div class="form-actions">
+                  <button id="upload-kb-file" class="btn" type="button">上传并解析</button>
+                </div>
+              </div>
+              <div class="run-output">
+                <div class="run-output-head"><h4>文档与索引状态</h4>
+                  <button id="refresh-kb-docs" class="btn btn-ghost btn-sm" type="button">刷新</button>
+                </div>
+                <div id="kb-doc-list" class="data-list"></div>
+                <div class="run-input-head"><h4>测试检索</h4></div>
+                <label class="field"><span>查询</span>
+                  <input id="kb-search-query" class="text-input" type="text" placeholder="退货 多少天">
+                </label>
+                <div class="form-actions">
+                  <button id="kb-search" class="btn btn-primary" type="button">检索</button>
+                </div>
+                <div id="kb-search-results" class="data-list"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ===== 设置 ===== -->
+      <section class="view view-settings" id="view-settings" data-view-panel="settings">
+        <header class="view-head">
+          <div class="view-head-left">
+            <h2>设置</h2>
+            <span class="badge badge-soft">运行时 · 模型 · 安全</span>
+          </div>
+          <button id="refresh-settings" class="btn btn-ghost" type="button">刷新</button>
+        </header>
+        <div class="tools-grid">
+          <section class="card">
+            <h3 class="card-title">运行时与模型</h3>
+            <div id="settings-runtime" class="data-list"></div>
+          </section>
+          <section class="card">
+            <h3 class="card-title">MCP 服务</h3>
+            <div id="settings-mcp" class="data-list"></div>
+          </section>
+          <section class="card card-wide">
+            <h3 class="card-title">安全提示</h3>
+            <div id="settings-security" class="data-list"></div>
           </section>
         </div>
       </section>

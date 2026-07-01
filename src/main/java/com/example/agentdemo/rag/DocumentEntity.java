@@ -41,6 +41,28 @@ public class DocumentEntity {
     @Column(nullable = false, length = 32)
     private DocumentIndexStatus indexStatus = DocumentIndexStatus.PENDING;
 
+    @Column(name = "kb_id", length = 64)
+    private String kbId;
+
+    @Column(name = "source_type", length = 16)
+    private String sourceType;
+
+    @Column(name = "file_name", length = 256)
+    private String fileName;
+
+    @Column(name = "mime_type", length = 128)
+    private String mimeType;
+
+    @Column(name = "size_bytes")
+    private Long sizeBytes;
+
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "error_message", length = Integer.MAX_VALUE)
+    private String errorMessage;
+
     protected DocumentEntity() {
     }
 
@@ -83,6 +105,50 @@ public class DocumentEntity {
         this.title = title;
         this.content = content;
         this.indexStatus = DocumentIndexStatus.PENDING;
+    }
+
+    /** Assigns knowledge-base membership and source metadata for a KB-ingested document. */
+    public void assignKnowledge(String kbId, String sourceType, String fileName, String mimeType, Long sizeBytes,
+            String contentHash) {
+        this.kbId = kbId;
+        this.sourceType = sourceType;
+        this.fileName = fileName;
+        this.mimeType = mimeType;
+        this.sizeBytes = sizeBytes;
+        this.contentHash = contentHash;
+    }
+
+    public void markFailed(String errorMessage) {
+        this.indexStatus = DocumentIndexStatus.FAILED;
+        this.errorMessage = errorMessage;
+    }
+
+    public String getKbId() {
+        return kbId;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public String getMimeType() {
+        return mimeType;
+    }
+
+    public Long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 
     public Instant getCreatedAt() {
