@@ -1,19 +1,20 @@
 package com.example.agentdemo.knowledge;
 
 import com.example.agentdemo.audit.Audited;
+import com.example.agentdemo.common.PublicIdGenerator;
 import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.KbDocumentCountProjection;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -26,14 +27,24 @@ public class KnowledgeBaseService {
     private final DocumentRepository documentRepository;
     private final KnowledgeBaseAccessService knowledgeBaseAccessService;
     private final KnowledgeResponseMapper knowledgeResponseMapper;
+    private final PublicIdGenerator publicIdGenerator;
 
+    @Autowired
     public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentRepository documentRepository,
             KnowledgeBaseAccessService knowledgeBaseAccessService, KnowledgeResponseMapper knowledgeResponseMapper,
-            ObjectMapper objectMapper) {
+            PublicIdGenerator publicIdGenerator) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
         this.knowledgeBaseAccessService = knowledgeBaseAccessService;
         this.knowledgeResponseMapper = knowledgeResponseMapper;
+        this.publicIdGenerator = publicIdGenerator;
+    }
+
+    public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBaseRepository, DocumentRepository documentRepository,
+            KnowledgeBaseAccessService knowledgeBaseAccessService, KnowledgeResponseMapper knowledgeResponseMapper,
+            ObjectMapper objectMapper) {
+        this(knowledgeBaseRepository, documentRepository, knowledgeBaseAccessService, knowledgeResponseMapper,
+                new PublicIdGenerator());
     }
 
     @Transactional
@@ -78,7 +89,7 @@ public class KnowledgeBaseService {
     }
 
     private String newKbId() {
-        return "kb-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        return publicIdGenerator.next("kb");
     }
 
 }

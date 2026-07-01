@@ -6,6 +6,7 @@ import com.example.agentdemo.rag.KbDocumentCountProjection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Modifier;
 import java.time.Instant;
 import java.util.List;
 
@@ -25,6 +26,14 @@ class KnowledgeBaseServiceTest {
     private final KnowledgeResponseMapper knowledgeResponseMapper = mock(KnowledgeResponseMapper.class);
     private final KnowledgeBaseService knowledgeBaseService = new KnowledgeBaseService(knowledgeBaseRepository,
             documentRepository, knowledgeBaseAccessService, knowledgeResponseMapper, new ObjectMapper());
+
+    @Test
+    void legacyObjectMapperConstructorRemainsPublic() throws Exception {
+        assertThat(Modifier.isPublic(KnowledgeBaseService.class
+                .getDeclaredConstructor(KnowledgeBaseRepository.class, DocumentRepository.class,
+                        KnowledgeBaseAccessService.class, KnowledgeResponseMapper.class, ObjectMapper.class)
+                .getModifiers())).isTrue();
+    }
 
     @Test
     void listKnowledgeBasesUsesGroupedDocumentCountsInsteadOfPerKbCountQueries() {

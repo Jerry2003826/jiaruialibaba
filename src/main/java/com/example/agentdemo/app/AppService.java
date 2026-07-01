@@ -7,14 +7,16 @@ import com.example.agentdemo.app.dto.UpdateAppRequest;
 import com.example.agentdemo.audit.AuditService;
 import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.JsonPayloadCodec;
+import com.example.agentdemo.common.PageRequestValidator;
+import com.example.agentdemo.common.PublicIdGenerator;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.RunRepository;
 import com.example.agentdemo.workflow.WorkflowDefinitionResolution;
 import com.example.agentdemo.workflow.WorkflowDefinitionService;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -22,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Manages the app lifecycle: create, update (new draft version), publish (pins an immutable
@@ -37,17 +38,30 @@ public class AppService {
     private final WorkflowDefinitionService workflowDefinitionService;
     private final RunRepository runRepository;
     private final AuditService auditService;
-    private final ObjectMapper objectMapper;
+    private final JsonPayloadCodec jsonPayloadCodec;
+    private final PageRequestValidator pageRequestValidator;
+    private final PublicIdGenerator publicIdGenerator;
 
+    @Autowired
     public AppService(AppRepository appRepository, AppRevisionRepository appRevisionRepository,
             WorkflowDefinitionService workflowDefinitionService, RunRepository runRepository,
-            AuditService auditService, ObjectMapper objectMapper) {
+            AuditService auditService, JsonPayloadCodec jsonPayloadCodec,
+            PageRequestValidator pageRequestValidator, PublicIdGenerator publicIdGenerator) {
         this.appRepository = appRepository;
         this.appRevisionRepository = appRevisionRepository;
         this.workflowDefinitionService = workflowDefinitionService;
         this.runRepository = runRepository;
         this.auditService = auditService;
-        this.objectMapper = objectMapper;
+        this.jsonPayloadCodec = jsonPayloadCodec;
+        this.pageRequestValidator = pageRequestValidator;
+        this.publicIdGenerator = publicIdGenerator;
+    }
+
+    public AppService(AppRepository appRepository, AppRevisionRepository appRevisionRepository,
+            WorkflowDefinitionService workflowDefinitionService, RunRepository runRepository,
+            AuditService auditService, ObjectMapper objectMapper) {
+        this(appRepository, appRevisionRepository, workflowDefinitionService, runRepository, auditService,
+                new JsonPayloadCodec(objectMapper), new PageRequestValidator(), new PublicIdGenerator());
     }
 
     @Transactional
@@ -65,13 +79,8 @@ public class AppService {
 
     @Transactional(readOnly = true)
     public AppPageResponse list(int page, int size) {
-        if (page < 0) {
-            throw new BusinessException("APP_QUERY_INVALID", "page must be greater than or equal to 0");
-        }
-        if (size < 1 || size > 100) {
-            throw new BusinessException("APP_QUERY_INVALID", "size must be between 1 and 100");
-        }
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = pageRequestValidator.build(page, size, "APP_QUERY_INVALID",
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<AppEntity> result = appRepository.findByOwnerIdOrderByCreatedAtDescIdDesc(
                 SecurityIdentity.currentOwnerId(), pageable);
         return new AppPageResponse(result.getContent().stream().map(this::toResponse).toList(), result.getNumber(),
@@ -197,12 +206,8 @@ public class AppService {
         if (!StringUtils.hasText(configJson)) {
             return AppConfig.empty();
         }
-        try {
-            return objectMapper.readValue(configJson, AppConfig.class);
-        }
-        catch (JsonProcessingException ex) {
-            throw new BusinessException("APP_CONFIG_DESERIALIZATION_FAILED", "Failed to read app config", ex);
-        }
+        return jsonPayloadCodec.read(configJson, AppConfig.class, "APP_CONFIG_DESERIALIZATION_FAILED",
+                "Failed to read app config");
     }
 
     private AppResponse toResponse(AppEntity entity) {
@@ -213,21 +218,12 @@ public class AppService {
     }
 
     private AppSnapshot fromJson(String snapshotJson) {
-        try {
-            return objectMapper.readValue(snapshotJson, AppSnapshot.class);
-        }
-        catch (JsonProcessingException ex) {
-            throw new BusinessException("APP_SNAPSHOT_DESERIALIZATION_FAILED", "Failed to read app snapshot", ex);
-        }
+        return jsonPayloadCodec.read(snapshotJson, AppSnapshot.class, "APP_SNAPSHOT_DESERIALIZATION_FAILED",
+                "Failed to read app snapshot");
     }
 
     private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        }
-        catch (JsonProcessingException ex) {
-            throw new BusinessException("APP_SERIALIZATION_FAILED", "Failed to serialize app payload", ex);
-        }
+        return jsonPayloadCodec.write(value, "APP_SERIALIZATION_FAILED", "Failed to serialize app payload");
     }
 
     private String normalize(String value) {
@@ -235,7 +231,7 @@ public class AppService {
     }
 
     private String newAppId() {
-        return "app-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        return publicIdGenerator.next("app");
     }
 
 }

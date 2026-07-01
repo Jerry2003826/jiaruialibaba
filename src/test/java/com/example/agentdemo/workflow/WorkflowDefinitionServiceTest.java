@@ -1,6 +1,8 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.JsonPayloadCodec;
+import com.example.agentdemo.common.PublicIdGenerator;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,6 +51,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowDefinitionResponse response = service.save(request);
 
         assertThat(response.definitionId()).isNotBlank();
+        assertThat(UUID.fromString(response.definitionId())).isNotNull();
         assertThat(response.name()).isEqualTo("Support Bot");
         assertThat(response.description()).isEqualTo("Answers docs");
         assertThat(response.version()).isEqualTo(1);
@@ -65,6 +69,28 @@ class WorkflowDefinitionServiceTest {
         assertThat(revisionCaptor.getValue().getVersion()).isEqualTo(1);
         assertThat(revisionCaptor.getValue().getStatus()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
         assertThat(revisionCaptor.getValue().getDefinitionJson()).contains("\"nodes\"");
+    }
+
+    @Test
+    void saveUsesPublicIdGeneratorUuidStrategy() {
+        PublicIdGenerator publicIdGenerator = mock(PublicIdGenerator.class);
+        String generatedId = "123e4567-e89b-12d3-a456-426614174000";
+        WorkflowDefinitionService serviceWithGenerator = new WorkflowDefinitionService(repository, revisionRepository,
+                compiler, new JsonPayloadCodec(new ObjectMapper()), runRecordRepository, workflowRuntimeProperties,
+                publicIdGenerator);
+        WorkflowDefinition definition = validDefinition();
+        when(publicIdGenerator.nextUuid()).thenReturn(generatedId);
+        when(repository.save(any())).thenAnswer(invocation -> {
+            WorkflowDefinitionEntity entity = invocation.getArgument(0);
+            entity.prePersist();
+            return entity;
+        });
+
+        WorkflowDefinitionResponse response = serviceWithGenerator
+                .save(new WorkflowDefinitionSaveRequest("Support Bot", "Answers docs", definition));
+
+        assertThat(response.definitionId()).isEqualTo(generatedId);
+        assertThat(UUID.fromString(response.definitionId()).toString()).isEqualTo(generatedId);
     }
 
     @Test

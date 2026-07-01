@@ -1,10 +1,11 @@
 package com.example.agentdemo.knowledge;
 
-import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.PageRequestValidator;
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.knowledge.dto.ChunkPreviewResponse;
 import com.example.agentdemo.rag.DocumentEntity;
 import com.example.agentdemo.rag.TextChunker;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +21,21 @@ public class KnowledgeChunkPreviewService {
     private final KnowledgeBaseAccessService knowledgeBaseAccessService;
     private final RagProperties ragProperties;
     private final KnowledgeResponseMapper knowledgeResponseMapper;
+    private final PageRequestValidator pageRequestValidator;
 
+    @Autowired
     public KnowledgeChunkPreviewService(KnowledgeBaseAccessService knowledgeBaseAccessService,
-            RagProperties ragProperties, KnowledgeResponseMapper knowledgeResponseMapper) {
+            RagProperties ragProperties, KnowledgeResponseMapper knowledgeResponseMapper,
+            PageRequestValidator pageRequestValidator) {
         this.knowledgeBaseAccessService = knowledgeBaseAccessService;
         this.ragProperties = ragProperties;
         this.knowledgeResponseMapper = knowledgeResponseMapper;
+        this.pageRequestValidator = pageRequestValidator;
+    }
+
+    public KnowledgeChunkPreviewService(KnowledgeBaseAccessService knowledgeBaseAccessService,
+            RagProperties ragProperties, KnowledgeResponseMapper knowledgeResponseMapper) {
+        this(knowledgeBaseAccessService, ragProperties, knowledgeResponseMapper, new PageRequestValidator());
     }
 
     @Transactional(readOnly = true)
@@ -38,7 +48,7 @@ public class KnowledgeChunkPreviewService {
         ChunkPreviewResponse preview = buildChunkPreview(kbId, documentId);
         int resolvedPage = page == null ? DEFAULT_CHUNK_PREVIEW_PAGE : page;
         int resolvedSize = size == null ? DEFAULT_CHUNK_PREVIEW_SIZE : size;
-        validatePage(resolvedPage, resolvedSize);
+        pageRequestValidator.build(resolvedPage, resolvedSize, "DOCUMENT_QUERY_INVALID", org.springframework.data.domain.Sort.unsorted());
         long rawFromIndex = (long) resolvedPage * resolvedSize;
         int fromIndex = (int) Math.min(rawFromIndex, preview.totalChunks());
         long rawToIndex = rawFromIndex + resolvedSize;
@@ -62,15 +72,6 @@ public class KnowledgeChunkPreviewService {
         int totalChunks = preview.size();
         return new ChunkPreviewResponse(documentId, chunkSize, chunkOverlap, 0, totalChunks, totalChunks,
                 totalChunks == 0 ? 0 : 1, preview);
-    }
-
-    private void validatePage(int page, int size) {
-        if (page < 0) {
-            throw new BusinessException("DOCUMENT_QUERY_INVALID", "page must be greater than or equal to 0");
-        }
-        if (size < 1 || size > 100) {
-            throw new BusinessException("DOCUMENT_QUERY_INVALID", "size must be between 1 and 100");
-        }
     }
 
 }

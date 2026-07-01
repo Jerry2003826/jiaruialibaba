@@ -1,6 +1,7 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.PageRequestValidator;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.security.SecurityIdentity;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,13 +30,14 @@ public class WorkflowService {
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
     private final WorkflowRunBudgetRegistry workflowRunBudgetRegistry;
     private final WorkflowRuntimeProperties workflowRuntimeProperties;
+    private final PageRequestValidator pageRequestValidator;
 
     @Autowired
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
             WorkflowRunRecordRepository workflowRunRecordRepository,
             WorkflowRunBudgetRegistry workflowRunBudgetRegistry,
-            WorkflowRuntimeProperties workflowRuntimeProperties) {
+            WorkflowRuntimeProperties workflowRuntimeProperties, PageRequestValidator pageRequestValidator) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
         this.traceService = traceService;
@@ -43,13 +45,23 @@ public class WorkflowService {
         this.workflowRunRecordRepository = workflowRunRecordRepository;
         this.workflowRunBudgetRegistry = workflowRunBudgetRegistry;
         this.workflowRuntimeProperties = workflowRuntimeProperties;
+        this.pageRequestValidator = pageRequestValidator;
     }
 
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
             WorkflowRunRecordRepository workflowRunRecordRepository) {
         this(workflowCompiler, workflowRuntime, traceService, workflowDefinitionService, workflowRunRecordRepository,
-                new WorkflowRunBudgetRegistry(), new WorkflowRuntimeProperties());
+                new WorkflowRunBudgetRegistry(), new WorkflowRuntimeProperties(), new PageRequestValidator());
+    }
+
+    public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
+            TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
+            WorkflowRunRecordRepository workflowRunRecordRepository,
+            WorkflowRunBudgetRegistry workflowRunBudgetRegistry,
+            WorkflowRuntimeProperties workflowRuntimeProperties) {
+        this(workflowCompiler, workflowRuntime, traceService, workflowDefinitionService, workflowRunRecordRepository,
+                workflowRunBudgetRegistry, workflowRuntimeProperties, new PageRequestValidator());
     }
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
@@ -115,7 +127,8 @@ public class WorkflowService {
     public WorkflowRunPageResponse listRuns(String definitionId, Integer definitionVersion, RunStatus status,
             int page, int size) {
         validateRunQuery(definitionId, page, size);
-        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt"));
+        PageRequest pageable = pageRequestValidator.build(page, size, "WORKFLOW_RUN_QUERY_INVALID",
+                Sort.by(Sort.Direction.DESC, "startedAt"));
         Page<WorkflowRunRecordEntity> recordPage =
                 workflowRunRecordRepository.searchRuns(definitionId, SecurityIdentity.currentOwnerId(),
                         definitionVersion, status, pageable);
@@ -161,12 +174,7 @@ public class WorkflowService {
         if (!StringUtils.hasText(definitionId)) {
             throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "definitionId is required");
         }
-        if (page < 0) {
-            throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "page must be greater than or equal to 0");
-        }
-        if (size < 1 || size > 100) {
-            throw new BusinessException("WORKFLOW_RUN_QUERY_INVALID", "size must be between 1 and 100");
-        }
+        pageRequestValidator.build(page, size, "WORKFLOW_RUN_QUERY_INVALID", Sort.unsorted());
     }
 
     private void recordRunMetadata(TraceRun run, WorkflowDefinitionResolution definitionResolution) {

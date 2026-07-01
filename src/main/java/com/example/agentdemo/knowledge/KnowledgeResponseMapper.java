@@ -1,21 +1,27 @@
 package com.example.agentdemo.knowledge;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.JsonPayloadCodec;
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
 import com.example.agentdemo.knowledge.dto.KnowledgeDocumentResponse;
 import com.example.agentdemo.rag.DocumentEntity;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 class KnowledgeResponseMapper {
 
-    private final ObjectMapper objectMapper;
+    private final JsonPayloadCodec jsonPayloadCodec;
+
+    @Autowired
+    KnowledgeResponseMapper(JsonPayloadCodec jsonPayloadCodec) {
+        this.jsonPayloadCodec = jsonPayloadCodec;
+    }
 
     KnowledgeResponseMapper(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+        this(new JsonPayloadCodec(objectMapper));
     }
 
     KnowledgeBaseResponse toKnowledgeBaseResponse(KnowledgeBaseEntity entity, long documentCount) {
@@ -34,22 +40,13 @@ class KnowledgeResponseMapper {
         if (!StringUtils.hasText(kb.getRetrievalConfigJson())) {
             return RetrievalConfig.defaults();
         }
-        try {
-            return objectMapper.readValue(kb.getRetrievalConfigJson(), RetrievalConfig.class);
-        }
-        catch (JsonProcessingException ex) {
-            return RetrievalConfig.defaults();
-        }
+        RetrievalConfig config = jsonPayloadCodec.readOrNull(kb.getRetrievalConfigJson(), RetrievalConfig.class);
+        return config == null ? RetrievalConfig.defaults() : config;
     }
 
     String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        }
-        catch (JsonProcessingException ex) {
-            throw new BusinessException("KNOWLEDGE_CONFIG_SERIALIZATION_FAILED",
-                    "Failed to serialize retrieval config", ex);
-        }
+        return jsonPayloadCodec.write(value, "KNOWLEDGE_CONFIG_SERIALIZATION_FAILED",
+                "Failed to serialize retrieval config");
     }
 
 }
