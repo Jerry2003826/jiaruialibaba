@@ -7,6 +7,8 @@ demo:
       enabled: false
     rate-limit:
       enabled: true
+  app:
+    require-published-for-run: true
   workflow:
     require-published-for-run: true
     allow-inline-run: false

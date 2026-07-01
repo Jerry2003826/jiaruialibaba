@@ -116,6 +116,9 @@ public class ProductionStartupValidator implements ApplicationRunner {
         if (environment.getProperty("demo.workflow.allow-inline-run", Boolean.class, false)) {
             violations.add("demo.workflow.allow-inline-run must be false in prod.");
         }
+        if (!environment.getProperty("demo.app.require-published-for-run", Boolean.class, false)) {
+            violations.add("demo.app.require-published-for-run must be true in prod.");
+        }
     }
 
     private void validateModelAndVector(List<String> violations) {

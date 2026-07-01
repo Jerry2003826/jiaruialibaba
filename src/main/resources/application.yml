@@ -125,6 +125,10 @@ demo:
     collection: ${DASHVECTOR_COLLECTION:agent_rag_docs}
     dimension: ${DASHVECTOR_DIMENSION:1024}
     metric: ${DASHVECTOR_METRIC:cosine}
+  app:
+    # Runtime invocations (run/chat/chat-stream) must use the published, immutable app revision.
+    # Set false only for local/dev iteration on unpublished drafts.
+    require-published-for-run: ${DEMO_APP_REQUIRE_PUBLISHED_FOR_RUN:true}
   workflow:
     runtime: ${DEMO_WORKFLOW_RUNTIME:simple}
     require-published-for-run: ${DEMO_WORKFLOW_REQUIRE_PUBLISHED_FOR_RUN:true}

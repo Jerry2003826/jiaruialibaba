@@ -89,6 +89,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/runs/**").hasAuthority("SCOPE_trace.read")
                         .requestMatchers(HttpMethod.GET, "/api/audit-logs", "/api/audit-logs/**")
                         .hasAuthority("SCOPE_audit.read")
+                        // App runtime endpoints: reachable with SCOPE_app.run (console JWT or app API key).
+                        // Declared before management rules so the specific runtime paths win.
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/run", "/api/apps/*/chat",
+                                "/api/apps/*/chat/stream").hasAuthority("SCOPE_app.run")
+                        // App management endpoints (console JWT only).
+                        .requestMatchers(HttpMethod.POST, "/api/apps/*/publish", "/api/apps/*/rollback/**")
+                        .hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.POST, "/api/apps").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.PUT, "/api/apps/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.DELETE, "/api/apps/**").hasAuthority("SCOPE_app.write")
+                        .requestMatchers(HttpMethod.GET, "/api/apps", "/api/apps/**").hasAuthority("SCOPE_app.read")
                         .requestMatchers(HttpMethod.POST, "/api/rag/documents").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.PUT, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.DELETE, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")

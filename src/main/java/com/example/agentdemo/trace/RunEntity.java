@@ -29,6 +29,9 @@ public class RunEntity {
     @Column(name = "owner_id", nullable = false, length = 128)
     private String ownerId;
 
+    @Column(name = "app_id", length = 64)
+    private String appId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private RunType type;
@@ -60,6 +63,7 @@ public class RunEntity {
     public RunEntity(String runId, RunType type, RunStatus status, String input, Instant startedAt) {
         this.runId = runId;
         this.ownerId = SecurityIdentity.currentOwnerId();
+        this.appId = RunContext.currentAppId();
         this.type = type;
         this.status = status;
         this.input = input;
@@ -79,6 +83,10 @@ public class RunEntity {
 
     public String getOwnerId() {
         return ownerId;
+    }
+
+    public String getAppId() {
+        return appId;
     }
 
     public RunType getType() {

@@ -26,6 +26,7 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.rag.retriever", "dashvector");
         env.setProperty("demo.workflow.require-published-for-run", "true");
         env.setProperty("demo.workflow.allow-inline-run", "false");
+        env.setProperty("demo.app.require-published-for-run", "true");
         env.setProperty("spring.ai.dashscope.api-key", "sk-real-key");
         env.setProperty("demo.ai.embedding-model", "text-embedding-v4");
         env.setProperty("demo.dashvector.endpoint", "https://vrs.dashvector.cn");

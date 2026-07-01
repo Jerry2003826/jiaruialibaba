@@ -42,7 +42,8 @@ public class DevAuthController {
     static final List<String> WORKBENCH_SCOPES = List.of(
             "health.read", "chat.execute", "agent.execute", "rag.read", "rag.write", "rag.query",
             "order.read", "order.write", "tool.read",
-            "workflow.read", "workflow.edit", "workflow.run", "workflow.publish", "trace.read", "audit.read");
+            "workflow.read", "workflow.edit", "workflow.run", "workflow.publish", "trace.read", "audit.read",
+            "app.read", "app.write", "app.run");
 
     private final String jwtMode;
     private final String jwtSecret;
