@@ -87,6 +87,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/health").hasAuthority("SCOPE_health.read")
                         .requestMatchers(HttpMethod.GET, "/api/auth/dev-token").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/runs/**").hasAuthority("SCOPE_trace.read")
+                        .requestMatchers(HttpMethod.GET, "/api/audit-logs", "/api/audit-logs/**")
+                        .hasAuthority("SCOPE_audit.read")
                         .requestMatchers(HttpMethod.POST, "/api/rag/documents").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.PUT, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")
                         .requestMatchers(HttpMethod.DELETE, "/api/rag/documents/**").hasAuthority("SCOPE_rag.write")

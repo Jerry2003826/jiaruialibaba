@@ -1,5 +1,6 @@
 package com.example.agentdemo.workflow;
 
+import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import com.example.agentdemo.security.SecurityIdentity;
@@ -56,6 +57,7 @@ public class WorkflowDefinitionService {
     }
 
     @Transactional
+    @Audited(action = "workflow.publish", resourceType = "workflow", resourceId = "#definitionId")
     public WorkflowDefinitionResponse publish(String definitionId) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.publish();
@@ -70,6 +72,7 @@ public class WorkflowDefinitionService {
     }
 
     @Transactional
+    @Audited(action = "workflow.rollback", resourceType = "workflow", resourceId = "#definitionId")
     public WorkflowDefinitionResponse rollback(String definitionId, Integer version) {
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         WorkflowDefinitionRevisionEntity revision = findRevision(definitionId, version);

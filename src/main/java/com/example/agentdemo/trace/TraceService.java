@@ -1,6 +1,7 @@
 package com.example.agentdemo.trace;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.SecretRedactor;
 import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.trace.dto.RunPageResponse;
 import com.example.agentdemo.trace.dto.RunResponse;
@@ -24,7 +25,6 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -36,25 +36,6 @@ public class TraceService {
     private static final int MAX_TRACE_TEXT_CHARS = 2048;
     private static final int MAX_TRACE_ARRAY_ITEMS = 50;
     private static final int MAX_SANITIZE_DEPTH = 200;
-    private static final List<String> SENSITIVE_KEY_FRAGMENTS = List.of(
-            "api_key", "apikey", "authorization", "cookie", "password", "secret", "token");
-    private static final Set<String> TOKEN_ACCOUNTING_KEYS = Set.of(
-            "tokenusage",
-            "prompttokens",
-            "completiontokens",
-            "totaltokens",
-            "inputtokens",
-            "outputtokens",
-            "cachedtokens",
-            "reasoningtokens",
-            "audiotokens",
-            "acceptedpredictiontokens",
-            "rejectedpredictiontokens",
-            "prompttokensdetails",
-            "completiontokensdetails",
-            "inputtokensdetails",
-            "outputtokensdetails",
-            "totaltokensdetails");
 
     private final RunRepository runRepository;
     private final RunStepRepository runStepRepository;
@@ -220,8 +201,8 @@ public class TraceService {
         if (node.isObject()) {
             ObjectNode sanitized = objectMapper.createObjectNode();
             node.fields().forEachRemaining(entry -> {
-                if (isSensitiveKey(entry.getKey())) {
-                    sanitized.put(entry.getKey(), "[REDACTED]");
+                if (SecretRedactor.isSensitiveKey(entry.getKey())) {
+                    sanitized.put(entry.getKey(), SecretRedactor.REDACTED);
                 }
                 else {
                     sanitized.set(entry.getKey(), sanitize(entry.getValue(), depth + 1));
@@ -299,19 +280,6 @@ public class TraceService {
                     .put("preview", text.substring(0, MAX_TRACE_TEXT_CHARS));
         }
         return objectMapper.getNodeFactory().textNode(text);
-    }
-
-    private boolean isSensitiveKey(String key) {
-        String normalized = key == null ? "" : key.toLowerCase().replace("-", "_");
-        if (isTokenAccountingKey(normalized)) {
-            return false;
-        }
-        return SENSITIVE_KEY_FRAGMENTS.stream().anyMatch(normalized::contains);
-    }
-
-    private boolean isTokenAccountingKey(String normalized) {
-        String compact = normalized.replace("_", "");
-        return TOKEN_ACCOUNTING_KEYS.contains(compact);
     }
 
     private String escapedSerializationError(String message) {

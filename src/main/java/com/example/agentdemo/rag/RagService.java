@@ -1,5 +1,6 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.chat.AiModelService;
 import com.example.agentdemo.chat.memory.ConversationMemoryService;
@@ -58,6 +59,7 @@ public class RagService {
     }
 
     @Transactional
+    @Audited(action = "document.create", resourceType = "document", resourceId = "#result.id()")
     public DocumentResponse saveDocument(DocumentRequest request) {
         DocumentEntity document = documentPersistenceService.save(request);
         documentIndexingService.index(document);

@@ -1,5 +1,6 @@
 package com.example.agentdemo.rag;
 
+import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.rag.dto.DocumentRequest;
@@ -80,6 +81,7 @@ public class DocumentManagementService {
     }
 
     @Transactional
+    @Audited(action = "document.update", resourceType = "document", resourceId = "#documentId")
     public DocumentResponse updateDocument(Long documentId, DocumentRequest request) {
         DocumentEntity document = findDocument(documentId);
         List<DocumentChunkEntity> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
@@ -99,6 +101,7 @@ public class DocumentManagementService {
     }
 
     @Transactional
+    @Audited(action = "document.delete", resourceType = "document", resourceId = "#documentId")
     public void deleteDocument(Long documentId) {
         // Drop any still-queued UPSERT for this document first so an obsolete event cannot re-create
         // its vectors after the delete completes. Done before loading the document so the bulk update's
