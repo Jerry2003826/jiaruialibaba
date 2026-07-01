@@ -19,6 +19,8 @@
     workflowRuns: (id) => `/api/workflows/runs?definitionId=${encodeURIComponent(id)}&page=0&size=20`,
     publishDefinition: (id) => `/api/workflows/definitions/${encodeURIComponent(id)}/publish`,
     workflowRunGraph: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/graph`,
+    workflowRunEvents: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/events`,
+    cancelWorkflowRun: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/cancel`,
     runSteps: (runId) => `/api/runs/${encodeURIComponent(runId)}/steps`,
     runs: "/api/runs",
     tools: "/api/tools",
@@ -1567,7 +1569,7 @@
         state.lastRunId = response.runId;
         setWorkflowStatus(response.runId ? `Run ${response.runId.slice(0, 8)}` : "Ran");
         renderRunResult(response);
-        await refreshRunTrace(response.runId);
+        await animateRunOnCanvas(response.runId);
         setRunStatus(`完成 · ${response.runId ? response.runId.slice(0, 8) : ""}`);
         await loadDefinitionHistory();
         toast("工作流运行完成");
@@ -1602,6 +1604,53 @@
   // ============================================================
   // 运行轨迹
   // ============================================================
+  // Progressively highlight canvas nodes from the run-events SSE (node_started/succeeded/failed),
+  // then settle the authoritative statuses + steps panel via refreshRunTrace. Falls back to a plain
+  // refresh if the events stream is unavailable.
+  async function animateRunOnCanvas(runId) {
+    if (!runId) return;
+    clearCanvasNodeStatuses();
+    const events = [];
+    try {
+      const response = await fetch(API.workflowRunEvents(runId),
+        { headers: authHeaders({ Accept: "text/event-stream" }) });
+      if (response.ok && response.body) {
+        await consumeSse(response, (event, data) => events.push({ event, data }));
+      }
+    } catch (error) { /* fall back to the plain trace refresh below */ }
+    for (const { event, data } of events) {
+      applyRunEventToCanvas(event, data);
+      if (event === "node_started") await sleep(180);
+    }
+    await refreshRunTrace(runId);
+  }
+
+  function clearCanvasNodeStatuses() {
+    document.querySelectorAll(".canvas-node").forEach((element) =>
+      element.classList.remove("status-success", "status-failed", "status-running"));
+  }
+
+  function applyRunEventToCanvas(event, data) {
+    if (event === "run_done") return;
+    const nodeName = data && data.nodeName ? String(data.nodeName) : "";
+    const nodeId = nodeName.startsWith("workflow_node_") ? nodeName.slice("workflow_node_".length) : nodeName;
+    const element = els.nodeLayer?.querySelector(`[data-node-id="${cssEscape(nodeId)}"]`);
+    if (!element) return;
+    if (event === "node_started") {
+      element.classList.add("status-running");
+    } else if (event === "node_succeeded") {
+      element.classList.remove("status-running");
+      element.classList.add("status-success");
+    } else if (event === "node_failed") {
+      element.classList.remove("status-running");
+      element.classList.add("status-failed");
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function refreshRunTrace(runId) {
     if (!runId) return;
     try {

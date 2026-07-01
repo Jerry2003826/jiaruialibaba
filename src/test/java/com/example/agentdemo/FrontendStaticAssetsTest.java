@@ -136,7 +136,11 @@ class FrontendStaticAssetsTest {
                 // Knowledge Base view wiring.
                 .andExpect(content().string(containsString("/api/knowledge-bases")))
                 .andExpect(content().string(containsString("loadKnowledgeBases")))
-                .andExpect(content().string(containsString("uploadKbFile")));
+                .andExpect(content().string(containsString("uploadKbFile")))
+                // Real-time canvas highlighting from run-events SSE.
+                .andExpect(content().string(containsString("/events")))
+                .andExpect(content().string(containsString("animateRunOnCanvas")))
+                .andExpect(content().string(containsString("applyRunEventToCanvas")));
     }
 
     @Test
