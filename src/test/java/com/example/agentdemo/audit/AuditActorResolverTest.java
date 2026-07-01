@@ -29,7 +29,22 @@ class AuditActorResolverTest {
     }
 
     @Test
-    void readsFirstForwardedAddressWhenTrustIsEnabled() {
+    void readsSingleForwardedAddressWhenTrustIsEnabled() {
+        AuditProperties properties = new AuditProperties();
+        properties.setTrustForwardedHeaders(true);
+        AuditActorResolver resolver = new AuditActorResolver(properties);
+        MockHttpServletRequest request = request("198.51.100.10",
+                "203.0.113.9", "agent/ok");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        AuditActor actor = resolver.resolve();
+
+        assertThat(actor.ip()).isEqualTo("203.0.113.9");
+        assertThat(actor.userAgent()).isEqualTo("agent/ok");
+    }
+
+    @Test
+    void readsLastForwardedAddressWhenMultipleValuesArePresent() {
         AuditProperties properties = new AuditProperties();
         properties.setTrustForwardedHeaders(true);
         AuditActorResolver resolver = new AuditActorResolver(properties);
@@ -39,8 +54,35 @@ class AuditActorResolverTest {
 
         AuditActor actor = resolver.resolve();
 
-        assertThat(actor.ip()).isEqualTo("203.0.113.9");
-        assertThat(actor.userAgent()).isEqualTo("agent/ok");
+        assertThat(actor.ip()).isEqualTo("198.51.100.50");
+    }
+
+    @Test
+    void forwardedHeaderWithControlCharactersFallsBackToRemoteAddress() {
+        AuditProperties properties = new AuditProperties();
+        properties.setTrustForwardedHeaders(true);
+        AuditActorResolver resolver = new AuditActorResolver(properties);
+        MockHttpServletRequest request = request("198.51.100.10",
+                "198.51.100.50\r\nX-Fake: yes", "agent/ok");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        AuditActor actor = resolver.resolve();
+
+        assertThat(actor.ip()).isEqualTo("198.51.100.10");
+    }
+
+    @Test
+    void overlongForwardedHeaderFallsBackToRemoteAddress() {
+        AuditProperties properties = new AuditProperties();
+        properties.setTrustForwardedHeaders(true);
+        AuditActorResolver resolver = new AuditActorResolver(properties);
+        MockHttpServletRequest request = request("198.51.100.10",
+                "2".repeat(65), "agent/ok");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        AuditActor actor = resolver.resolve();
+
+        assertThat(actor.ip()).isEqualTo("198.51.100.10");
     }
 
     private MockHttpServletRequest request(String remoteAddr, String forwardedFor, String userAgent) {

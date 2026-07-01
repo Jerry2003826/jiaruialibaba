@@ -111,6 +111,11 @@ public class KnowledgeBaseService {
     @Audited(action = "document.create", resourceType = "document", resourceId = "#result.documentId()")
     public KnowledgeDocumentResponse addTextDocument(String kbId, TextDocumentRequest request) {
         findKb(kbId);
+        if (request.content().length() > knowledgeProperties.getMaxContentChars()) {
+            throw new BusinessException("DOCUMENT_CONTENT_TOO_LARGE",
+                    "Document content exceeds the maximum size of " + knowledgeProperties.getMaxContentChars()
+                            + " characters");
+        }
         String title = StringUtils.hasText(request.title()) ? request.title().trim() : "Untitled";
         byte[] bytes = request.content().getBytes(StandardCharsets.UTF_8);
         return ingest(kbId, title, request.content(), "TEXT", null, "text/plain", (long) bytes.length);

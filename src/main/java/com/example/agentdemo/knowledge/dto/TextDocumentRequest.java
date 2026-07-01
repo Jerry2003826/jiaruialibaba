@@ -11,5 +11,5 @@ import jakarta.validation.constraints.Size;
  */
 public record TextDocumentRequest(
         @Size(max = 256) String title,
-        @NotBlank String content) {
+        @NotBlank @Size(max = 500000) String content) {
 }
