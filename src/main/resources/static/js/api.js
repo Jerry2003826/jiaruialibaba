@@ -58,7 +58,15 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     if (options.body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(options.body); }
     const response = await fetch(url, init);
     const text = await response.text();
-    const payload = text ? JSON.parse(text) : null;
+    let payload = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch (error) {
+        const preview = text.slice(0, 160);
+        throw new Error(response.ok ? `Invalid JSON response: ${preview}` : `HTTP ${response.status}: ${preview}`);
+      }
+    }
     if (!response.ok || payload?.success === false) throw new Error(payload?.message || payload?.code || `HTTP ${response.status}`);
     return payload?.data ?? payload;
   }

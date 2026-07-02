@@ -143,6 +143,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("window.AgentWorkbench.API = API")))
                 .andExpect(content().string(containsString("window.AgentWorkbench.requestJson = requestJson")))
                 .andExpect(content().string(containsString("window.AgentWorkbench.consumeSse = consumeSse")))
+                .andExpect(content().string(containsString("Invalid JSON response")))
+                .andExpect(content().string(containsString("HTTP ${response.status}")))
                 .andExpect(content().string(containsString("/api/workflows/generate")))
                 .andExpect(content().string(containsString("/api/workflows/generate/stream")))
                 .andExpect(content().string(containsString("/api/workflows/run")))

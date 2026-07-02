@@ -100,7 +100,7 @@ public class AppStreamRunner {
         emitter.onTimeout(() -> completeWithError(emitter, terminal, stepRef, "SSE stream timed out"));
         emitter.onError(error -> failRun(run.runId(), terminal, stepRef, error));
         try {
-            sseExecutor.execute(() -> streamInBackground(config, conversationId, request, run, emitter, terminal,
+            sseExecutor.execute(() -> streamInBackground(appId, config, conversationId, request, run, emitter, terminal,
                     stepRef));
         }
         catch (RejectedExecutionException ex) {
@@ -110,8 +110,8 @@ public class AppStreamRunner {
         return emitter;
     }
 
-    private void streamInBackground(AppConfig config, String conversationId, AppChatRequest request, TraceRun run,
-            SseEmitter emitter, AtomicBoolean terminal, AtomicReference<TraceStep> stepRef) {
+    private void streamInBackground(String appId, AppConfig config, String conversationId, AppChatRequest request,
+            TraceRun run, SseEmitter emitter, AtomicBoolean terminal, AtomicReference<TraceStep> stepRef) {
         List<ConversationMessage> history = chatAppRunner.historyFor(config, conversationId);
         StringBuilder answer = new StringBuilder();
         try {
@@ -131,7 +131,7 @@ public class AppStreamRunner {
                 traceService.completeStep(step.stepId(), Map.of("answer", answer.toString()));
                 stepRef.set(null);
                 traceService.markRunSucceeded(run.runId(),
-                        new AppChatResponse(answer.toString(), conversationId, run.runId(), null));
+                        new AppChatResponse(answer.toString(), conversationId, run.runId(), appId, citations));
                 send(emitter, "done", new StreamDone(run.runId(), conversationId, answer.toString()));
                 emitter.complete();
             }
