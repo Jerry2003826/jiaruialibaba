@@ -8,6 +8,7 @@ import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
 import com.example.agentdemo.knowledge.dto.KnowledgeDocumentResponse;
 import com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse;
 import com.example.agentdemo.knowledge.dto.TextDocumentRequest;
+import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.DocumentIndexStatus;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -63,6 +64,9 @@ class KnowledgeBaseIntegrationTest {
     @Autowired
     private KnowledgeSearchService knowledgeSearchService;
 
+    @Autowired
+    private DocumentRepository documentRepository;
+
     @Test
     void createAndListKnowledgeBase() {
         KnowledgeBaseResponse kb = knowledgeBaseService.createKnowledgeBase(
@@ -83,6 +87,26 @@ class KnowledgeBaseIntegrationTest {
         assertThat(knowledgeBaseService.listKnowledgeBases())
                 .extracting(KnowledgeBaseResponse::kbId, KnowledgeBaseResponse::documentCount)
                 .contains(tuple(kbA, 2L), tuple(kbB, 1L));
+    }
+
+    @Test
+    void listKnowledgeBaseCountMatchesVisibleDocumentListWhenDeletedRowsRemain() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Visible Docs", null, null)).kbId();
+        knowledgeIngestionService.addTextDocument(kbId, new TextDocumentRequest("Visible", "alpha"));
+        KnowledgeDocumentResponse deleted = knowledgeIngestionService.addTextDocument(kbId,
+                new TextDocumentRequest("Deleted", "beta"));
+        var deletedEntity = documentRepository.findById(deleted.documentId()).orElseThrow();
+        deletedEntity.markDeleted();
+        documentRepository.saveAndFlush(deletedEntity);
+
+        KnowledgeBaseResponse kb = knowledgeBaseService.listKnowledgeBases().stream()
+                .filter(candidate -> candidate.kbId().equals(kbId))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(kb.documentCount()).isEqualTo(knowledgeDocumentService.listDocuments(kbId, 0, 20).totalElements());
+        assertThat(kb.documentCount()).isEqualTo(1L);
     }
 
     @Test

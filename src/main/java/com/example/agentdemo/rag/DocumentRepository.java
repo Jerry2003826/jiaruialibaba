@@ -47,11 +47,13 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
             from DocumentEntity d
             where d.ownerId = :ownerId
               and d.kbId in :kbIds
+              and d.indexStatus <> :excludedStatus
             group by d.kbId
             """)
-    List<KbDocumentCountProjection> countGroupedByOwnerIdAndKbIdIn(String ownerId, Collection<String> kbIds);
+    List<KbDocumentCountProjection> countGroupedByOwnerIdAndKbIdInAndIndexStatusNot(String ownerId,
+            Collection<String> kbIds, DocumentIndexStatus excludedStatus);
 
-    long countByOwnerIdAndKbId(String ownerId, String kbId);
+    long countByOwnerIdAndKbIdAndIndexStatusNot(String ownerId, String kbId, DocumentIndexStatus indexStatus);
 
     boolean existsByTitleAndIndexStatusNot(String title, DocumentIndexStatus indexStatus);
 

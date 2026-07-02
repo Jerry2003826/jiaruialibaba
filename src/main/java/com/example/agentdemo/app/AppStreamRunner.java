@@ -97,15 +97,15 @@ public class AppStreamRunner {
         SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
         AtomicBoolean terminal = new AtomicBoolean(false);
         AtomicReference<TraceStep> stepRef = new AtomicReference<>();
-        emitter.onTimeout(() -> completeWithError(emitter, terminal, stepRef, "SSE stream timed out"));
+        emitter.onTimeout(() -> completeWithErrorAndFailRun(run.runId(), emitter, terminal, stepRef,
+                "SSE stream timed out"));
         emitter.onError(error -> failRun(run.runId(), terminal, stepRef, error));
         try {
             sseExecutor.execute(() -> streamInBackground(config, conversationId, request, run, emitter, terminal,
                     stepRef));
         }
         catch (RejectedExecutionException ex) {
-            completeWithError(emitter, terminal, stepRef, ex.getMessage());
-            traceService.markRunFailed(run.runId(), ex);
+            completeWithErrorAndFailRun(run.runId(), emitter, terminal, stepRef, ex);
         }
         return emitter;
     }
@@ -115,12 +115,26 @@ public class AppStreamRunner {
         List<ConversationMessage> history = chatAppRunner.historyFor(config, conversationId);
         StringBuilder answer = new StringBuilder();
         try {
+            if (terminal.get()) {
+                return;
+            }
             List<Citation> citations = knowledgeContextService.retrieve(config, request.message(), run.runId());
+            if (terminal.get()) {
+                return;
+            }
             String userMessage = knowledgeContextService.augmentMessage(request.message(), citations);
             TraceStep step = traceService.startTraceStep(run.runId(), "app_stream_chat",
                     Map.of("conversationId", conversationId, "historySize", history.size(),
                             "citationCount", citations.size()));
             stepRef.set(step);
+            if (terminal.get()) {
+                TraceStep activeStep = stepRef.getAndSet(null);
+                if (activeStep != null) {
+                    traceService.failStep(activeStep.stepId(),
+                            new IllegalStateException("SSE stream already terminated"));
+                }
+                return;
+            }
             aiModelService.stream(chatAppRunner.systemPrompt(config), history, userMessage, chunk -> {
                 answer.append(chunk);
                 send(emitter, "message", new StreamChunk(run.runId(), chunk));
@@ -138,8 +152,7 @@ public class AppStreamRunner {
         }
         catch (RuntimeException ex) {
             log.warn("App SSE chat failed", ex);
-            completeWithError(emitter, terminal, stepRef, ex.getMessage());
-            traceService.markRunFailed(run.runId(), ex);
+            completeWithErrorAndFailRun(run.runId(), emitter, terminal, stepRef, ex);
         }
     }
 
@@ -154,6 +167,33 @@ public class AppStreamRunner {
             }
             try {
                 send(emitter, "error", new StreamError(null, message == null ? "app chat failed" : message));
+                emitter.complete();
+            }
+            catch (RuntimeException ex) {
+                emitter.completeWithError(ex);
+            }
+        }
+    }
+
+    private void completeWithErrorAndFailRun(String runId, SseEmitter emitter, AtomicBoolean terminal,
+            AtomicReference<TraceStep> stepRef, String message) {
+        completeWithErrorAndFailRun(runId, emitter, terminal, stepRef,
+                new IllegalStateException(message == null ? "app chat failed" : message));
+    }
+
+    private void completeWithErrorAndFailRun(String runId, SseEmitter emitter, AtomicBoolean terminal,
+            AtomicReference<TraceStep> stepRef, RuntimeException error) {
+        if (terminal.compareAndSet(false, true)) {
+            if (stepRef != null) {
+                TraceStep step = stepRef.getAndSet(null);
+                if (step != null) {
+                    traceService.failStep(step.stepId(), error);
+                }
+            }
+            traceService.markRunFailed(runId, error);
+            try {
+                send(emitter, "error", new StreamError(runId,
+                        error.getMessage() == null ? "app chat failed" : error.getMessage()));
                 emitter.complete();
             }
             catch (RuntimeException ex) {

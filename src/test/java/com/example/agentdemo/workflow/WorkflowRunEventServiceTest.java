@@ -23,35 +23,49 @@ class WorkflowRunEventServiceTest {
     private static final Instant STARTED_AT = Instant.parse("2026-07-01T12:00:00Z");
 
     @Test
-    void deltaDoesNotRepeatStepEventsOrRunDoneAcrossPolls() {
+    void deltaDoesNotRepeatStartedOrTerminalEvents() {
         TraceService traceService = mock(TraceService.class);
         WorkflowRunEventService service = new WorkflowRunEventService(traceService);
         WorkflowRunEventCursor cursor = new WorkflowRunEventCursor();
         RunStepResponse step = step("step-1", STARTED_AT, StepStatus.SUCCEEDED);
         when(traceService.getRun("run-1"))
-                .thenReturn(run(RunStatus.RUNNING), run(RunStatus.RUNNING),
-                        run(RunStatus.SUCCEEDED), run(RunStatus.SUCCEEDED));
+                .thenReturn(run(RunStatus.RUNNING), run(RunStatus.RUNNING));
         when(traceService.listStepsAfter("run-1", null, null)).thenReturn(List.of(step));
         when(traceService.listStepsAfter("run-1", STARTED_AT, "step-1")).thenReturn(List.of());
         when(traceService.countSteps("run-1")).thenReturn(1L);
+        when(traceService.findSteps("run-1", Set.of())).thenReturn(List.of());
+
+        WorkflowRunEventsSnapshot first = service.delta("run-1", cursor);
+        WorkflowRunEventsSnapshot second = service.delta("run-1", cursor);
+
+        assertThat(first.events()).extracting(WorkflowRunEvent::event)
+                .containsExactly("node_started", "node_succeeded");
+        assertThat(second.events()).isEmpty();
+    }
+
+    @Test
+    void deltaSendsRunDoneExactlyOnce() {
+        TraceService traceService = mock(TraceService.class);
+        WorkflowRunEventService service = new WorkflowRunEventService(traceService);
+        WorkflowRunEventCursor cursor = new WorkflowRunEventCursor();
+        RunStepResponse step = step("step-1", STARTED_AT, StepStatus.SUCCEEDED);
+        when(traceService.getRun("run-1")).thenReturn(run(RunStatus.SUCCEEDED), run(RunStatus.SUCCEEDED));
+        when(traceService.listStepsAfter("run-1", null, null)).thenReturn(List.of(step));
+        when(traceService.listStepsAfter("run-1", STARTED_AT, "step-1")).thenReturn(List.of());
         when(traceService.listSteps("run-1")).thenReturn(List.of(step));
         when(traceService.findSteps("run-1", Set.of())).thenReturn(List.of());
 
         WorkflowRunEventsSnapshot first = service.delta("run-1", cursor);
         WorkflowRunEventsSnapshot second = service.delta("run-1", cursor);
-        WorkflowRunEventsSnapshot third = service.delta("run-1", cursor);
-        WorkflowRunEventsSnapshot fourth = service.delta("run-1", cursor);
 
         assertThat(first.events()).extracting(WorkflowRunEvent::event)
-                .containsExactly("node_started", "node_succeeded");
+                .containsExactly("node_started", "node_succeeded", "run_done");
         assertThat(second.events()).isEmpty();
-        assertThat(third.events()).extracting(WorkflowRunEvent::event).containsExactly("run_done");
-        assertThat(fourth.events()).isEmpty();
         verify(traceService).listSteps("run-1");
     }
 
     @Test
-    void deltaUsesStartedAtAndStepIdCursorForStepsInSameMillisecond() {
+    void deltaHandlesSameStartedAtWithStepIdCursor() {
         TraceService traceService = mock(TraceService.class);
         WorkflowRunEventService service = new WorkflowRunEventService(traceService);
         WorkflowRunEventCursor cursor = new WorkflowRunEventCursor();

@@ -4,6 +4,7 @@ import com.example.agentdemo.audit.Audited;
 import com.example.agentdemo.common.PublicIdGenerator;
 import com.example.agentdemo.knowledge.dto.CreateKnowledgeBaseRequest;
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
+import com.example.agentdemo.rag.DocumentIndexStatus;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.KbDocumentCountProjection;
 import com.example.agentdemo.security.SecurityIdentity;
@@ -67,7 +68,8 @@ public class KnowledgeBaseService {
         }
         List<String> kbIds = entities.stream().map(KnowledgeBaseEntity::getKbId).toList();
         Map<String, Long> countsByKbId = documentRepository
-                .countGroupedByOwnerIdAndKbIdIn(SecurityIdentity.currentOwnerId(), kbIds)
+                .countGroupedByOwnerIdAndKbIdInAndIndexStatusNot(SecurityIdentity.currentOwnerId(), kbIds,
+                        DocumentIndexStatus.DELETED)
                 .stream()
                 .collect(Collectors.toMap(KbDocumentCountProjection::getKbId, KbDocumentCountProjection::getCount,
                         (left, right) -> right));
@@ -80,7 +82,8 @@ public class KnowledgeBaseService {
     @Transactional(readOnly = true)
     public KnowledgeBaseResponse getKnowledgeBase(String kbId) {
         KnowledgeBaseEntity entity = knowledgeBaseAccessService.findKb(kbId);
-        long count = documentRepository.countByOwnerIdAndKbId(entity.getOwnerId(), entity.getKbId());
+        long count = documentRepository.countByOwnerIdAndKbIdAndIndexStatusNot(entity.getOwnerId(), entity.getKbId(),
+                DocumentIndexStatus.DELETED);
         return knowledgeResponseMapper.toKnowledgeBaseResponse(entity, count);
     }
 

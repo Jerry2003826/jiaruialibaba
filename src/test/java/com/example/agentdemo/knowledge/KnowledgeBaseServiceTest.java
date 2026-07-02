@@ -1,6 +1,7 @@
 package com.example.agentdemo.knowledge;
 
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
+import com.example.agentdemo.rag.DocumentIndexStatus;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.KbDocumentCountProjection;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +41,8 @@ class KnowledgeBaseServiceTest {
         KnowledgeBaseEntity first = knowledgeBase("kb-1", "Docs", Instant.parse("2026-07-01T10:15:30Z"));
         KnowledgeBaseEntity second = knowledgeBase("kb-2", "Policies", Instant.parse("2026-07-01T10:15:31Z"));
         when(knowledgeBaseRepository.findByOwnerIdOrderByCreatedAtDesc("workbench-dev")).thenReturn(List.of(first, second));
-        when(documentRepository.countGroupedByOwnerIdAndKbIdIn(eq("workbench-dev"), eq(List.of("kb-1", "kb-2"))))
+        when(documentRepository.countGroupedByOwnerIdAndKbIdInAndIndexStatusNot(eq("workbench-dev"),
+                eq(List.of("kb-1", "kb-2")), eq(DocumentIndexStatus.DELETED)))
                 .thenReturn(List.of(projection("kb-1", 3L), projection("kb-2", 1L)));
         when(knowledgeResponseMapper.toKnowledgeBaseResponse(first, 3L))
                 .thenReturn(new KnowledgeBaseResponse("kb-1", "Docs", null, RetrievalConfig.defaults(), 3L,
@@ -52,8 +54,26 @@ class KnowledgeBaseServiceTest {
         List<KnowledgeBaseResponse> result = knowledgeBaseService.listKnowledgeBases();
 
         assertThat(result).extracting(KnowledgeBaseResponse::documentCount).containsExactly(3L, 1L);
-        verify(documentRepository).countGroupedByOwnerIdAndKbIdIn("workbench-dev", List.of("kb-1", "kb-2"));
-        verify(documentRepository, never()).countByOwnerIdAndKbId(any(), any());
+        verify(documentRepository).countGroupedByOwnerIdAndKbIdInAndIndexStatusNot("workbench-dev",
+                List.of("kb-1", "kb-2"), DocumentIndexStatus.DELETED);
+        verify(documentRepository, never()).countByOwnerIdAndKbIdAndIndexStatusNot(any(), any(), any());
+    }
+
+    @Test
+    void getKnowledgeBaseUsesVisibleDocumentCountLogic() {
+        KnowledgeBaseEntity entity = knowledgeBase("kb-1", "Docs", Instant.parse("2026-07-01T10:15:30Z"));
+        when(knowledgeBaseAccessService.findKb("kb-1")).thenReturn(entity);
+        when(documentRepository.countByOwnerIdAndKbIdAndIndexStatusNot("workbench-dev", "kb-1",
+                DocumentIndexStatus.DELETED)).thenReturn(1L);
+        when(knowledgeResponseMapper.toKnowledgeBaseResponse(entity, 1L))
+                .thenReturn(new KnowledgeBaseResponse("kb-1", "Docs", null, RetrievalConfig.defaults(), 1L,
+                        entity.getCreatedAt(), entity.getUpdatedAt()));
+
+        KnowledgeBaseResponse result = knowledgeBaseService.getKnowledgeBase("kb-1");
+
+        assertThat(result.documentCount()).isEqualTo(1L);
+        verify(documentRepository).countByOwnerIdAndKbIdAndIndexStatusNot("workbench-dev", "kb-1",
+                DocumentIndexStatus.DELETED);
     }
 
     private KnowledgeBaseEntity knowledgeBase(String kbId, String name, Instant createdAt) {
