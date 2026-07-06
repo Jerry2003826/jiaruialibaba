@@ -16,6 +16,7 @@ final class WorkflowExecutionState {
     private List<RetrievedContext> retrievedContext = List.of();
     private final List<ToolExecutionLog> toolCalls = new ArrayList<>();
     private final Map<String, Object> nodeOutputs = new LinkedHashMap<>();
+    private final Map<String, Object> stateVariables = new LinkedHashMap<>();
     private Object lastOutput;
     private Object finalOutput;
     private String answer;
@@ -31,6 +32,7 @@ final class WorkflowExecutionState {
         this.retrievedContext = source.retrievedContext;
         this.toolCalls.addAll(source.toolCalls);
         this.nodeOutputs.putAll(source.nodeOutputs);
+        this.stateVariables.putAll(source.stateVariables);
         this.lastOutput = source.lastOutput;
         this.finalOutput = source.finalOutput;
         this.answer = source.answer;
@@ -109,8 +111,17 @@ final class WorkflowExecutionState {
         return Collections.unmodifiableMap(new LinkedHashMap<>(nodeOutputs));
     }
 
+    Map<String, Object> stateVariables() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(stateVariables));
+    }
+
+    void setStateVariable(String name, Object value) {
+        stateVariables.put(name, value);
+    }
+
     void mergeBranchState(WorkflowExecutionState branchState, int baseToolCallCount) {
         this.nodeOutputs.putAll(branchState.nodeOutputs);
+        this.stateVariables.putAll(branchState.stateVariables);
         if (branchState.toolCalls.size() > baseToolCallCount) {
             this.toolCalls.addAll(branchState.toolCalls.subList(baseToolCallCount, branchState.toolCalls.size()));
         }

@@ -1,11 +1,14 @@
 package com.example.agentdemo;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -35,6 +38,18 @@ class FrontendStaticAssetsTest {
 
     private static final Pattern BLOCK_SCOPED_AGENT_WORKBENCH_DECLARATION =
             Pattern.compile("(^|\\n)\\s*(const|let)\\s+AgentWorkbench\\b");
+    private static final List<String> WORKBENCH_SCRIPT_PATHS = List.of(
+            "/js/api.js",
+            "/js/state.js",
+            "/js/ui.js",
+            "/js/workflow.js",
+            "/js/apps.js",
+            "/js/knowledge.js",
+            "/js/runs.js",
+            "/js/tools.js",
+            "/js/settings.js",
+            "/js/main.js"
+    );
 
     @Autowired
     private MockMvc mockMvc;
@@ -110,16 +125,20 @@ class FrontendStaticAssetsTest {
 
     @Test
     void classicWorkbenchScriptsAvoidRedeclaringAgentWorkbenchConst() throws Exception {
-        assertClassicScriptNamespaceSafe("/js/api.js");
-        assertClassicScriptNamespaceSafe("/js/state.js");
-        assertClassicScriptNamespaceSafe("/js/ui.js");
-        assertClassicScriptNamespaceSafe("/js/workflow.js");
-        assertClassicScriptNamespaceSafe("/js/apps.js");
-        assertClassicScriptNamespaceSafe("/js/knowledge.js");
-        assertClassicScriptNamespaceSafe("/js/runs.js");
-        assertClassicScriptNamespaceSafe("/js/tools.js");
-        assertClassicScriptNamespaceSafe("/js/settings.js");
-        assertClassicScriptNamespaceSafe("/js/main.js");
+        for (String scriptPath : WORKBENCH_SCRIPT_PATHS) {
+            assertClassicScriptNamespaceSafe(scriptPath);
+        }
+    }
+
+    @Test
+    void classicWorkbenchScriptsPassNodeSyntaxCheckWhenAvailable() throws Exception {
+        Assumptions.assumeTrue(isNodeAvailable(), "node is not available for static JS syntax checks");
+        for (String scriptPath : WORKBENCH_SCRIPT_PATHS) {
+            mockMvc.perform(get(scriptPath))
+                    .andExpect(status().isOk())
+                    .andExpect(result -> assertJavaScriptSyntaxValid(scriptPath,
+                            result.getResponse().getContentAsString(StandardCharsets.UTF_8)));
+        }
     }
 
     @Test
@@ -174,7 +193,10 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("loadHealth")))
                 .andExpect(content().string(containsString("renderRuntimeDetails")))
                 .andExpect(content().string(containsString("workflowRuntime")))
-                .andExpect(content().string(containsString("workflowRequirePublishedForRun")));
+                .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
+                .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"ui\")")))
+                .andExpect(content().string(containsString("AgentWorkbench.cacheElements = cacheElements")))
+                .andExpect(content().string(containsString("AgentWorkbench.runCommand = runCommand")));
     }
 
     @Test
@@ -347,6 +369,33 @@ class FrontendStaticAssetsTest {
         assertThat(BLOCK_SCOPED_AGENT_WORKBENCH_DECLARATION.matcher(scriptText).find())
                 .withFailMessage("Expected script to avoid block-scoped AgentWorkbench declarations, but found: %s", scriptText)
                 .isFalse();
+    }
+
+    private static boolean isNodeAvailable() {
+        try {
+            Process process = new ProcessBuilder("node", "--version")
+                    .redirectErrorStream(true)
+                    .start();
+            return process.waitFor() == 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void assertJavaScriptSyntaxValid(String path, String scriptText) throws Exception {
+        Path tempFile = Files.createTempFile("frontend-static-", ".js");
+        try {
+            Files.writeString(tempFile, scriptText, StandardCharsets.UTF_8);
+            Process process = new ProcessBuilder("node", "--check", tempFile.toString())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(process.waitFor())
+                    .withFailMessage("Expected %s to pass node --check:%n%s", path, output)
+                    .isZero();
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
     }
 
 }

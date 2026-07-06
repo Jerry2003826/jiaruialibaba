@@ -57,6 +57,9 @@ class WorkflowNodeSchemaRegistryTest {
                 .containsKey("allowedValues");
         assertThat(field(condition, "operator").constraints().get("allowedValues").toString())
                 .contains("greaterThan", "lessThan");
+        assertThat(field(condition, "mode").constraints().get("allowedValues").toString())
+                .contains("all", "any");
+        assertThat(field(condition, "conditions").type()).isEqualTo("array");
         assertThat(field(condition, "caseSensitive").defaultValue()).isEqualTo(false);
     }
 
@@ -84,7 +87,7 @@ class WorkflowNodeSchemaRegistryTest {
 
         assertThat(schema("loop_back").configFields())
                 .extracting(WorkflowNodeConfigField::name)
-                .containsExactly("retryCount", "timeoutMs");
+                .containsExactly("writeState", "retryCount", "timeoutMs");
     }
 
     @Test
@@ -98,6 +101,16 @@ class WorkflowNodeSchemaRegistryTest {
             assertThat(field(schema, "timeoutMs").constraints())
                     .containsEntry("min", 0)
                     .containsEntry("max", 300000);
+        }
+    }
+
+    @Test
+    void exposesWriteStateOnEveryNodeSchema() {
+        for (WorkflowNodeSchema schema : registry.listSchemas()) {
+            WorkflowNodeConfigField writeState = field(schema, "writeState");
+            assertThat(writeState.type()).isEqualTo("object");
+            assertThat(writeState.required()).isFalse();
+            assertThat(writeState.defaultValue()).isEqualTo(java.util.Map.of());
         }
     }
 

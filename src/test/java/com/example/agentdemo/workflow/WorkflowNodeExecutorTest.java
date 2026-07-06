@@ -116,6 +116,54 @@ class WorkflowNodeExecutorTest {
     }
 
     @Test
+    void llmNodeParsesJsonObjectAnswerIntoParsedOutput() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("""
+                        {"intent":"order_query","confidence":0.93,"orderIds":["20260630001"]}
+                        """, null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Object output = executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of("prompt", "Classify: {{input.message}}")),
+                state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class, map -> {
+            assertThat(map).containsKey("parsed");
+            Map<?, ?> parsed = (Map<?, ?>) map.get("parsed");
+            assertThat(parsed.get("intent")).isEqualTo("order_query");
+            assertThat(parsed.get("confidence")).isEqualTo(0.93);
+            assertThat(parsed.get("orderIds")).isEqualTo(List.of("20260630001"));
+        });
+    }
+
+    @Test
+    void nodeWritesExplicitWorkflowStateAfterSuccessfulExecution() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of(
+                "message", "hello",
+                "order", Map.of("status", "SHIPPED")));
+
+        executor.execute("run-1", new WorkflowNode("start", "start", Map.of(
+                "writeState", Map.of(
+                        "intent", "order_query",
+                        "message", "{{lastOutput.message}}",
+                        "order", "{{input.order}}"
+                )
+        )), state);
+
+        assertThat(state.stateVariables())
+                .containsEntry("intent", "order_query")
+                .containsEntry("message", "hello")
+                .containsEntry("order", Map.of("status", "SHIPPED"));
+    }
+
+    @Test
     void failedToolNodeThrowsBusinessExceptionWithToolErrorCategory() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
@@ -150,6 +198,91 @@ class WorkflowNodeExecutorTest {
         assertThatThrownBy(() -> executor.evaluateCondition("abc", "greaterthan", "3", false))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Numeric comparison requires numeric left/right values");
+    }
+
+    @Test
+    void conditionNodeSupportsAllCompositeConditions() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setStateVariable("intent", "order_query");
+        state.setStateVariable("order", Map.of("status", "SHIPPED"));
+
+        Object output = executor.execute("run-1", new WorkflowNode("check", "condition", Map.of(
+                "mode", "all",
+                "conditions", List.of(
+                        Map.of("left", "{{state.intent}}", "operator", "equals", "right", "order_query"),
+                        Map.of("left", "{{state.order.status}}", "operator", "equals", "right", "SHIPPED")
+                )
+        )), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class,
+                map -> assertThat(map).containsEntry("result", true));
+        assertThat(state.lastConditionResult()).isTrue();
+    }
+
+    @Test
+    void conditionNodeAllCompositeConditionsRequiresEveryCondition() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setStateVariable("intent", "order_query");
+        state.setStateVariable("order", Map.of("status", "PENDING_RETURN"));
+
+        Object output = executor.execute("run-1", new WorkflowNode("check", "condition", Map.of(
+                "mode", "all",
+                "conditions", List.of(
+                        Map.of("left", "{{state.intent}}", "operator", "equals", "right", "order_query"),
+                        Map.of("left", "{{state.order.status}}", "operator", "equals", "right", "SHIPPED")
+                )
+        )), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class,
+                map -> assertThat(map).containsEntry("result", false));
+        assertThat(state.lastConditionResult()).isFalse();
+    }
+
+    @Test
+    void conditionNodeSupportsAnyCompositeConditions() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setStateVariable("intent", "order_query");
+        state.setStateVariable("order", Map.of("status", "SHIPPED"));
+
+        Object output = executor.execute("run-1", new WorkflowNode("check", "condition", Map.of(
+                "mode", "any",
+                "conditions", List.of(
+                        Map.of("left", "{{state.intent}}", "operator", "equals", "right", "product_consult"),
+                        Map.of("left", "{{state.order.status}}", "operator", "equals", "right", "SHIPPED")
+                )
+        )), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class,
+                map -> assertThat(map).containsEntry("result", true));
+        assertThat(state.lastConditionResult()).isTrue();
+    }
+
+    @Test
+    void conditionNodeIgnoresEmptyCompositeConditionsDefaultAndUsesLegacyConfig() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Object output = executor.execute("run-1", new WorkflowNode("check", "condition", Map.of(
+                "left", "{{input.message}}",
+                "operator", "equals",
+                "right", "hello",
+                "conditions", List.of()
+        )), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class,
+                map -> assertThat(map).containsEntry("result", true));
+        assertThat(state.lastConditionResult()).isTrue();
     }
 
     private static final class RemoteEchoProvider implements ToolProvider {

@@ -8,9 +8,12 @@ import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolGatewayService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +26,7 @@ public class WorkflowNodeExecutor {
             You are a workflow LLM node. Use the workflow input and retrieved context when available.
             If context is missing, say what is missing instead of inventing details.
             """;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RagService ragService;
     private final AiModelService aiModelService;
@@ -43,7 +47,7 @@ public class WorkflowNodeExecutor {
     }
 
     Object execute(String runId, WorkflowNode node, WorkflowExecutionState state) {
-        return switch (normalizeType(node)) {
+        Object output = switch (normalizeType(node)) {
             case "start" -> executeStart(state);
             case "retriever" -> executeRetriever(runId, node, state);
             case "llm" -> executeLlm(node, state);
@@ -58,6 +62,8 @@ public class WorkflowNodeExecutor {
             case "dynamic" -> inlineExecutionService.executeDynamic(runId, node, state);
             default -> throw new BusinessException("WORKFLOW_UNSUPPORTED", "Unsupported node type: " + node.type());
         };
+        applyWriteState(node, state);
+        return output;
     }
 
     WorkflowInlineExecutionService inlineExecutionService() {
@@ -117,6 +123,10 @@ public class WorkflowNodeExecutor {
         Map<String, Object> output = orderedMap();
         output.put("prompt", prompt);
         output.put("answer", answer);
+        Object parsed = parseJsonAnswer(answer);
+        if (parsed != null) {
+            output.put("parsed", parsed);
+        }
         output.put("model", outputModel(configuredModel, result));
         output.put("fallback", result.fallback());
         output.put("errorMessage", result.errorMessage());
@@ -140,6 +150,9 @@ public class WorkflowNodeExecutor {
     }
 
     private Object executeCondition(WorkflowNode node, WorkflowExecutionState state) {
+        if (hasCompositeConditions(node)) {
+            return executeCompositeCondition(node, state);
+        }
         String left = variableResolver.renderString(configString(node, "left", "{{input}}"), state);
         String operator = configString(node, "operator", "contains").toLowerCase(Locale.ROOT);
         Object right = renderArgument(node.config().getOrDefault("right", ""), state);
@@ -154,6 +167,71 @@ public class WorkflowNodeExecutor {
         output.put("caseSensitive", caseSensitive);
         output.put("result", result);
         state.setLastOutput(output);
+        return output;
+    }
+
+    private boolean hasCompositeConditions(WorkflowNode node) {
+        Object rawConditions = node.config().get("conditions");
+        if (rawConditions == null) {
+            return false;
+        }
+        if (!(rawConditions instanceof Iterable<?> conditions)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + ".conditions must be array");
+        }
+        return conditions.iterator().hasNext();
+    }
+
+    private Object executeCompositeCondition(WorkflowNode node, WorkflowExecutionState state) {
+        List<Map<String, Object>> conditionOutputs = new ArrayList<>();
+        Object rawConditions = node.config().get("conditions");
+        if (!(rawConditions instanceof Iterable<?> conditions)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + ".conditions must be array");
+        }
+        for (Object rawCondition : conditions) {
+            if (!(rawCondition instanceof Map<?, ?> conditionConfig)) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Config " + node.id() + ".conditions items must be object");
+            }
+            conditionOutputs.add(evaluateConfiguredCondition(conditionConfig, state));
+        }
+        if (conditionOutputs.isEmpty()) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + ".conditions must not be empty");
+        }
+
+        String mode = configString(node, "mode", "all").toLowerCase(Locale.ROOT);
+        boolean result = switch (mode) {
+            case "all" -> conditionOutputs.stream().allMatch(condition -> Boolean.TRUE.equals(condition.get("result")));
+            case "any" -> conditionOutputs.stream().anyMatch(condition -> Boolean.TRUE.equals(condition.get("result")));
+            default -> throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Unsupported condition mode: " + mode);
+        };
+        state.setLastConditionResult(result);
+
+        Map<String, Object> output = orderedMap();
+        output.put("mode", mode);
+        output.put("conditions", conditionOutputs);
+        output.put("result", result);
+        state.setLastOutput(output);
+        return output;
+    }
+
+    private Map<String, Object> evaluateConfiguredCondition(Map<?, ?> conditionConfig, WorkflowExecutionState state) {
+        String left = variableResolver.renderString(configString(conditionConfig, "left", "{{input}}"), state);
+        String operator = configString(conditionConfig, "operator", "contains").toLowerCase(Locale.ROOT);
+        Object configuredRight = conditionConfig.containsKey("right") ? conditionConfig.get("right") : "";
+        Object right = renderArgument(configuredRight, state);
+        boolean caseSensitive = configBoolean(conditionConfig, "caseSensitive", false);
+        boolean result = evaluateCondition(left, operator, right, caseSensitive);
+
+        Map<String, Object> output = orderedMap();
+        output.put("left", left);
+        output.put("operator", operator);
+        output.put("right", right);
+        output.put("caseSensitive", caseSensitive);
+        output.put("result", result);
         return output;
     }
 
@@ -233,6 +311,18 @@ public class WorkflowNodeExecutor {
         return variableResolver.renderValue(value, state);
     }
 
+    private void applyWriteState(WorkflowNode node, WorkflowExecutionState state) {
+        Object configuredWriteState = node.config().get("writeState");
+        if (!(configuredWriteState instanceof Map<?, ?> writeState)) {
+            return;
+        }
+        for (Map.Entry<?, ?> entry : writeState.entrySet()) {
+            if (entry.getKey() instanceof String key && StringUtils.hasText(key)) {
+                state.setStateVariable(key, renderArgument(entry.getValue(), state));
+            }
+        }
+    }
+
     private Object executeEnd(WorkflowExecutionState state) {
         Object output = state.answer() != null ? finalAnswerOutput(state) : state.lastOutput();
         state.setFinalOutput(output);
@@ -259,6 +349,19 @@ public class WorkflowNodeExecutor {
                 "Alibaba LLM is required for workflow LLM nodes");
     }
 
+    private Object parseJsonAnswer(String answer) {
+        String text = answer == null ? "" : answer.trim();
+        if (!(text.startsWith("{") || text.startsWith("["))) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readValue(text, Object.class);
+        }
+        catch (JsonProcessingException ignored) {
+            return null;
+        }
+    }
+
     private String outputModel(String configuredModel, AiModelResult result) {
         if (result.tokenUsage() != null && StringUtils.hasText(result.tokenUsage().model())) {
             return result.tokenUsage().model();
@@ -270,7 +373,11 @@ public class WorkflowNodeExecutor {
     }
 
     private String configString(WorkflowNode node, String key, String defaultValue) {
-        Object value = node.config().get(key);
+        return configString(node.config(), key, defaultValue);
+    }
+
+    private String configString(Map<?, ?> config, String key, String defaultValue) {
+        Object value = config.get(key);
         if (value == null) {
             return defaultValue;
         }
@@ -295,7 +402,11 @@ public class WorkflowNodeExecutor {
     }
 
     private boolean configBoolean(WorkflowNode node, String key, boolean defaultValue) {
-        Object value = node.config().get(key);
+        return configBoolean(node.config(), key, defaultValue);
+    }
+
+    private boolean configBoolean(Map<?, ?> config, String key, boolean defaultValue) {
+        Object value = config.get(key);
         return value instanceof Boolean bool ? bool : defaultValue;
     }
 

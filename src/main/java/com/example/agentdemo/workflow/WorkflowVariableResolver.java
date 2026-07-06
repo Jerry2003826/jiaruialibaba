@@ -43,6 +43,7 @@ public class WorkflowVariableResolver {
             case "input" -> state.primaryInput();
             case "context" -> state.contextText();
             case "lastOutput" -> state.lastOutput();
+            case "state" -> state.stateVariables();
             case "toolResult" -> state.lastToolResult();
             case "answer" -> state.answer();
             default -> resolveDotted(name, state);
@@ -55,6 +56,9 @@ public class WorkflowVariableResolver {
         }
         if (name.startsWith("lastOutput.")) {
             return resolvePath(state.lastOutput(), name.substring("lastOutput.".length()));
+        }
+        if (name.startsWith("state.")) {
+            return resolvePath(state.stateVariables(), name.substring("state.".length()));
         }
         if (name.startsWith("nodes.")) {
             return resolveNodeOutput(name.substring("nodes.".length()), state);

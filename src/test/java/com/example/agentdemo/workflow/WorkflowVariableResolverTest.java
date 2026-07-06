@@ -41,6 +41,25 @@ class WorkflowVariableResolverTest {
     }
 
     @Test
+    void rendersExplicitWorkflowStateVariablesAndDottedPaths() {
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setStateVariable("intent", "order_query");
+        state.setStateVariable("order", Map.of(
+                "status", "SHIPPED",
+                "ids", List.of("20260630001", "20260630002")));
+
+        String rendered = resolver.renderString(
+                "{{state.intent}}|{{state.order.status}}|{{state.order.ids.1}}",
+                state);
+        Object exactValue = resolver.renderValue("{{state.order}}", state);
+
+        assertThat(rendered).isEqualTo("order_query|SHIPPED|20260630002");
+        assertThat(exactValue).isEqualTo(Map.of(
+                "status", "SHIPPED",
+                "ids", List.of("20260630001", "20260630002")));
+    }
+
+    @Test
     void returnsEmptyStringForMissingExactVariableValue() {
         WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
 

@@ -159,3 +159,12 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       else if (errorToast) toast(error.message, true);
       return null;
     }
+  }
+
+  AgentWorkbench.loadedModules = AgentWorkbench.loadedModules || [];
+  AgentWorkbench.loadedModules.push("ui");
+  AgentWorkbench.cacheElements = cacheElements;
+  AgentWorkbench.bindNavigation = bindNavigation;
+  AgentWorkbench.bindRuntimeChip = bindRuntimeChip;
+  AgentWorkbench.loadHealth = loadHealth;
+  AgentWorkbench.runCommand = runCommand;

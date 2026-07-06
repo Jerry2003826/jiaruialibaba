@@ -17,6 +17,7 @@ public class WorkflowNodeSchemaRegistry {
             "{{context}}",
             "{{lastOutput}}",
             "{{lastOutput.field}}",
+            "{{state.field}}",
             "{{nodes.nodeId.field}}",
             "{{toolResult}}",
             "{{answer}}");
@@ -188,6 +189,20 @@ public class WorkflowNodeSchemaRegistry {
                                 "Right value. String values can use workflow variables. Exact variable templates preserve the resolved value type.",
                                 Map.of("templateVariables", TEMPLATE_VARIABLES)),
                         new WorkflowNodeConfigField(
+                                "mode",
+                                "string",
+                                false,
+                                "all",
+                                "Composite condition mode used when conditions is configured.",
+                                orderedMap("allowedValues", List.of("all", "any"))),
+                        new WorkflowNodeConfigField(
+                                "conditions",
+                                "array",
+                                false,
+                                List.of(),
+                                "Optional list of condition objects with left/operator/right/caseSensitive fields.",
+                                Map.of("templateVariables", TEMPLATE_VARIABLES)),
+                        new WorkflowNodeConfigField(
                                 "caseSensitive",
                                 "boolean",
                                 false,
@@ -288,6 +303,13 @@ public class WorkflowNodeSchemaRegistry {
 
     private List<WorkflowNodeConfigField> withExecutionControls(List<WorkflowNodeConfigField> fields) {
         List<WorkflowNodeConfigField> merged = new ArrayList<>(fields);
+        merged.add(new WorkflowNodeConfigField(
+                "writeState",
+                "object",
+                false,
+                Map.of(),
+                "Optional map of workflow state variables to write after this node succeeds. Values support workflow variables.",
+                Map.of("templateVariables", TEMPLATE_VARIABLES)));
         merged.add(new WorkflowNodeConfigField(
                 "retryCount",
                 "integer",

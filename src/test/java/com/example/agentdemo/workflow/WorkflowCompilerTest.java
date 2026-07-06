@@ -55,6 +55,34 @@ class WorkflowCompilerTest {
     }
 
     @Test
+    void compilesConditionBranchWorkflowWithCompositeConditionConfig() {
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("check_intent", "condition", Map.of(
+                                "mode", "all",
+                                "conditions", List.of(
+                                        Map.of("left", "{{state.intent}}", "operator", "equals",
+                                                "right", "order_query"),
+                                        Map.of("left", "{{state.order.status}}", "operator", "equals",
+                                                "right", "SHIPPED")))),
+                        new WorkflowNode("tool_order", "tool", Map.of("toolName", "queryOrderAPI")),
+                        new WorkflowNode("llm_fallback", "llm", Map.of("prompt", "Answer {{input}}")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "check_intent"),
+                        new WorkflowEdge("check_intent", "tool_order", "true"),
+                        new WorkflowEdge("check_intent", "llm_fallback", "false"),
+                        new WorkflowEdge("tool_order", "end"),
+                        new WorkflowEdge("llm_fallback", "end"))));
+
+        assertThat(plan.linear()).isFalse();
+        assertThat(plan.outgoing("check_intent"))
+                .extracting(WorkflowExecutionEdge::condition)
+                .containsExactlyInAnyOrder("true", "false");
+    }
+
+    @Test
     void rejectsBranchingFromNonConditionNode() {
         WorkflowDefinition definition = new WorkflowDefinition(
                 List.of(
