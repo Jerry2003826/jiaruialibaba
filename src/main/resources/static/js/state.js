@@ -6,7 +6,12 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
   const fallbackSchemas = [
     { type: "start", displayName: "Start", configFields: [] },
     { type: "retriever", displayName: "Retriever", configFields: [{ name: "topK", type: "integer", defaultValue: 3 }] },
-    { type: "llm", displayName: "LLM", configFields: [{ name: "prompt", type: "string", defaultValue: "Answer using this context: {{context}}\nInput: {{input}}" }, { name: "model", type: "string", defaultValue: "" }] },
+    { type: "llm", displayName: "LLM", configFields: [
+      { name: "prompt", type: "string", defaultValue: "Answer using this context: {{context}}\nInput: {{input}}" },
+      { name: "model", type: "string", defaultValue: "" },
+      { name: "outputMode", type: "string", defaultValue: "text", constraints: { allowedValues: ["text", "json"] } },
+      { name: "outputSchema", type: "object", defaultValue: {} }
+    ] },
     { type: "tool", displayName: "Tool", configFields: [{ name: "toolName", type: "string", defaultValue: "getCurrentTime" }] },
     { type: "condition", displayName: "Condition", configFields: [{ name: "left", type: "string", defaultValue: "{{input}}" }, { name: "operator", type: "string", defaultValue: "contains" }, { name: "right", type: "any", defaultValue: "" }] },
     { type: "parallel", displayName: "Parallel", configFields: [] },
@@ -114,7 +119,8 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
   }
 
   const FIELD_LABELS = {
-    topK: "检索条数", prompt: "提示词模板", model: "模型名称", toolName: "调用工具",
+    topK: "检索条数", prompt: "提示词模板", model: "模型名称", outputMode: "输出模式",
+    outputSchema: "输出结构约束", toolName: "调用工具",
     left: "判断左值", operator: "判断条件", right: "判断右值", maxIterations: "最大循环次数",
     itemsFrom: "动态数据来源", action: "执行动作", definitionId: "子工作流", version: "子工作流版本",
     timeoutMs: "超时时间", retryCount: "重试次数", idempotent: "可安全重试"

@@ -118,15 +118,19 @@ public class WorkflowNodeExecutor {
                 ? aiModelService.generateWithModel(WORKFLOW_SYSTEM_PROMPT, prompt, configuredModel)
                 : aiModelService.generate(WORKFLOW_SYSTEM_PROMPT, prompt);
         String answer = resolveAnswer(prompt, state, result);
-        state.setAnswer(answer);
 
         Map<String, Object> output = orderedMap();
         output.put("prompt", prompt);
         output.put("answer", answer);
-        Object parsed = parseJsonAnswer(answer);
+        Object parsed = parseJsonAnswer(answer, requiresJsonOutput(node), node);
         if (parsed != null) {
+            WorkflowOutputSchemaValidator.validate(node.config().get("outputSchema"), parsed)
+                    .ifPresent(error -> {
+                        throw invalidLlmOutput(node, "violates outputSchema: " + error);
+            });
             output.put("parsed", parsed);
         }
+        state.setAnswer(answer);
         output.put("model", outputModel(configuredModel, result));
         output.put("fallback", result.fallback());
         output.put("errorMessage", result.errorMessage());
@@ -349,17 +353,38 @@ public class WorkflowNodeExecutor {
                 "Alibaba LLM is required for workflow LLM nodes");
     }
 
-    private Object parseJsonAnswer(String answer) {
+    private Object parseJsonAnswer(String answer, boolean required, WorkflowNode node) {
         String text = answer == null ? "" : answer.trim();
         if (!(text.startsWith("{") || text.startsWith("["))) {
+            if (required) {
+                throw invalidLlmOutput(node, "must be valid JSON object or array");
+            }
             return null;
         }
         try {
             return OBJECT_MAPPER.readValue(text, Object.class);
         }
-        catch (JsonProcessingException ignored) {
+        catch (JsonProcessingException ex) {
+            if (required) {
+                throw invalidLlmOutput(node, "must be valid JSON object or array: " + ex.getOriginalMessage());
+            }
             return null;
         }
+    }
+
+    private boolean requiresJsonOutput(WorkflowNode node) {
+        String outputMode = configString(node, "outputMode", "text");
+        return "json".equalsIgnoreCase(outputMode) || hasOutputSchema(node);
+    }
+
+    private boolean hasOutputSchema(WorkflowNode node) {
+        Object outputSchema = node.config().get("outputSchema");
+        return outputSchema instanceof Map<?, ?> schema && !schema.isEmpty();
+    }
+
+    private BusinessException invalidLlmOutput(WorkflowNode node, String message) {
+        return new BusinessException("WORKFLOW_LLM_OUTPUT_INVALID",
+                "LLM node " + node.id() + " output " + message);
     }
 
     private String outputModel(String configuredModel, AiModelResult result) {

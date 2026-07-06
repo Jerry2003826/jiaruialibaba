@@ -116,9 +116,23 @@ public class WorkflowNodeSchemaRegistry {
                                 false,
                                 null,
                                 "Optional DashScope chat model override for this LLM node.",
+                                Map.of()),
+                        new WorkflowNodeConfigField(
+                                "outputMode",
+                                "string",
+                                false,
+                                "text",
+                                "Controls whether the LLM output is free text or must be valid JSON.",
+                                orderedMap("allowedValues", List.of("text", "json"))),
+                        new WorkflowNodeConfigField(
+                                "outputSchema",
+                                "object",
+                                false,
+                                Map.of(),
+                                "Optional JSON Schema subset for validating parsed JSON output before downstream routing.",
                                 Map.of()))),
                 TEMPLATE_VARIABLES,
-                "A map containing prompt, answer, model, tokenUsage, fallback and errorMessage.");
+                "A map containing prompt, answer, parsed, model, tokenUsage, fallback and errorMessage.");
     }
 
     private WorkflowNodeSchema toolSchema() {

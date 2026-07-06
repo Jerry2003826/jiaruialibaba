@@ -33,9 +33,26 @@ class WorkflowNodeSchemaRegistryTest {
         WorkflowNodeSchema llm = schema("llm");
         assertThat(llm.templateVariables())
                 .contains("{{input}}", "{{input.field}}", "{{context}}", "{{lastOutput}}",
-                        "{{lastOutput.field}}", "{{nodes.nodeId.field}}", "{{toolResult}}", "{{answer}}");
+                        "{{lastOutput.field}}", "{{state.field}}", "{{nodes.nodeId.field}}", "{{toolResult}}",
+                        "{{answer}}");
         assertThat(field(llm, "prompt").defaultValue()).asString().contains("{{context}}");
         assertThat(field(llm, "model").defaultValue()).isNull();
+    }
+
+    @Test
+    void exposesLlmOutputContractFields() {
+        WorkflowNodeSchema llm = schema("llm");
+
+        WorkflowNodeConfigField outputMode = field(llm, "outputMode");
+        assertThat(outputMode.type()).isEqualTo("string");
+        assertThat(outputMode.defaultValue()).isEqualTo("text");
+        assertThat(outputMode.constraints().get("allowedValues").toString())
+                .contains("text", "json");
+
+        WorkflowNodeConfigField outputSchema = field(llm, "outputSchema");
+        assertThat(outputSchema.type()).isEqualTo("object");
+        assertThat(outputSchema.required()).isFalse();
+        assertThat(outputSchema.defaultValue()).isEqualTo(java.util.Map.of());
     }
 
     @Test

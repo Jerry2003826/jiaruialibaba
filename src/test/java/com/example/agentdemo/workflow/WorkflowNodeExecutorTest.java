@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -138,6 +139,132 @@ class WorkflowNodeExecutorTest {
             assertThat(parsed.get("confidence")).isEqualTo(0.93);
             assertThat(parsed.get("orderIds")).isEqualTo(List.of("20260630001"));
         });
+    }
+
+    @Test
+    void llmNodeRequiresJsonWhenOutputModeIsJson() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("I think this is an order question.", null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json"
+                )), state)
+        )
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_LLM_OUTPUT_INVALID"))
+                .hasMessageContaining("must be valid JSON");
+    }
+
+    @Test
+    void llmNodeRejectsJsonOutputMissingRequiredSchemaField() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("{\"confidence\":0.91}", null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", intentSchema()
+                )), state))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_LLM_OUTPUT_INVALID"))
+                .hasMessageContaining("Missing required workflow node output field: intent");
+    }
+
+    @Test
+    void llmNodeRejectsJsonOutputEnumOutsideSchemaContract() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("{\"intent\":\"do_anything\",\"confidence\":0.91}", null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", intentSchema()
+                )), state))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_LLM_OUTPUT_INVALID"))
+                .hasMessageContaining("Workflow node output field intent must be one of");
+    }
+
+    @Test
+    void llmNodeRejectsAdditionalJsonFieldsAndDoesNotWriteInvalidState() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("""
+                        {"intent":"order_query","confidence":0.91,"freeformAction":"call_any_tool"}
+                        """, null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Throwable thrown = catchThrowable(() -> executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", intentSchema(),
+                        "writeState", Map.of("intent", "{{lastOutput.parsed.intent}}")
+                )), state));
+
+        assertThat(thrown)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("WORKFLOW_LLM_OUTPUT_INVALID"))
+                .hasMessageContaining("Unsupported workflow node output field: freeformAction");
+        assertThat(state.stateVariables()).doesNotContainKey("intent");
+        assertThat(state.answer()).isNull();
+    }
+
+    @Test
+    void llmNodeAcceptsJsonSchemaAndAllowsWriteState() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("""
+                        {"intent":"order_query","confidence":0.91}
+                        """, null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        Object output = executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", intentSchema(),
+                        "writeState", Map.of(
+                                "intent", "{{lastOutput.parsed.intent}}",
+                                "confidence", "{{lastOutput.parsed.confidence}}"
+                        )
+                )), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class, map -> {
+            assertThat(map).containsKey("parsed");
+            Map<?, ?> parsed = (Map<?, ?>) map.get("parsed");
+            assertThat(parsed.get("intent")).isEqualTo("order_query");
+            assertThat(parsed.get("confidence")).isEqualTo(0.91);
+        });
+        assertThat(state.stateVariables())
+                .containsEntry("intent", "order_query")
+                .containsEntry("confidence", 0.91);
+        assertThat(state.answer()).contains("order_query");
     }
 
     @Test
@@ -283,6 +410,18 @@ class WorkflowNodeExecutorTest {
         assertThat(output).isInstanceOfSatisfying(Map.class,
                 map -> assertThat(map).containsEntry("result", true));
         assertThat(state.lastConditionResult()).isTrue();
+    }
+
+    private Map<String, Object> intentSchema() {
+        return Map.of(
+                "type", "object",
+                "required", List.of("intent", "confidence"),
+                "properties", Map.of(
+                        "intent", Map.of("type", "string",
+                                "enum", List.of("order_query", "refund_policy", "unknown")),
+                        "confidence", Map.of("type", "number"),
+                        "orderId", Map.of("type", "string")),
+                "additionalProperties", false);
     }
 
     private static final class RemoteEchoProvider implements ToolProvider {

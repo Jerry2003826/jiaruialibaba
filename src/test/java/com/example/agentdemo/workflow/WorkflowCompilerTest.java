@@ -83,6 +83,27 @@ class WorkflowCompilerTest {
     }
 
     @Test
+    void compilesLlmNodeWithOutputContractConfig() {
+        WorkflowExecutionPlan plan = compiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("classify", "llm", Map.of(
+                        "prompt", "Classify {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", Map.of(
+                                "type", "object",
+                                "required", List.of("intent"),
+                                "properties", Map.of(
+                                        "intent", Map.of("type", "string",
+                                                "enum", List.of("order_query", "refund_policy", "unknown"))),
+                                "additionalProperties", false))),
+                new WorkflowNode("end", "end", Map.of())));
+
+        assertThat(plan.linearNodes())
+                .extracting(WorkflowNode::id)
+                .containsExactly("start", "classify", "end");
+    }
+
+    @Test
     void rejectsBranchingFromNonConditionNode() {
         WorkflowDefinition definition = new WorkflowDefinition(
                 List.of(

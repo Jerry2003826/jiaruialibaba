@@ -183,6 +183,10 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("window.AgentWorkbench.state = state")))
                 .andExpect(content().string(containsString("window.AgentWorkbench.constants =")))
                 .andExpect(content().string(containsString("window.AgentWorkbench.variableLabel = variableLabel")))
+                .andExpect(content().string(containsString("outputMode")))
+                .andExpect(content().string(containsString("outputSchema")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("输出结构约束"))
                 .andExpect(content().string(containsString("FIELD_LABELS")));
     }
 
