@@ -32,6 +32,11 @@ public record ToolExecutionLog(String toolName, Object input, Object output, boo
                 errorType);
     }
 
+    public ToolExecutionLog withOutput(Object output) {
+        return new ToolExecutionLog(toolName, input, output, succeeded, errorMessage, startedAt, endedAt,
+                provider, remote, serverName, durationMs, errorCategory, errorType);
+    }
+
     public static ToolExecutionLog failure(String toolName, Object input, String errorMessage, Instant startedAt,
             Instant endedAt, ToolDescriptor descriptor, String errorCategory) {
         return failure(toolName, input, errorMessage, startedAt, endedAt, descriptor, errorCategory, ERROR_TYPE_NORMAL);

@@ -1,4 +1,4 @@
-# Production-oriented single-tenant deployment: app + postgres (+ optional redis, nginx).
+# Production-oriented single-tenant deployment: app + postgres + redis (+ optional nginx).
 # Usage:
 #   cp .env.prod.example .env.prod   # then fill real values (never commit .env.prod)
 #   docker compose -f docker-compose.prod.yml --profile proxy up --build -d
@@ -37,9 +37,13 @@ services:
       SPRING_PROFILES_ACTIVE: prod,postgres
       DB_HOST: postgres
       DB_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
       DEMO_AUDIT_TRUST_FORWARDED_HEADERS: ${DEMO_AUDIT_TRUST_FORWARDED_HEADERS:-false}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     expose:
       - "8080"
@@ -65,16 +69,19 @@ services:
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
-  # Optional cache/rate-limit backing store (not yet wired into the app; placeholder for future
-  # distributed rate limiting / session storage). Enable with: --profile cache
+  # Shared backing store for the built-in distributed rate limiter.
   redis:
     image: redis:7-alpine
     container_name: agent-demo-redis
     restart: unless-stopped
-    profiles: ["cache"]
     command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
     volumes:
       - agent_demo_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   agent_demo_pg_data:

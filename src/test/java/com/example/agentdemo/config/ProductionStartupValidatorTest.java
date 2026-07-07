@@ -29,7 +29,7 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.workflow.require-published-for-run", "true");
         env.setProperty("demo.workflow.allow-inline-run", "false");
         env.setProperty("demo.app.require-published-for-run", "true");
-        env.setProperty("demo.security.rate-limit.backend", "external");
+        env.setProperty("demo.security.rate-limit.backend", "redis");
         env.setProperty("spring.ai.dashscope.api-key", "sk-real-key");
         env.setProperty("demo.ai.embedding-model", "text-embedding-v4");
         env.setProperty("demo.dashvector.endpoint", "https://vrs.dashvector.cn");
@@ -143,7 +143,7 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.security.rate-limit.backend", "memory");
 
         assertThat(new ProductionStartupValidator(env).collectViolations())
-                .anyMatch(v -> v.contains("demo.security.rate-limit.backend must be external"));
+                .anyMatch(v -> v.contains("demo.security.rate-limit.backend must be redis or external"));
     }
 
     @Test

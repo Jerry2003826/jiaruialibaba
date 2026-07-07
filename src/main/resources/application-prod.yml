@@ -7,9 +7,9 @@ demo:
       enabled: false
     rate-limit:
       enabled: true
-      # Production deployments must use an external/shared limiter (gateway, Redis/Bucket4j, etc.).
-      # The in-process filter remains a local safety net only.
-      backend: ${DEMO_SECURITY_RATE_LIMIT_BACKEND:external}
+      # Production deployments must use a shared limiter. Use redis for the built-in distributed
+      # fixed-window limiter, or external only when a gateway enforces the same principal/method/path keys.
+      backend: ${DEMO_SECURITY_RATE_LIMIT_BACKEND:redis}
   app:
     require-published-for-run: true
   workflow:
@@ -19,6 +19,15 @@ demo:
     max-step-executions: ${DEMO_WORKFLOW_MAX_STEP_EXECUTIONS:1000}
 
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
   h2:
     console:
       enabled: false
+
+management:
+  health:
+    redis:
+      enabled: ${DEMO_REDIS_HEALTH_ENABLED:true}

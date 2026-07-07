@@ -38,6 +38,10 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+  data:
+    redis:
+      repositories:
+        enabled: false
   h2:
     console:
       enabled: false
@@ -76,6 +80,9 @@ management:
       show-components: never
       probes:
         enabled: true
+  health:
+    redis:
+      enabled: ${DEMO_REDIS_HEALTH_ENABLED:false}
   info:
     env:
       enabled: false
@@ -108,6 +115,10 @@ demo:
       # against the secured API in local/demo mode. Explicitly enable only for trusted local/demo use.
       enabled: ${DEMO_SECURITY_DEV_TOKEN_ENABLED:false}
       ttl-minutes: ${DEMO_SECURITY_DEV_TOKEN_TTL_MINUTES:120}
+    rate-limit:
+      enabled: ${DEMO_SECURITY_RATE_LIMIT_ENABLED:true}
+      backend: ${DEMO_SECURITY_RATE_LIMIT_BACKEND:memory}
+      requests-per-minute: ${DEMO_SECURITY_RATE_LIMIT_REQUESTS_PER_MINUTE:120}
   alibaba:
     strict-mode: ${DEMO_ALIBABA_STRICT_MODE:false}
   ai:
@@ -169,6 +180,7 @@ demo:
   tools:
     allow-all-remote-tools: ${DEMO_TOOLS_ALLOW_ALL_REMOTE_TOOLS:false}
     allowed-remote-tools: ${DEMO_TOOLS_ALLOWED_REMOTE_TOOLS:}
+    max-output-chars: ${DEMO_TOOLS_MAX_OUTPUT_CHARS:16384}
   mcp:
     enabled: ${DEMO_MCP_ENABLED:false}
   sse:

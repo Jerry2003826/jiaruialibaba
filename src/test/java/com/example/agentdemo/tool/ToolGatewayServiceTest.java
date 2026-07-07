@@ -1,5 +1,6 @@
 package com.example.agentdemo.tool;
 
+import com.example.agentdemo.common.SecretRedactor;
 import com.example.agentdemo.support.TestToolServices;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
@@ -89,6 +90,23 @@ class ToolGatewayServiceTest {
         assertThat(log.output()).asString()
                 .startsWith("mcp:")
                 .contains("hello mcp");
+    }
+
+    @Test
+    void sanitizesAndTruncatesRemoteToolOutputBeforeReturningLog() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new SensitiveLargeRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("github:remote_secret_dump"),
+                new ToolSchemaValidator(objectMapper), new ToolOutputSanitizer(objectMapper, 120));
+
+        ToolExecutionLog log = gateway.execute("remote_secret_dump", Map.of());
+
+        assertThat(log.succeeded()).isTrue();
+        String output = String.valueOf(log.output());
+        assertThat(output).contains("\"apiKey\":\"" + SecretRedactor.REDACTED + "\"");
+        assertThat(output).doesNotContain("sk-live-secret");
+        assertThat(output).contains("[TRUNCATED]");
+        assertThat(output.length()).isLessThanOrEqualTo(120);
     }
 
     @Test
@@ -548,6 +566,40 @@ class ToolGatewayServiceTest {
                 Thread.currentThread().interrupt();
             }
             return "late";
+        }
+
+    }
+
+    private static final class SensitiveLargeRemoteProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "mcp";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "remote_secret_dump".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            Map<String, Object> output = new LinkedHashMap<>();
+            output.put("apiKey", "sk-live-secret");
+            output.put("payload", "x".repeat(400));
+            return ToolExecutionLog.success(toolName, arguments, output, now, now, tools().getFirst());
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("remote_secret_dump", "Returns sensitive remote payload",
+                    "mcp", true, "github", """
+                            {
+                              "type": "object",
+                              "properties": {}
+                            }
+                            """));
         }
 
     }

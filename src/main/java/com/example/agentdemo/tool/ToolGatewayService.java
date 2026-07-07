@@ -16,11 +16,12 @@ public class ToolGatewayService {
     private final ToolExecutionPolicy toolExecutionPolicy;
     private final ToolRegistryCache toolRegistryCache;
     private final ToolSchemaValidator toolSchemaValidator;
+    private final ToolOutputSanitizer toolOutputSanitizer;
 
     @Autowired
     public ToolGatewayService(List<ToolProvider> providers, ToolExecutionPolicy toolExecutionPolicy,
-            ToolSchemaValidator toolSchemaValidator) {
-        this(toolExecutionPolicy, toolSchemaValidator, new ToolRegistryCache(providers));
+            ToolSchemaValidator toolSchemaValidator, ToolOutputSanitizer toolOutputSanitizer) {
+        this(toolExecutionPolicy, toolSchemaValidator, toolOutputSanitizer, new ToolRegistryCache(providers));
     }
 
     public ToolGatewayService(List<ToolProvider> providers) {
@@ -29,13 +30,21 @@ public class ToolGatewayService {
 
     public ToolGatewayService(List<ToolProvider> providers, ToolExecutionPolicy toolExecutionPolicy) {
         this(toolExecutionPolicy, new ToolSchemaValidator(new ObjectMapper()),
+                new ToolOutputSanitizer(new ObjectMapper(), 16_384),
                 new ToolRegistryCache(providers));
     }
 
     ToolGatewayService(ToolExecutionPolicy toolExecutionPolicy, ToolSchemaValidator toolSchemaValidator,
             ToolRegistryCache toolRegistryCache) {
+        this(toolExecutionPolicy, toolSchemaValidator, new ToolOutputSanitizer(new ObjectMapper(), 16_384),
+                toolRegistryCache);
+    }
+
+    ToolGatewayService(ToolExecutionPolicy toolExecutionPolicy, ToolSchemaValidator toolSchemaValidator,
+            ToolOutputSanitizer toolOutputSanitizer, ToolRegistryCache toolRegistryCache) {
         this.toolExecutionPolicy = toolExecutionPolicy;
         this.toolSchemaValidator = toolSchemaValidator;
+        this.toolOutputSanitizer = toolOutputSanitizer;
         this.toolRegistryCache = toolRegistryCache;
     }
 
@@ -56,7 +65,11 @@ public class ToolGatewayService {
             return ToolExecutionLog.failure(toolName, safeArguments, validationError, now, now, descriptor,
                     ToolExecutionLog.ERROR_VALIDATION);
         }
-        return provider.execute(toolName, safeArguments).withDescriptor(descriptor);
+        ToolExecutionLog log = provider.execute(toolName, safeArguments).withDescriptor(descriptor);
+        if (!log.succeeded()) {
+            return log;
+        }
+        return log.withOutput(toolOutputSanitizer.sanitize(log.output()));
     }
 
     public List<ToolDescriptor> listTools() {

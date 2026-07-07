@@ -14,47 +14,32 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 final class ApiRateLimitFilter extends OncePerRequestFilter {
 
-    private static final long WINDOW_MS = 60_000L;
-    private static final int MAX_TRACKED_WINDOWS = 10_000;
     private static final Pattern APP_RUNTIME_ENDPOINT = Pattern.compile("^/api/apps/[^/]+/(run|chat|chat/stream)$");
 
     private final boolean enabled;
-    private final int requestsPerMinute;
-    private final Map<String, Window> windows = new ConcurrentHashMap<>();
+    private final ApiRateLimiter rateLimiter;
 
-    ApiRateLimitFilter(boolean enabled, int requestsPerMinute) {
+    ApiRateLimitFilter(boolean enabled, ApiRateLimiter rateLimiter) {
         this.enabled = enabled;
-        this.requestsPerMinute = requestsPerMinute;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !enabled || requestsPerMinute <= 0 || !isRateLimitedEndpoint(request);
+        return !enabled || !isRateLimitedEndpoint(request);
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        long currentWindow = System.currentTimeMillis() / WINDOW_MS;
-        Window window = windows.compute(rateLimitKey(request), (key, existing) -> {
-            if (existing == null || existing.window() != currentWindow) {
-                return new Window(currentWindow, 1);
-            }
-            existing.increment();
-            return existing;
-        });
-        if (window.count() > requestsPerMinute) {
+        if (!rateLimiter.allow(rateLimitKey(request))) {
             writeRateLimitResponse(response);
             return;
         }
-        cleanupOldWindows(currentWindow);
         filterChain.doFilter(request, response);
     }
 
@@ -111,42 +96,6 @@ final class ApiRateLimitFilter extends OncePerRequestFilter {
         response.getWriter().write("""
                 {"success":false,"code":"RATE_LIMITED","message":"Too many requests. Please retry later.","data":null,"timestamp":"%s"}\
                 """.formatted(Instant.now()));
-    }
-
-    private void cleanupOldWindows(long currentWindow) {
-        if (windows.size() <= MAX_TRACKED_WINDOWS) {
-            return;
-        }
-        Iterator<Map.Entry<String, Window>> iterator = windows.entrySet().iterator();
-        while (iterator.hasNext()) {
-            if (iterator.next().getValue().window() < currentWindow) {
-                iterator.remove();
-            }
-        }
-    }
-
-    private static final class Window {
-
-        private final long window;
-        private int count;
-
-        private Window(long window, int count) {
-            this.window = window;
-            this.count = count;
-        }
-
-        private long window() {
-            return window;
-        }
-
-        private int count() {
-            return count;
-        }
-
-        private void increment() {
-            count++;
-        }
-
     }
 
 }

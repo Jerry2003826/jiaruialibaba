@@ -11,11 +11,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -34,6 +36,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.util.StringUtils;
+
+import java.util.Locale;
 
 @Configuration
 @EnableMethodSecurity
@@ -159,8 +163,25 @@ public class SecurityConfig {
     @Bean
     ApiRateLimitFilter apiRateLimitFilter(
             @Value("${demo.security.rate-limit.enabled:true}") boolean enabled,
-            @Value("${demo.security.rate-limit.requests-per-minute:120}") int requestsPerMinute) {
-        return new ApiRateLimitFilter(enabled, requestsPerMinute);
+            ApiRateLimiter apiRateLimiter) {
+        return new ApiRateLimitFilter(enabled, apiRateLimiter);
+    }
+
+    @Bean
+    ApiRateLimiter apiRateLimiter(
+            @Value("${demo.security.rate-limit.backend:memory}") String backend,
+            @Value("${demo.security.rate-limit.requests-per-minute:120}") int requestsPerMinute,
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
+        return switch (backend.toLowerCase(Locale.ROOT)) {
+            case "memory" -> new InMemoryApiRateLimiter(requestsPerMinute);
+            case "redis" -> new RedisApiRateLimiter(redisTemplateProvider.getIfAvailable(() -> {
+                throw new IllegalStateException("demo.security.rate-limit.backend=redis requires a Redis connection "
+                        + "and spring-boot-starter-data-redis auto-configuration.");
+            }), requestsPerMinute);
+            case "external" -> NoopApiRateLimiter.INSTANCE;
+            default -> throw new IllegalStateException("Unsupported demo.security.rate-limit.backend: " + backend
+                    + " (expected memory, redis, or external)");
+        };
     }
 
     @Bean

@@ -102,9 +102,9 @@ public class ProductionStartupValidator implements ApplicationRunner {
             violations.add("demo.security.jwt-mode must be 'issuer' (recommended) or 'hmac', got: " + jwtMode);
         }
         String rateLimitBackend = environment.getProperty("demo.security.rate-limit.backend", "memory");
-        if (!"external".equalsIgnoreCase(rateLimitBackend)) {
-            violations.add("demo.security.rate-limit.backend must be external in prod "
-                    + "(use a gateway or shared backing store; the in-memory limiter is single-instance only).");
+        if (!"redis".equalsIgnoreCase(rateLimitBackend) && !"external".equalsIgnoreCase(rateLimitBackend)) {
+            violations.add("demo.security.rate-limit.backend must be redis or external in prod "
+                    + "(the in-memory limiter is single-instance only).");
         }
     }
 
