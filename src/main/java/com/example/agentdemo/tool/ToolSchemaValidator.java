@@ -3,19 +3,27 @@ package com.example.agentdemo.tool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.networknt.schema.JsonSchema;
+import com.networknt.schema.JsonSchemaFactory;
+import com.networknt.schema.SpecVersion;
+import com.networknt.schema.ValidationMessage;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Component
 public class ToolSchemaValidator {
 
     private final ObjectMapper objectMapper;
+    private final JsonSchemaFactory schemaFactory;
 
     public ToolSchemaValidator(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.schemaFactory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012);
     }
 
     public Optional<String> validateForGateway(String inputSchema, Map<String, Object> arguments) {
@@ -42,7 +50,36 @@ public class ToolSchemaValidator {
         if (requiredError != null) {
             return Optional.of(requiredError);
         }
-        return Optional.ofNullable(validateArgumentTypes(schema, safeArguments, messages));
+        String shallowError = validateArgumentTypes(schema, safeArguments, messages);
+        if (shallowError != null) {
+            return Optional.of(shallowError);
+        }
+        return Optional.ofNullable(validateWithJsonSchema(schema, safeArguments, messages));
+    }
+
+    private String validateWithJsonSchema(JsonNode schema, Map<String, Object> arguments, ValidationMessages messages) {
+        JsonSchema jsonSchema = schemaFactory.getSchema(schema);
+        Set<ValidationMessage> errors = jsonSchema.validate(objectMapper.valueToTree(arguments));
+        return errors.stream()
+                .min(Comparator.comparing(ValidationMessage::getMessage))
+                .map(error -> messages.schemaViolation(fieldName(error), error.getMessage()))
+                .orElse(null);
+    }
+
+    private String fieldName(ValidationMessage error) {
+        String path = error.getInstanceLocation() == null ? null : error.getInstanceLocation().toString();
+        String property = error.getProperty();
+        if ((path == null || path.equals("$") || path.isBlank()) && property != null && !property.isBlank()) {
+            return property;
+        }
+        if (path == null || path.equals("$")) {
+            return "input";
+        }
+        String normalized = path.startsWith("$.") ? path.substring(2) : path.replaceFirst("^/", "");
+        if (normalized.isBlank()) {
+            return "input";
+        }
+        return normalized;
     }
 
     private String validateRequiredArguments(JsonNode schema, Map<String, Object> arguments,
@@ -231,6 +268,10 @@ public class ToolSchemaValidator {
 
         private String enumMismatch(String fieldName, JsonNode enumValues) {
             return argumentPrefix + fieldName + " must be one of " + enumValues;
+        }
+
+        private String schemaViolation(String fieldName, String detail) {
+            return argumentPrefix + fieldName + " violates JSON Schema: " + detail;
         }
 
     }

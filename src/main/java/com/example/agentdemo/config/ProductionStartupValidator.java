@@ -56,6 +56,7 @@ public class ProductionStartupValidator implements ApplicationRunner {
     private void validateDatasource(List<String> violations) {
         String url = environment.getProperty("spring.datasource.url", "");
         String driver = environment.getProperty("spring.datasource.driver-class-name", "");
+        String password = environment.getProperty("spring.datasource.password", "");
         if (url.startsWith("jdbc:h2:") || driver.toLowerCase().contains("h2")) {
             violations.add("H2 datasource must not be used in prod; configure a PostgreSQL "
                     + "spring.datasource.url (activate the 'postgres' profile alongside 'prod').");
@@ -63,6 +64,9 @@ public class ProductionStartupValidator implements ApplicationRunner {
         else if (!url.startsWith("jdbc:postgresql:")) {
             violations.add("A PostgreSQL datasource is required in prod "
                     + "(spring.datasource.url must start with jdbc:postgresql:).");
+        }
+        if (isDefaultDatabasePassword(password)) {
+            violations.add("spring.datasource.password must not use a demo default or placeholder value in prod.");
         }
     }
 
@@ -97,6 +101,23 @@ public class ProductionStartupValidator implements ApplicationRunner {
         else {
             violations.add("demo.security.jwt-mode must be 'issuer' (recommended) or 'hmac', got: " + jwtMode);
         }
+        String rateLimitBackend = environment.getProperty("demo.security.rate-limit.backend", "memory");
+        if (!"external".equalsIgnoreCase(rateLimitBackend)) {
+            violations.add("demo.security.rate-limit.backend must be external in prod "
+                    + "(use a gateway or shared backing store; the in-memory limiter is single-instance only).");
+        }
+    }
+
+    private boolean isDefaultDatabasePassword(String password) {
+        if (!StringUtils.hasText(password)) {
+            return true;
+        }
+        String normalized = password.trim().toLowerCase();
+        return normalized.equals("agent_demo")
+                || normalized.equals("password")
+                || normalized.equals("postgres")
+                || normalized.equals("change-me-strong-db-password")
+                || normalized.equals("change-me-strong-db-password!");
     }
 
     private void validateRuntimePolicy(List<String> violations) {

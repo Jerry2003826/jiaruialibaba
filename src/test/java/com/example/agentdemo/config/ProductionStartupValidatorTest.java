@@ -16,6 +16,8 @@ class ProductionStartupValidatorTest {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("spring.datasource.url", "jdbc:postgresql://db:5432/agent_demo");
         env.setProperty("spring.datasource.driver-class-name", "org.postgresql.Driver");
+        env.setProperty("spring.datasource.username", "agent_demo_prod");
+        env.setProperty("spring.datasource.password", "prod-random-db-password-123456");
         env.setProperty("demo.security.dev-token.enabled", "false");
         env.setProperty("demo.security.jwt-mode", "issuer");
         env.setProperty("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
@@ -27,6 +29,7 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.workflow.require-published-for-run", "true");
         env.setProperty("demo.workflow.allow-inline-run", "false");
         env.setProperty("demo.app.require-published-for-run", "true");
+        env.setProperty("demo.security.rate-limit.backend", "external");
         env.setProperty("spring.ai.dashscope.api-key", "sk-real-key");
         env.setProperty("demo.ai.embedding-model", "text-embedding-v4");
         env.setProperty("demo.dashvector.endpoint", "https://vrs.dashvector.cn");
@@ -55,6 +58,24 @@ class ProductionStartupValidatorTest {
         env.setProperty("spring.datasource.driver-class-name", "com.mysql.cj.jdbc.Driver");
         assertThat(new ProductionStartupValidator(env).collectViolations())
                 .anyMatch(v -> v.contains("PostgreSQL datasource is required"));
+    }
+
+    @Test
+    void rejectsDefaultDatabasePassword() {
+        MockEnvironment env = hardenedEnvironment();
+        env.setProperty("spring.datasource.password", "agent_demo");
+
+        assertThat(new ProductionStartupValidator(env).collectViolations())
+                .anyMatch(v -> v.contains("spring.datasource.password must not use a demo default"));
+    }
+
+    @Test
+    void rejectsPlaceholderDatabasePassword() {
+        MockEnvironment env = hardenedEnvironment();
+        env.setProperty("spring.datasource.password", "change-me-strong-db-password");
+
+        assertThat(new ProductionStartupValidator(env).collectViolations())
+                .anyMatch(v -> v.contains("spring.datasource.password must not use a demo default"));
     }
 
     @Test
@@ -114,6 +135,15 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.ai.fallback-enabled", "true");
         assertThat(new ProductionStartupValidator(env).collectViolations())
                 .anyMatch(v -> v.contains("demo.ai.fallback-enabled must be false"));
+    }
+
+    @Test
+    void rejectsInMemoryRateLimitBackendInProduction() {
+        MockEnvironment env = hardenedEnvironment();
+        env.setProperty("demo.security.rate-limit.backend", "memory");
+
+        assertThat(new ProductionStartupValidator(env).collectViolations())
+                .anyMatch(v -> v.contains("demo.security.rate-limit.backend must be external"));
     }
 
     @Test

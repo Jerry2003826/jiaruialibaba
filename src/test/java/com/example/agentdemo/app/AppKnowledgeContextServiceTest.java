@@ -51,7 +51,7 @@ class AppKnowledgeContextServiceTest {
                 List.of(new Citation(1L, "Returns", 0, "Refunds within 30 days", 0.8)));
 
         assertThat(augmented)
-                .contains("Retrieved knowledge base context", "Returns", "Refunds within 30 days",
+                .contains("BEGIN_UNTRUSTED_CONTEXT", "END_UNTRUSTED_CONTEXT", "Returns", "Refunds within 30 days",
                         "Question:", "What is the policy?");
     }
 

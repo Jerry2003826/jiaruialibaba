@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-agent_demo}
       POSTGRES_USER: ${DB_USERNAME:-agent_demo}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me-strong-db-password}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.prod}
     volumes:
       - agent_demo_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     env_file:
       - path: .env.prod
-        required: false
+        required: true
     environment:
       SPRING_PROFILES_ACTIVE: prod,postgres
       DB_HOST: postgres

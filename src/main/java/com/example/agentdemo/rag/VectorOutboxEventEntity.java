@@ -16,6 +16,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "vector_outbox_events")
@@ -51,6 +52,9 @@ public class VectorOutboxEventEntity {
     // Lease held by the worker currently processing this event. A PROCESSING event whose lease has
     // expired is considered abandoned (the worker crashed) and may be reclaimed by another worker.
     private Instant leaseExpiresAt;
+
+    @Column(length = 36)
+    private String claimId;
 
     @Column(length = 2048)
     private String lastError;
@@ -137,6 +141,10 @@ public class VectorOutboxEventEntity {
         return leaseExpiresAt;
     }
 
+    public String getClaimId() {
+        return claimId;
+    }
+
     public int getAttempts() {
         return attempts;
     }
@@ -164,12 +172,14 @@ public class VectorOutboxEventEntity {
     public void claim(Instant leaseExpiry) {
         this.status = VectorOutboxEventStatus.PROCESSING;
         this.leaseExpiresAt = leaseExpiry;
+        this.claimId = UUID.randomUUID().toString();
     }
 
     public void markSucceeded() {
         this.status = VectorOutboxEventStatus.SUCCEEDED;
         this.lastError = null;
         this.leaseExpiresAt = null;
+        this.claimId = null;
     }
 
     public void markFailed(RuntimeException failure) {
@@ -178,6 +188,7 @@ public class VectorOutboxEventEntity {
         this.lastError = abbreviate(failure.getMessage());
         this.nextAttemptAt = Instant.now().plusSeconds(Math.min(300, (long) Math.pow(2, attempts)));
         this.leaseExpiresAt = null;
+        this.claimId = null;
     }
 
     private String abbreviate(String message) {

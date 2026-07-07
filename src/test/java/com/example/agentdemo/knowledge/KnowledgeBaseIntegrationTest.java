@@ -13,6 +13,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -150,6 +151,18 @@ class KnowledgeBaseIntegrationTest {
 
         assertThat(knowledgeSearchService.search(kbA, "returns", null).citations()).hasSize(1);
         assertThat(knowledgeSearchService.search(kbB, "returns", null).citations()).isEmpty();
+    }
+
+    @Test
+    void searchSupportsSingleHanCharacterQueries() {
+        String kbId = knowledgeBaseService.createKnowledgeBase(
+                new CreateKnowledgeBaseRequest("Chinese Policies", null, null)).kbId();
+        KnowledgeDocumentResponse doc = knowledgeIngestionService.addTextDocument(kbId,
+                new TextDocumentRequest("退货政策", "退货和退款流程说明"));
+
+        KnowledgeSearchResponse result = knowledgeSearchService.search(kbId, "退", null);
+
+        assertThat(result.citations()).extracting(Citation::documentId).contains(doc.documentId());
     }
 
     @Test
@@ -329,7 +342,7 @@ class KnowledgeBaseIntegrationTest {
             document.addPage(page);
             try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
                 stream.beginText();
-                stream.setFont(PDType1Font.HELVETICA, 12);
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
                 stream.newLineAtOffset(50, 700);
                 stream.showText(text);
                 stream.endText();

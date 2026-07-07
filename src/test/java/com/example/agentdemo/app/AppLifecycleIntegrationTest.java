@@ -213,7 +213,8 @@ class AppLifecycleIntegrationTest {
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
         Mockito.verify(aiModelService).generate(Mockito.anyString(), Mockito.anyList(), prompt.capture(),
                 Mockito.any());
-        assertThat(prompt.getValue()).contains("Retrieved knowledge base context", "returns policy");
+        assertThat(prompt.getValue()).contains("BEGIN_UNTRUSTED_CONTEXT", "returns policy",
+                "END_UNTRUSTED_CONTEXT", "Question:\nreturns refund policy");
     }
 
     private String publishedWorkflow() {

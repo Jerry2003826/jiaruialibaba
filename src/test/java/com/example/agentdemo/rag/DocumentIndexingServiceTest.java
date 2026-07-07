@@ -20,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -51,6 +52,7 @@ class DocumentIndexingServiceTest {
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
+        ReflectionTestUtils.setField(document, "kbId", "kb-products");
 
         List<DocumentChunkEntity> savedChunks = service.index(document);
 
@@ -70,6 +72,8 @@ class DocumentIndexingServiceTest {
         assertThat(eventCaptor.getValue().getType()).isEqualTo(VectorOutboxEventType.UPSERT);
         assertThat(eventCaptor.getValue().getDocumentId()).isEqualTo(7L);
         assertThat(eventCaptor.getValue().getPayloadJson()).contains("doc-7-chunk-0", "doc-7-chunk-1");
+        assertThat(eventCaptor.getValue().getPayloadJson())
+                .contains("\"ownerId\":\"workbench-dev\"", "\"kbId\":\"kb-products\"");
     }
 
     @Test
@@ -101,6 +105,7 @@ class DocumentIndexingServiceTest {
 
         DocumentEntity document = new DocumentEntity("Letters", "abcdefghijklmnop");
         ReflectionTestUtils.setField(document, "id", 7L);
+        ReflectionTestUtils.setField(document, "kbId", "kb-products");
 
         assertThatThrownBy(() -> service.index(document))
                 .isInstanceOfSatisfying(BusinessException.class, ex ->
@@ -288,7 +293,7 @@ class DocumentIndexingServiceTest {
         }
 
         @Override
-        public List<VectorSearchResult> search(float[] queryVector, int topK) {
+        public List<VectorSearchResult> search(float[] queryVector, int topK, Map<String, Object> metadataFilter) {
             return List.of();
         }
 

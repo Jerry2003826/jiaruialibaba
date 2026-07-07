@@ -91,11 +91,11 @@ public class VectorOutboxWorker {
         }
         try {
             performExternalEffect(claimed);
-            finalizeSuccess(id);
+            finalizeSuccess(id, claimed.getClaimId());
         }
         catch (RuntimeException ex) {
             log.warn("Vector outbox event {} ({}) failed; scheduling retry", id, claimed.getType(), ex);
-            finalizeFailure(id, ex);
+            finalizeFailure(id, claimed.getClaimId(), ex);
         }
     }
 
@@ -138,8 +138,8 @@ public class VectorOutboxWorker {
         vectorStoreGateway.delete(vectorIds);
     }
 
-    private void finalizeSuccess(Long id) {
-        runFinalize(id, event -> {
+    private void finalizeSuccess(Long id, String claimId) {
+        runFinalize(id, claimId, event -> {
             if (event.getType() == VectorOutboxEventType.UPSERT) {
                 finalizeUpsertSuccess(event);
             }
@@ -183,8 +183,8 @@ public class VectorOutboxWorker {
                 + "compensating delete for {} orphaned vector(s)", upsertEvent.getDocumentId(), vectorIds.size());
     }
 
-    private void finalizeFailure(Long id, RuntimeException failure) {
-        runFinalize(id, event -> {
+    private void finalizeFailure(Long id, String claimId, RuntimeException failure) {
+        runFinalize(id, claimId, event -> {
             event.markFailed(failure);
             if (event.getType() == VectorOutboxEventType.UPSERT
                     && event.getStatus() == VectorOutboxEventStatus.DEAD_LETTER) {
@@ -203,11 +203,12 @@ public class VectorOutboxWorker {
         });
     }
 
-    private void runFinalize(Long id, Consumer<VectorOutboxEventEntity> mutation) {
+    private void runFinalize(Long id, String claimId, Consumer<VectorOutboxEventEntity> mutation) {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 VectorOutboxEventEntity event = outboxEventRepository.findById(id).orElse(null);
-                if (event == null || event.getStatus() != VectorOutboxEventStatus.PROCESSING) {
+                if (event == null || event.getStatus() != VectorOutboxEventStatus.PROCESSING
+                        || claimId == null || !claimId.equals(event.getClaimId())) {
                     // Already finalized, or the lease expired and another worker reclaimed it.
                     return;
                 }

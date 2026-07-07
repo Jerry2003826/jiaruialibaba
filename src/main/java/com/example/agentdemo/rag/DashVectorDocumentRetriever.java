@@ -19,6 +19,9 @@ import java.util.stream.Collectors;
 
 public class DashVectorDocumentRetriever implements DocumentRetriever {
 
+    private static final int OVER_FETCH_MULTIPLIER = 10;
+    private static final int MAX_VECTOR_FETCH = 200;
+
     private final VectorStoreGateway vectorStoreGateway;
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
@@ -57,7 +60,10 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
             throw new BusinessException("EMBEDDING_FAILED", "Failed to embed retrieval query", ex);
         }
 
-        List<VectorSearchResult> vectorResults = vectorStoreGateway.search(queryVector, limit);
+        String ownerId = SecurityIdentity.currentOwnerId();
+        int vectorLimit = Math.min(MAX_VECTOR_FETCH, Math.max(limit, limit * OVER_FETCH_MULTIPLIER));
+        Map<String, Object> metadataFilter = Map.of("ownerId", ownerId);
+        List<VectorSearchResult> vectorResults = vectorStoreGateway.search(queryVector, vectorLimit, metadataFilter);
         if (vectorResults.isEmpty()) {
             return List.of();
         }
@@ -78,8 +84,7 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                 .map(DocumentChunkEntity::getDocumentId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, DocumentEntity> documentsById = documentRepository
-                .findByOwnerIdAndIdInAndIndexStatus(SecurityIdentity.currentOwnerId(), documentIds,
-                        DocumentIndexStatus.READY)
+                .findByOwnerIdAndIdInAndIndexStatus(ownerId, documentIds, DocumentIndexStatus.READY)
                 .stream()
                 .collect(Collectors.toMap(DocumentEntity::getId, Function.identity()));
 
@@ -88,6 +93,7 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                 .map(result -> toRetrievedContext(result, chunksByVectorId, documentsById))
                 .filter(context -> context != null)
                 .sorted(Comparator.comparingDouble(RetrievedContext::score).reversed())
+                .limit(limit)
                 .toList();
     }
 

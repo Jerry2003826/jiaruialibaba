@@ -59,4 +59,46 @@ class ToolSchemaValidatorTest {
                 .hasValue("Tool argument mode must be one of [\"read\",\"write\"]");
     }
 
+    @Test
+    void rejectsUnexpectedTopLevelPropertiesWhenAdditionalPropertiesIsFalse() {
+        String schema = """
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "query": {"type": "string"}
+                  }
+                }
+                """;
+
+        assertThat(validator.validateForGateway(schema, Map.of("query", "status", "admin", true)))
+                .hasValueSatisfying(message -> assertThat(message).contains("admin"));
+    }
+
+    @Test
+    void rejectsNestedPropertiesAndStringAndNumericBounds() {
+        String schema = """
+                {
+                  "type": "object",
+                  "properties": {
+                    "customer": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name", "age"],
+                      "properties": {
+                        "name": {"type": "string", "maxLength": 4},
+                        "age": {"type": "integer", "minimum": 18, "maximum": 120}
+                      }
+                    }
+                  },
+                  "required": ["customer"]
+                }
+                """;
+
+        assertThat(validator.validateForGateway(schema,
+                Map.of("customer", Map.of("name", "Alice", "age", 17, "role", "admin"))))
+                .hasValueSatisfying(message -> assertThat(message)
+                        .containsAnyOf("customer", "name", "age", "role"));
+    }
+
 }

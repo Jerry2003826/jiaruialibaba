@@ -123,7 +123,7 @@ class DocumentIndexingServiceStrictTest {
 
         @Override
         public java.util.List<com.example.agentdemo.rag.vector.VectorSearchResult> search(float[] queryVector,
-                int topK) {
+                int topK, java.util.Map<String, Object> metadataFilter) {
             return java.util.List.of();
         }
 
@@ -161,7 +161,7 @@ class DocumentIndexingServiceStrictTest {
 
         @Override
         public java.util.List<com.example.agentdemo.rag.vector.VectorSearchResult> search(float[] queryVector,
-                int topK) {
+                int topK, java.util.Map<String, Object> metadataFilter) {
             return java.util.List.of();
         }
 

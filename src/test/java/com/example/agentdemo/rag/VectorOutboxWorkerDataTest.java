@@ -194,6 +194,30 @@ class VectorOutboxWorkerDataTest {
     }
 
     @Test
+    void staleWorkerCannotFinalizeEventReclaimedByNewClaim() {
+        long documentId = saveDocument(DocumentEntity::markPending);
+        long eventId = saveUpsert(documentId);
+
+        VectorOutboxEventEntity firstClaim = ReflectionTestUtils.invokeMethod(worker, "claim", eventId, Instant.now());
+        assertThat(firstClaim).isNotNull();
+        String staleClaimId = firstClaim.getClaimId();
+        ReflectionTestUtils.setField(firstClaim, "leaseExpiresAt", Instant.now().minusSeconds(1));
+        outboxEventRepository.saveAndFlush(firstClaim);
+
+        VectorOutboxEventEntity secondClaim = ReflectionTestUtils.invokeMethod(worker, "claim", eventId, Instant.now());
+        assertThat(secondClaim).isNotNull();
+        assertThat(secondClaim.getClaimId()).isNotEqualTo(staleClaimId);
+
+        ReflectionTestUtils.invokeMethod(worker, "finalizeSuccess", eventId, staleClaimId);
+
+        VectorOutboxEventEntity event = outboxEventRepository.findById(eventId).orElseThrow();
+        assertThat(event.getStatus()).isEqualTo(VectorOutboxEventStatus.PROCESSING);
+        assertThat(event.getClaimId()).isEqualTo(secondClaim.getClaimId());
+        assertThat(documentRepository.findById(documentId)).get()
+                .extracting(DocumentEntity::getIndexStatus).isEqualTo(DocumentIndexStatus.PENDING);
+    }
+
+    @Test
     void cancelEventsForDocumentCancelsQueuedUpsertsButNotInFlight() {
         long documentId = saveDocument(DocumentEntity::markPending);
         long pendingId = saveUpsert(documentId);

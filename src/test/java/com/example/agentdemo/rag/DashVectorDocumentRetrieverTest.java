@@ -53,7 +53,7 @@ class DashVectorDocumentRetrieverTest {
         when(vectorStoreGateway.isConfigured()).thenReturn(true);
         when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
         when(embeddingModel.embed("question")).thenReturn(queryVector);
-        when(vectorStoreGateway.search(queryVector, 3)).thenReturn(List.of(
+        when(vectorStoreGateway.search(eq(queryVector), eq(30), any())).thenReturn(List.of(
                 new VectorSearchResult("vec-missing", 0.99, Map.of()),
                 new VectorSearchResult("vec-low", 0.42, Map.of()),
                 new VectorSearchResult("vec-high", 0.88, Map.of())));
@@ -85,13 +85,38 @@ class DashVectorDocumentRetrieverTest {
     }
 
     @Test
+    void searchesWithOwnerMetadataFilterAndOverFetchesBeforeLocalFiltering() {
+        DashVectorDocumentRetriever retriever = retriever();
+        float[] queryVector = new float[] { 1.0f, 2.0f };
+        when(vectorStoreGateway.isConfigured()).thenReturn(true);
+        when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
+        when(embeddingModel.embed("question")).thenReturn(queryVector);
+        when(vectorStoreGateway.search(eq(queryVector), eq(50), eq(Map.<String, Object>of("ownerId", "workbench-dev"))))
+                .thenReturn(List.of(
+                        new VectorSearchResult("vec-other-owner", 0.99, Map.of("ownerId", "other")),
+                        new VectorSearchResult("vec-ready", 0.70, Map.of("ownerId", "workbench-dev"))));
+
+        DocumentChunkEntity readyChunk = new DocumentChunkEntity(10L, 0, "vec-ready", "ready content");
+        when(chunkRepository.findByVectorIdIn(anyCollection())).thenReturn(List.of(readyChunk));
+        DocumentEntity readyDocument = readyDocument(10L, "Ready Title", "full ready");
+        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+                        eq(DocumentIndexStatus.READY)))
+                .thenReturn(List.of(readyDocument));
+
+        List<RetrievedContext> contexts = retriever.retrieve("question", 5);
+
+        assertThat(contexts).extracting(RetrievedContext::documentId).containsExactly(10L);
+        verify(vectorStoreGateway).search(queryVector, 50, Map.<String, Object>of("ownerId", "workbench-dev"));
+    }
+
+    @Test
     void skipsVectorMatchesWhoseDocumentsAreNotReady() {
         DashVectorDocumentRetriever retriever = retriever();
         float[] queryVector = new float[] { 1.0f, 2.0f };
         when(vectorStoreGateway.isConfigured()).thenReturn(true);
         when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
         when(embeddingModel.embed("question")).thenReturn(queryVector);
-        when(vectorStoreGateway.search(queryVector, 2)).thenReturn(List.of(
+        when(vectorStoreGateway.search(eq(queryVector), eq(20), any())).thenReturn(List.of(
                 new VectorSearchResult("vec-pending", 0.95, Map.of()),
                 new VectorSearchResult("vec-ready", 0.70, Map.of())));
 
@@ -137,7 +162,7 @@ class DashVectorDocumentRetrieverTest {
                         assertThat(ex.getCode()).isEqualTo("EMBEDDING_MODEL_NOT_CONFIGURED"))
                 .hasMessage("DashScope EmbeddingModel is not configured");
 
-        verify(vectorStoreGateway, never()).search(any(), anyInt());
+        verify(vectorStoreGateway, never()).search(any(), anyInt(), any());
     }
 
     @Test
@@ -155,7 +180,7 @@ class DashVectorDocumentRetrieverTest {
                 })
                 .hasMessage("Failed to embed retrieval query");
 
-        verify(vectorStoreGateway, never()).search(any(), anyInt());
+        verify(vectorStoreGateway, never()).search(any(), anyInt(), any());
     }
 
     private DashVectorDocumentRetriever retriever() {

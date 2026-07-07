@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 public class KnowledgeSearchService {
 
     private static final Pattern TOKEN_SPLITTER = Pattern.compile("[^\\p{IsHan}\\p{Alnum}]+");
+    private static final Pattern SINGLE_HAN = Pattern.compile("\\p{IsHan}");
     private static final int SCAN_PAGE_SIZE = 200;
     private static final List<DocumentIndexStatus> NON_RETRIEVABLE = List.of(
             DocumentIndexStatus.DELETING, DocumentIndexStatus.DELETED);
@@ -102,7 +103,7 @@ public class KnowledgeSearchService {
     private Set<String> tokenize(String query) {
         Set<String> terms = new LinkedHashSet<>();
         for (String raw : TOKEN_SPLITTER.split(query == null ? "" : query.toLowerCase(Locale.ROOT))) {
-            if (StringUtils.hasText(raw) && raw.length() >= 2) {
+            if (isSearchToken(raw)) {
                 terms.add(raw);
                 if (terms.size() >= 16) {
                     break;
@@ -110,6 +111,10 @@ public class KnowledgeSearchService {
             }
         }
         return terms;
+    }
+
+    private boolean isSearchToken(String raw) {
+        return StringUtils.hasText(raw) && (raw.length() >= 2 || SINGLE_HAN.matcher(raw).matches());
     }
 
     private String snippet(String content, Set<String> terms) {

@@ -13,14 +13,17 @@ import com.aliyun.dashvector.models.requests.QueryDocRequest;
 import com.aliyun.dashvector.models.requests.UpsertDocRequest;
 import com.aliyun.dashvector.models.responses.Response;
 import com.aliyun.dashvector.proto.CollectionInfo;
+import com.aliyun.dashvector.proto.FieldType;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.config.RagProperties;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
@@ -85,12 +88,14 @@ public class DashVectorGateway implements VectorStoreGateway {
     }
 
     private void createCollection(DashVectorClient client) {
-        Response<Void> create = client.create(CreateCollectionRequest.builder()
-                .name(properties.getCollection())
-                .dimension(properties.getDimension())
-                .metric(metric())
-                .dataType(CollectionInfo.DataType.FLOAT)
-                .build());
+            Response<Void> create = client.create(CreateCollectionRequest.builder()
+                    .name(properties.getCollection())
+                    .dimension(properties.getDimension())
+                    .metric(metric())
+                    .dataType(CollectionInfo.DataType.FLOAT)
+                    .filedSchema("ownerId", FieldType.STRING)
+                    .filedSchema("kbId", FieldType.STRING)
+                    .build());
         if (!create.isSuccess() && create.getCode() == ErrorCode.DUPLICATE_COLLECTION.getCode()) {
             return;
         }
@@ -175,7 +180,7 @@ public class DashVectorGateway implements VectorStoreGateway {
     }
 
     @Override
-    public List<VectorSearchResult> search(float[] queryVector, int topK) {
+    public List<VectorSearchResult> search(float[] queryVector, int topK, Map<String, Object> metadataFilter) {
         if (!isConfigured()) {
             throw new BusinessException("VECTOR_STORE_NOT_CONFIGURED", "DashVector is not configured");
         }
@@ -186,11 +191,15 @@ public class DashVectorGateway implements VectorStoreGateway {
             if (!collection.isSuccess()) {
                 throw new BusinessException("VECTOR_STORE_SEARCH_FAILED", collection.getMessage());
             }
-            Response<List<Doc>> response = collection.query(QueryDocRequest.builder()
+            QueryDocRequest.QueryDocRequestBuilder request = QueryDocRequest.builder()
                     .vector(toVector(queryVector))
                     .topk(topK)
-                    .includeVector(false)
-                    .build());
+                    .includeVector(false);
+            String filter = metadataFilter(metadataFilter);
+            if (StringUtils.hasText(filter)) {
+                request.filter(filter);
+            }
+            Response<List<Doc>> response = collection.query(request.build());
             ensureSuccess(response, "search DashVector documents", "VECTOR_STORE_SEARCH_FAILED");
             List<Doc> output = response.getOutput();
             if (output == null) {
@@ -249,6 +258,22 @@ public class DashVectorGateway implements VectorStoreGateway {
             floats.add(value);
         }
         return Vector.builder().value(floats).build();
+    }
+
+    private String metadataFilter(Map<String, Object> metadataFilter) {
+        if (metadataFilter == null || metadataFilter.isEmpty()) {
+            return null;
+        }
+        List<String> clauses = new ArrayList<>();
+        appendEqualsFilter(clauses, "ownerId", metadataFilter.get("ownerId"));
+        appendEqualsFilter(clauses, "kbId", metadataFilter.get("kbId"));
+        return clauses.isEmpty() ? null : String.join(" and ", clauses);
+    }
+
+    private void appendEqualsFilter(List<String> clauses, String field, Object value) {
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            clauses.add(field + " = '" + text.replace("'", "\\'") + "'");
+        }
     }
 
     private void ensureSuccess(Response<?> response, String action, String errorCode) {

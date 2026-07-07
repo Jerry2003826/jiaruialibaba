@@ -587,6 +587,12 @@ class ToolCallingAgentServiceTest {
         verify(traceService).startRun(eq(RunType.ASSISTANT_CHAT), any());
         verify(ragService).retrieveForChat("run-1", message);
         verify(conversationMemoryService).appendAssistantMessage("conv-1", "合并后的回答");
+        ArgumentCaptor<String> systemPromptCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> finalPromptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(aiModelService).generate(systemPromptCaptor.capture(), any(), finalPromptCaptor.capture());
+        assertThat(systemPromptCaptor.getValue()).contains("untrusted");
+        assertThat(finalPromptCaptor.getValue())
+                .contains("BEGIN_UNTRUSTED_CONTEXT", "END_UNTRUSTED_CONTEXT");
     }
 
     @Test

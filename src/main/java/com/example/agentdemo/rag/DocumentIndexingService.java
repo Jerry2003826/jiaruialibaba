@@ -5,6 +5,7 @@ import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
 import com.example.agentdemo.rag.vector.VectorDocument;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -129,6 +130,8 @@ public class DocumentIndexingService {
             vectorDocuments.add(new VectorDocument(vectorId, embeddings.get(i), Map.of(
                     "documentId", document.getId(),
                     "chunkIndex", i,
+                    "ownerId", SecurityIdentity.currentOwnerId(),
+                    "kbId", document.getKbId() == null ? "" : document.getKbId(),
                     "title", document.getTitle() == null ? "" : document.getTitle())));
         }
 

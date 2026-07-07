@@ -60,11 +60,11 @@ public class AppKnowledgeContextService {
         if (citations == null || citations.isEmpty()) {
             return message;
         }
-        StringBuilder context = new StringBuilder("Retrieved knowledge base context:\n");
+        StringBuilder context = new StringBuilder("BEGIN_UNTRUSTED_CONTEXT\n");
         for (Citation citation : citations) {
             context.append("- ").append(citation.title()).append(": ").append(citation.snippet()).append("\n");
         }
-        return context.append("\nQuestion:\n").append(message).toString();
+        return context.append("END_UNTRUSTED_CONTEXT\n\nQuestion:\n").append(message).toString();
     }
 
     private record CitationKey(Long documentId, int chunkIndex) {

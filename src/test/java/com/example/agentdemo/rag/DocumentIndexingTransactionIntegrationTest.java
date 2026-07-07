@@ -149,7 +149,7 @@ class DocumentIndexingTransactionIntegrationTest {
         }
 
         @Override
-        public List<VectorSearchResult> search(float[] queryVector, int topK) {
+        public List<VectorSearchResult> search(float[] queryVector, int topK, java.util.Map<String, Object> metadataFilter) {
             return List.of();
         }
     }

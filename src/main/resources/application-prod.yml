@@ -7,6 +7,9 @@ demo:
       enabled: false
     rate-limit:
       enabled: true
+      # Production deployments must use an external/shared limiter (gateway, Redis/Bucket4j, etc.).
+      # The in-process filter remains a local safety net only.
+      backend: ${DEMO_SECURITY_RATE_LIMIT_BACKEND:external}
   app:
     require-published-for-run: true
   workflow:
