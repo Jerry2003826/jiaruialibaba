@@ -11,7 +11,7 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       "runtime-chip", "runtime-dot", "runtime-status", "runtime-details",
       "definition-name", "workflow-status", "definition-select", "load-definition", "toggle-history",
       "save-definition", "run-workflow", "wf-more", "wf-menu", "new-workflow", "generate-workflow", "validate-workflow",
-      "insert-loop-template", "publish-definition",
+      "insert-loop-template", "publish-definition", "wf-issues", "wf-issues-pop",
       "palette", "palette-collapse", "node-palette",
       "workflow-canvas", "canvas-world", "edge-layer", "node-layer", "canvas-empty",
       "route-map-panel", "route-map-title", "route-map-toggle", "route-map-list",
@@ -44,7 +44,13 @@ window.AgentWorkbench = window.AgentWorkbench || {};
   // ============================================================
   // 导航
   // ============================================================
+  function setActiveViewMode(view) {
+    document.body.classList.toggle("workflow-dify-mode", view === "workflow");
+  }
+
   function bindNavigation() {
+    const activeView = document.querySelector("[data-view].active")?.dataset.view || "workflow";
+    setActiveViewMode(activeView);
     document.querySelectorAll("[data-view]").forEach((button) => {
       button.addEventListener("click", () => {
         const view = button.dataset.view;
@@ -52,6 +58,7 @@ window.AgentWorkbench = window.AgentWorkbench || {};
         document.querySelectorAll("[data-view-panel]").forEach((panel) => {
           panel.classList.toggle("active", panel.dataset.viewPanel === view);
         });
+        setActiveViewMode(view);
         viewRoutes[view]?.();
       });
     });
@@ -164,6 +171,7 @@ window.AgentWorkbench = window.AgentWorkbench || {};
   AgentWorkbench.loadedModules = AgentWorkbench.loadedModules || [];
   AgentWorkbench.loadedModules.push("ui");
   AgentWorkbench.cacheElements = cacheElements;
+  AgentWorkbench.setActiveViewMode = setActiveViewMode;
   AgentWorkbench.bindNavigation = bindNavigation;
   AgentWorkbench.bindRuntimeChip = bindRuntimeChip;
   AgentWorkbench.loadHealth = loadHealth;

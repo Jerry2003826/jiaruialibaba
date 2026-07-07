@@ -71,6 +71,14 @@
           <div class="wf-title">
             <input id="definition-name" class="wf-name" type="text" value="智能体工作流" maxlength="128" aria-label="工作流名称">
             <span id="workflow-status" class="badge badge-draft">草稿</span>
+            <span class="wf-autosave" aria-live="polite">
+              <span class="wf-autosave-dot" aria-hidden="true"></span>
+              自动保存 · 本地草稿
+            </span>
+            <span class="menu-wrap issues-wrap">
+              <button id="wf-issues" class="issues-chip" type="button" aria-haspopup="true" aria-expanded="false">检查中…</button>
+              <div id="wf-issues-pop" class="menu-pop issues-pop hidden" role="menu" aria-label="待完善项"></div>
+            </span>
           </div>
           <div class="wf-switch">
             <select id="definition-select" class="select" aria-label="已保存的工作流"></select>
@@ -127,7 +135,7 @@
 
             <div class="canvas-empty hidden" id="canvas-empty">
               <p>空白画布</p>
-              <span>从左侧节点面板点击添加，或点「插入循环模板」</span>
+              <span>从左侧面板添加节点；选中节点后点它右侧的 + 号，选择下一步会自动连线</span>
             </div>
 
             <section class="route-map-panel" id="route-map-panel" aria-label="路由分配概览">
@@ -165,8 +173,8 @@
               <form id="inspector-form" class="inspector-form hidden"></form>
               <section class="edge-section hidden" id="edge-section">
                 <div class="section-head">
-                  <h4>连线</h4>
-                  <button id="add-edge" class="btn btn-ghost btn-sm" type="button">+ 添加</button>
+                  <h4>下一步</h4>
+                  <button id="add-edge" class="btn btn-ghost btn-sm" type="button">+ 添加连线</button>
                 </div>
                 <div id="edge-list" class="edge-list"></div>
               </section>

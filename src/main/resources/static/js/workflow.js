@@ -68,6 +68,18 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
         els.wfMenu.classList.add("hidden");
         els.wfMore?.setAttribute("aria-expanded", "false");
       }
+      if (els.wfIssuesPop && !els.wfIssuesPop.classList.contains("hidden")
+        && !els.wfIssuesPop.contains(event.target) && !els.wfIssues.contains(event.target)) {
+        els.wfIssuesPop.classList.add("hidden");
+        els.wfIssues?.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    // 问题清单 chip
+    els.wfIssues?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const hidden = els.wfIssuesPop.classList.toggle("hidden");
+      els.wfIssues.setAttribute("aria-expanded", String(!hidden));
     });
     const closeMenu = () => {
       els.wfMenu?.classList.add("hidden");
@@ -185,6 +197,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     state.definitionStatus = null;
     state.lastRunId = null;
     state.connectSourceId = null;
+    state.connectSourceBranch = "";
     state.selectedNodeId = null;
     state.nodes = [
       { id: "start", type: "start", label: "开始入口", route: "", config: {} },
@@ -198,10 +211,10 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       { from: "llm_1", to: "end", condition: "", label: "输出结果", route: "知识库问答" }
     ];
     state.positions = new Map([
-      ["start", { x: 80, y: 90 }],
-      ["retriever_1", { x: 360, y: 90 }],
-      ["llm_1", { x: 640, y: 90 }],
-      ["end", { x: 920, y: 90 }]
+      ["start", { x: 80, y: 120 }],
+      ["retriever_1", { x: 420, y: 120 }],
+      ["llm_1", { x: 760, y: 120 }],
+      ["end", { x: 1100, y: 120 }]
     ]);
     loadCanvasPositions();
     els.definitionName.value = "智能体工作流";
@@ -233,7 +246,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     state.positions = new Map();
     state.nodes.forEach((node, index) => {
       const col = index % 4, row = Math.floor(index / 4);
-      state.positions.set(node.id, { x: 80 + col * 280, y: 90 + row * 170 });
+      state.positions.set(node.id, { x: 80 + col * 320, y: 120 + row * 190 });
     });
     if (options.loadSavedPositions !== false) loadCanvasPositions();
     state.selectedNodeId = null;
@@ -288,6 +301,23 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     return NODE_LABELS[type] || fallback;
   }
 
+  // 分支节点（条件 / 循环）在卡片上直接展示可连线的分支行，对齐 Dify 的 IF / ELSE 出口
+  function nodeBranches(node) {
+    if (node.type === "condition") {
+      return [
+        { value: "true", tag: "IF", desc: conditionBranchDescription(node.config) || "满足" },
+        { value: "false", tag: "ELSE", desc: "不满足" }
+      ];
+    }
+    if (node.type === "loop") {
+      return [
+        { value: "body", tag: "循环体", desc: "满足时继续" },
+        { value: "exit", tag: "退出循环", desc: "不满足时退出" }
+      ];
+    }
+    return [];
+  }
+
   function renderNodes() {
     els.nodeLayer.innerHTML = "";
     const routeHighlight = selectedRouteHighlight();
@@ -303,17 +333,29 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       element.classList.toggle("route-highlight", routeHighlight.active && routeHighlight.nodeIds.has(node.id));
       element.classList.toggle("route-muted", routeHighlight.active && !routeHighlight.nodeIds.has(node.id));
       const color = colorForType(node.type);
+      const branches = nodeBranches(node);
+      const headPort = node.type === "end" || branches.length > 0
+        ? ""
+        : '<button class="node-port" type="button" aria-label="从此节点连线" title="从此节点连线">+</button>';
+      const branchRows = branches.map((branch) => `
+        <div class="node-branch-row" data-branch="${escapeHtml(branch.value)}">
+          <span class="branch-tag">${escapeHtml(branch.tag)}</span>
+          <span class="branch-desc" title="${escapeHtml(branch.desc)}">${escapeHtml(branch.desc)}</span>
+          <button class="node-port branch-port" type="button" data-branch="${escapeHtml(branch.value)}"
+                  aria-label="从此节点连线" title="从「${escapeHtml(branch.tag)}」分支连线">+</button>
+        </div>`).join("");
+      const summary = nodeSummary(node);
       element.innerHTML = `
-        <div class="node-accent" style="background:${color}"></div>
-        <div class="node-main">
+        ${node.type === "start" ? "" : '<span class="node-in-dot" aria-hidden="true"></span>'}
+        <div class="node-head">
           <span class="node-ico" style="background:${color}">${iconSvg(node.type)}</span>
-          <div class="node-meta">
-            <div class="node-type">${escapeHtml(nodeDisplayName(node))}</div>
-            <div class="node-id">${escapeHtml(nodeLabel(node.type))} · ${escapeHtml(node.id)}</div>
-            <div class="node-summary">${escapeHtml(nodeSummary(node))}</div>
-          </div>
+          <div class="node-title" title="${escapeHtml(nodeLabel(node.type))} · ${escapeHtml(node.id)}">${escapeHtml(nodeDisplayName(node))}</div>
+          ${headPort}
         </div>
-        ${node.type === "end" ? "" : '<button class="node-port" type="button" aria-label="从此节点连线">+</button>'}`;
+        <div class="node-body">
+          ${summary ? `<div class="node-summary">${escapeHtml(summary)}</div>` : ""}
+          ${branchRows}
+        </div>`;
       bindNodeInteractions(element, node);
       els.nodeLayer.appendChild(element);
     });
@@ -355,13 +397,152 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       element.addEventListener("pointercancel", up);
     });
 
-    const port = element.querySelector(".node-port");
-    port?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.connectSourceId = state.connectSourceId === node.id ? null : node.id;
-      renderNodes();
-      toast(state.connectSourceId ? `从「${node.id}」开始连线，点击目标节点完成` : "已取消连线");
+    element.querySelectorAll(".node-port").forEach((port) => {
+      port.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openBlockSelector(node, port.dataset.branch || "", port.getBoundingClientRect());
+      });
     });
+  }
+
+  // ============================================================
+  // 添加下一步：点节点 + 弹出选择器，选完自动创建、连线、摆位
+  // （对齐 Dify：用户不需要先建节点、再理解“连线”概念）
+  // ============================================================
+  let blockSelectorEl = null;
+
+  function closeBlockSelector() {
+    if (!blockSelectorEl) return;
+    blockSelectorEl.remove();
+    blockSelectorEl = null;
+    document.removeEventListener("click", onBlockSelectorOutsideClick, true);
+    document.removeEventListener("keydown", onBlockSelectorKeydown, true);
+  }
+
+  function onBlockSelectorOutsideClick(event) {
+    if (blockSelectorEl && !blockSelectorEl.contains(event.target)) closeBlockSelector();
+  }
+
+  function onBlockSelectorKeydown(event) {
+    if (event.key === "Escape") closeBlockSelector();
+  }
+
+  function openBlockSelector(sourceNode, branch, anchorRect) {
+    closeBlockSelector();
+    if (state.connectSourceId) {
+      state.connectSourceId = null;
+      state.connectSourceBranch = "";
+      renderNodes();
+    }
+    const pop = document.createElement("div");
+    pop.className = "block-selector";
+    const branchLabel = branch ? edgeDisplayName({ label: "", condition: branch }) : "";
+    const head = document.createElement("div");
+    head.className = "block-selector-head";
+    head.textContent = branchLabel ? `添加下一步 · ${branchLabel} 分支` : "添加下一步";
+    pop.appendChild(head);
+
+    const list = document.createElement("div");
+    list.className = "block-selector-list";
+    state.schemas
+      .filter((schema) => schema.type !== "start")
+      .forEach((schema) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "block-option";
+        option.innerHTML = `
+          <span class="palette-ico" style="background:${colorForType(schema.type)}">${iconSvg(schema.type)}</span>
+          <span>${escapeHtml(nodeLabel(schema))}</span>`;
+        option.addEventListener("click", () => {
+          closeBlockSelector();
+          addNextNode(sourceNode, branch, schema.type);
+        });
+        list.appendChild(option);
+      });
+    pop.appendChild(list);
+
+    const connectExisting = document.createElement("button");
+    connectExisting.type = "button";
+    connectExisting.className = "block-option block-option-footer";
+    connectExisting.textContent = "连接到已有节点…";
+    connectExisting.addEventListener("click", () => {
+      closeBlockSelector();
+      state.connectSourceId = sourceNode.id;
+      state.connectSourceBranch = branch || "";
+      renderNodes();
+      toast("请点击目标节点完成连线（点空白处取消）");
+    });
+    pop.appendChild(connectExisting);
+
+    document.body.appendChild(pop);
+    const rect = pop.getBoundingClientRect();
+    let left = anchorRect.right + 8;
+    if (left + rect.width > window.innerWidth - 12) left = anchorRect.left - rect.width - 8;
+    const top = Math.max(12, Math.min(anchorRect.top - 8, window.innerHeight - rect.height - 12));
+    pop.style.left = `${Math.max(12, left)}px`;
+    pop.style.top = `${top}px`;
+    blockSelectorEl = pop;
+    window.setTimeout(() => {
+      document.addEventListener("click", onBlockSelectorOutsideClick, true);
+      document.addEventListener("keydown", onBlockSelectorKeydown, true);
+    }, 0);
+  }
+
+  // 新节点放在来源分支出口的右侧；被占位就往下顺延
+  function nextNodePosition(sourceNode, branch) {
+    const sourcePosition = state.positions.get(sourceNode.id) || { x: 80, y: 120 };
+    const port = portWorld(sourceNode.id, "right", branch);
+    const x = Math.round(sourcePosition.x + 330);
+    let y = Math.round(port ? port.y - NODE_HEAD_PORT_Y : sourcePosition.y);
+    let guard = 0;
+    const occupied = () => Array.from(state.positions.values())
+      .some((p) => Math.abs(p.x - x) < 220 && Math.abs(p.y - y) < 84);
+    while (guard < 24 && occupied()) { y += 100; guard += 1; }
+    return { x, y };
+  }
+
+  function addNextNode(sourceNode, branch, type) {
+    const baseId = type.replace(/[^a-zA-Z0-9_]/g, "_") || "node";
+    const id = uniqueNodeId(baseId);
+    state.nodes.push({
+      id,
+      type,
+      label: defaultNodeLabel(type),
+      route: cleanText(sourceNode.route),
+      config: defaultConfig(schemaForType(type))
+    });
+    state.positions.set(id, nextNodePosition(sourceNode, branch));
+    state.edges.push({ from: sourceNode.id, to: id, condition: branch || "", label: "", route: cleanText(sourceNode.route) });
+    state.selectedNodeId = id;
+    state.connectSourceId = null;
+    state.connectSourceBranch = "";
+    saveCanvasPositions();
+    renderAll();
+    ensureNodeVisible(id);
+    toast(`已添加「${nodeLabel(type)}」并自动连线`);
+  }
+
+  // 新节点若落在视口外（或被右侧面板遮住），平移画布让它可见
+  function ensureNodeVisible(nodeId) {
+    const position = state.positions.get(nodeId);
+    if (!position) return;
+    const rect = els.workflowCanvas.getBoundingClientRect();
+    const scale = state.view.scale;
+    const margin = 40;
+    const nodeLeft = position.x * scale + state.view.panX;
+    const nodeTop = position.y * scale + state.view.panY;
+    const nodeRight = nodeLeft + 240 * scale;
+    const nodeBottom = nodeTop + 96 * scale;
+    const inspectorWidth = els.nodeInspector && !els.nodeInspector.classList.contains("hidden")
+      ? els.nodeInspector.offsetWidth + 24
+      : 0;
+    const visibleRight = rect.width - inspectorWidth;
+    let moved = false;
+    if (nodeRight > visibleRight - margin) { state.view.panX -= nodeRight - (visibleRight - margin); moved = true; }
+    if (nodeLeft < margin) { state.view.panX += margin - nodeLeft; moved = true; }
+    if (nodeBottom > rect.height - margin) { state.view.panY -= nodeBottom - (rect.height - margin); moved = true; }
+    if (nodeTop < margin) { state.view.panY += margin - nodeTop; moved = true; }
+    if (moved) applyCanvasTransform();
   }
 
   function renderEdges() {
@@ -370,7 +551,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     svg.querySelectorAll(".edge-path, .edge-label").forEach((n) => n.remove());
     const routeHighlight = selectedRouteHighlight();
     state.edges.forEach((edge) => {
-      const from = portWorld(edge.from, "right");
+      const from = portWorld(edge.from, "right", edge.condition || "");
       const to = portWorld(edge.to, "left");
       if (!from || !to) return;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -397,8 +578,96 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     });
   }
 
+  // ============================================================
+  // 问题清单：主动告诉非专业用户“还差什么”，点击直接跳到问题节点
+  // ============================================================
+  function workflowIssues() {
+    const issues = [];
+    state.nodes.forEach((node) => {
+      const outgoing = state.edges.filter((edge) => edge.from === node.id);
+      const incoming = state.edges.filter((edge) => edge.to === node.id);
+      const name = nodeDisplayName(node);
+      if (node.type !== "start" && incoming.length === 0) {
+        issues.push({ nodeId: node.id, message: `「${name}」还没有上游连线，运行时不会被执行` });
+      }
+      if (node.type !== "end" && node.type !== "loop_back" && outgoing.length === 0) {
+        issues.push({ nodeId: node.id, message: `「${name}」还没有下一步` });
+      }
+      if (node.type === "condition") {
+        if (!outgoing.some((edge) => (edge.condition || "") === "true")) {
+          issues.push({ nodeId: node.id, message: `「${name}」的 IF 分支还没有去向` });
+        }
+        if (!outgoing.some((edge) => (edge.condition || "") === "false")) {
+          issues.push({ nodeId: node.id, message: `「${name}」的 ELSE 分支还没有去向` });
+        }
+      }
+      if (node.type === "loop") {
+        if (!outgoing.some((edge) => (edge.condition || "") === "body")) {
+          issues.push({ nodeId: node.id, message: `「${name}」的循环体还没有去向` });
+        }
+        if (!outgoing.some((edge) => (edge.condition || "") === "exit")) {
+          issues.push({ nodeId: node.id, message: `「${name}」的退出循环还没有去向` });
+        }
+      }
+      if (node.type === "tool" && !cleanText(node.config.toolName)) {
+        issues.push({ nodeId: node.id, message: `「${name}」还没有选择要调用的工具` });
+      }
+      if (node.type === "llm" && !cleanText(node.config.prompt)) {
+        issues.push({ nodeId: node.id, message: `「${name}」的提示词还是空的` });
+      }
+      if (node.type === "subgraph" && !cleanText(node.config.definitionId)) {
+        issues.push({ nodeId: node.id, message: `「${name}」还没有选择子工作流` });
+      }
+    });
+    return issues;
+  }
+
+  function renderIssues() {
+    if (!els.wfIssues || !els.wfIssuesPop) return;
+    const issues = workflowIssues();
+    els.wfIssues.classList.toggle("ok", issues.length === 0);
+    els.wfIssues.textContent = issues.length === 0 ? "检查通过" : `${issues.length} 项待完善`;
+    els.wfIssues.title = issues.length === 0 ? "所有节点都已连好" : "点击查看待完善项";
+    els.wfIssuesPop.innerHTML = "";
+    if (issues.length === 0) {
+      const done = document.createElement("div");
+      done.className = "issue-empty";
+      done.textContent = "所有节点都已连好，可以运行或保存。";
+      els.wfIssuesPop.appendChild(done);
+      return;
+    }
+    issues.forEach((issue) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "issue-item";
+      item.textContent = issue.message;
+      item.addEventListener("click", () => {
+        els.wfIssuesPop.classList.add("hidden");
+        els.wfIssues.setAttribute("aria-expanded", "false");
+        jumpToNode(issue.nodeId);
+      });
+      els.wfIssuesPop.appendChild(item);
+    });
+  }
+
+  function jumpToNode(nodeId) {
+    const position = state.positions.get(nodeId);
+    if (!position) return;
+    const rect = els.workflowCanvas.getBoundingClientRect();
+    const scale = state.view.scale;
+    state.view.panX = Math.round(rect.width / 2 - (position.x + 120) * scale);
+    state.view.panY = Math.round(rect.height / 2 - (position.y + 40) * scale);
+    state.selectedNodeId = nodeId;
+    applyCanvasTransform();
+    renderNodes();
+    renderEdges();
+    renderInspector();
+  }
+
   function renderRouteMap() {
     if (!els.routeMapPanel || !els.routeMapList) return;
+    // 画布任何变化都会走到这里：顺带刷新问题清单，保持提示实时
+    renderIssues();
     const routes = routeSummaries();
     const visibleIds = new Set(routes.map((route) => route.id));
     Array.from(state.routeFilters).forEach((id) => { if (!visibleIds.has(id)) state.routeFilters.delete(id); });
@@ -602,13 +871,20 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
   }
 
   // 节点端口的世界坐标（与缩放无关，使用未缩放布局尺寸 offsetWidth/Height）
-  function portWorld(nodeId, side) {
+  // 出边优先锚定在分支行（IF / ELSE / 循环体 / 退出），否则锚定在节点头部端口。
+  const NODE_HEAD_PORT_Y = 26;
+
+  function portWorld(nodeId, side, branch = "") {
     const position = state.positions.get(nodeId);
     if (!position) return null;
     const element = els.nodeLayer.querySelector(`[data-node-id="${cssEscape(nodeId)}"]`);
-    const width = element ? element.offsetWidth : 196;
-    const height = element ? element.offsetHeight : 70;
-    return { x: side === "right" ? position.x + width : position.x, y: position.y + height / 2 };
+    const width = element ? element.offsetWidth : 240;
+    if (side !== "right") return { x: position.x, y: position.y + NODE_HEAD_PORT_Y };
+    if (element && branch) {
+      const row = element.querySelector(`.node-branch-row[data-branch="${cssEscape(branch)}"]`);
+      if (row) return { x: position.x + width, y: position.y + row.offsetTop + row.offsetHeight / 2 };
+    }
+    return { x: position.x + width, y: position.y + NODE_HEAD_PORT_Y };
   }
 
   function applyCanvasTransform() {
@@ -625,7 +901,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       const origin = { x: event.clientX, y: event.clientY, panX: state.view.panX, panY: state.view.panY };
       canvas.classList.add("panning");
       canvas.setPointerCapture(event.pointerId);
-      if (state.connectSourceId) { state.connectSourceId = null; renderNodes(); }
+      if (state.connectSourceId) { state.connectSourceId = null; state.connectSourceBranch = ""; renderNodes(); }
       const move = (ev) => {
         state.view.panX = origin.panX + (ev.clientX - origin.x);
         state.view.panY = origin.panY + (ev.clientY - origin.y);
@@ -731,25 +1007,88 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     els.deleteNode.disabled = node.type === "start" || node.type === "end";
     els.inspectorForm.innerHTML = "";
 
-    const labelField = fieldShell("显示名称");
-    const labelInput = textControl(node.label || "");
+    // ---- 节点头：图标 + 显示名称（就地编辑）+ 类型徽标（Dify 式面板头） ----
+    const head = document.createElement("div");
+    head.className = "panel-node-head";
+    const headIcon = document.createElement("span");
+    headIcon.className = "node-ico";
+    headIcon.style.background = colorForType(node.type);
+    headIcon.innerHTML = iconSvg(node.type);
+    const labelInput = document.createElement("input");
+    labelInput.className = "panel-node-title";
+    labelInput.type = "text";
+    labelInput.value = node.label || "";
     labelInput.placeholder = inferredNodeDisplayName(node);
+    labelInput.setAttribute("aria-label", "显示名称");
+    labelInput.title = "显示名称";
     labelInput.addEventListener("change", () => {
       node.label = cleanText(labelInput.value);
-      renderRouteMap(); renderNodes(); renderEdges(); renderInspector();
+      renderRouteMap(); renderNodes(); renderEdges();
     });
-    labelField.appendChild(labelInput);
-    els.inspectorForm.appendChild(labelField);
+    const typeChip = document.createElement("span");
+    typeChip.className = "panel-node-type";
+    typeChip.textContent = nodeLabel(node.type);
+    head.append(headIcon, labelInput, typeChip);
+    els.inspectorForm.appendChild(head);
+
+    const schema = schemaForType(node.type);
+    const sectionTitle = document.createElement("div");
+    sectionTitle.className = "inspector-section-title";
+    sectionTitle.textContent = "设置";
+    els.inspectorForm.appendChild(sectionTitle);
+
+    if (node.type === "condition") {
+      renderConditionNodeConfig(node);
+    } else {
+      (schema.configFields || []).forEach((field) => {
+        const shell = fieldShell(configFieldLabel(field.name));
+        let control;
+        if (node.type === "subgraph" && field.name === "definitionId") {
+          control = subgraphDefinitionControl(node.config.definitionId || "");
+          control.addEventListener("change", () => {
+            node.config.definitionId = control.value; node.config.version = null;
+            renderInspector(); renderRouteMap(); renderNodes(); renderEdges();
+          });
+        } else if (node.type === "subgraph" && field.name === "version") {
+          control = document.createElement("select");
+          control.className = "select";
+          appendOption(control, "", "最新");
+          if (node.config.version != null && node.config.version !== "") {
+            appendOption(control, String(node.config.version), `v${node.config.version}`);
+            control.value = String(node.config.version);
+          }
+          void populateSubgraphVersionOptions(control, node.config.definitionId, node.config.version);
+          control.addEventListener("change", () => { node.config.version = control.value ? Number.parseInt(control.value, 10) : null; renderRouteMap(); renderNodes(); renderEdges(); });
+        } else {
+          control = controlForField(field, node.config[field.name]);
+          control.addEventListener("change", () => { node.config[field.name] = parseControlValue(control.value, field.type); renderRouteMap(); renderNodes(); renderEdges(); });
+        }
+        shell.appendChild(control);
+        els.inspectorForm.appendChild(shell);
+      });
+    }
+
+    els.inspectorForm.appendChild(renderAdvancedNodeSettings(node));
+    renderEdgeEditor(node);
+  }
+
+  // 高级设置折叠区：所属流程 / 技术 ID / 节点类型（低频配置不占主视区）
+  function renderAdvancedNodeSettings(node) {
+    const details = document.createElement("details");
+    details.className = "inspector-advanced";
+    const summary = document.createElement("summary");
+    summary.textContent = "高级设置（流程分组 / 技术 ID）";
+    details.appendChild(summary);
 
     const routeField = fieldShell("所属流程");
     const routeInput = textControl(node.route || "");
     routeInput.placeholder = "例如：退货流程";
     routeInput.addEventListener("change", () => {
       node.route = cleanText(routeInput.value);
-      renderRouteMap(); renderNodes(); renderEdges(); renderInspector();
+      renderRouteMap(); renderNodes(); renderEdges();
     });
     routeField.appendChild(routeInput);
-    els.inspectorForm.appendChild(routeField);
+    details.appendChild(routeField);
 
     const idField = fieldShell("技术 ID（高级）");
     const idInput = textControl(node.id);
@@ -759,45 +1098,30 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     idHint.className = "config-hint";
     idHint.textContent = "用于模板变量和连线；改名后请检查 {{nodes.xxx}} 引用。";
     idField.appendChild(idHint);
-    els.inspectorForm.appendChild(idField);
+    details.appendChild(idField);
 
-    const schema = schemaForType(node.type);
     const typeField = fieldShell("节点类型");
     const typeValue = document.createElement("input");
     typeValue.className = "text-input";
-    typeValue.value = nodeLabel(node.type);
+    typeValue.value = `${nodeLabel(node.type)}（${node.type}）`;
     typeValue.disabled = true;
     typeField.appendChild(typeValue);
-    els.inspectorForm.appendChild(typeField);
+    details.appendChild(typeField);
 
-    (schema.configFields || []).forEach((field) => {
-      const shell = fieldShell(configFieldLabel(field.name));
-      let control;
-      if (node.type === "subgraph" && field.name === "definitionId") {
-        control = subgraphDefinitionControl(node.config.definitionId || "");
-        control.addEventListener("change", () => {
-          node.config.definitionId = control.value; node.config.version = null;
-          renderInspector(); renderRouteMap(); renderNodes(); renderEdges();
-        });
-      } else if (node.type === "subgraph" && field.name === "version") {
-        control = document.createElement("select");
-        control.className = "select";
-        appendOption(control, "", "最新");
-        if (node.config.version != null && node.config.version !== "") {
-          appendOption(control, String(node.config.version), `v${node.config.version}`);
-          control.value = String(node.config.version);
-        }
-        void populateSubgraphVersionOptions(control, node.config.definitionId, node.config.version);
-        control.addEventListener("change", () => { node.config.version = control.value ? Number.parseInt(control.value, 10) : null; renderRouteMap(); renderNodes(); renderEdges(); });
-      } else {
-        control = controlForField(field, node.config[field.name]);
-        control.addEventListener("change", () => { node.config[field.name] = parseControlValue(control.value, field.type); renderRouteMap(); renderNodes(); renderEdges(); });
-      }
-      shell.appendChild(control);
-      els.inspectorForm.appendChild(shell);
-    });
+    return details;
+  }
 
-    renderEdgeEditor(node);
+  function renderConditionNodeConfig(node) {
+    const updatePreview = () => {
+      renderRouteMap();
+      renderNodes();
+      renderEdges();
+    };
+    const refreshPanel = () => {
+      updatePreview();
+      renderInspector();
+    };
+    els.inspectorForm.appendChild(conditionRuleControl(node.config, updatePreview, refreshPanel));
   }
 
   function subgraphDefinitionControl(selectedId) {
@@ -820,16 +1144,128 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     } catch (error) { toast(error.message, true); }
   }
 
-  // 仅展示选中节点相关的连线，友好可编辑
+  // 下一步（连线）编辑：按分支分组展示去向，技术细节折叠到高级编辑
   function renderEdgeEditor(node) {
     els.edgeList.innerHTML = "";
-    const related = state.edges.map((edge, index) => ({ edge, index })).filter(({ edge }) => edge.from === node.id || edge.to === node.id);
+    els.addEdge?.classList.add("hidden");
+    const outgoing = state.edges.filter((edge) => edge.from === node.id);
+    const incoming = state.edges.filter((edge) => edge.to === node.id);
+    const branches = nodeBranches(node);
+
+    if (node.type !== "end") {
+      const groups = branches.length > 0 ? branches : [{ value: "", tag: "出口", desc: "" }];
+      groups.forEach((group) => {
+        els.edgeList.appendChild(renderNextStepGroup(node, group, outgoing, branches.length > 0));
+      });
+    }
+
+    if (incoming.length > 0) {
+      const line = document.createElement("div");
+      line.className = "incoming-line";
+      const label = document.createElement("span");
+      label.className = "incoming-label";
+      label.textContent = "来源";
+      line.appendChild(label);
+      incoming.forEach((edge) => {
+        const source = state.nodes.find((n) => n.id === edge.from);
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "incoming-chip";
+        const branchText = edgeDisplayName({ label: "", condition: edge.condition });
+        chip.textContent = source
+          ? `${nodeDisplayName(source)}${branchText ? ` · ${branchText}` : ""}`
+          : edge.from;
+        chip.title = "点击选中来源节点";
+        chip.addEventListener("click", () => selectOrConnectNode(edge.from));
+        line.appendChild(chip);
+      });
+      els.edgeList.appendChild(line);
+    }
+
+    els.edgeList.appendChild(renderAdvancedEdgeEditor(node));
+  }
+
+  function renderNextStepGroup(node, group, outgoing, grouped) {
+    const wrap = document.createElement("div");
+    wrap.className = "next-step-group";
+    const related = outgoing.filter((edge) => (grouped ? (edge.condition || "") === group.value : true));
+
+    const head = document.createElement("div");
+    head.className = "next-step-head";
+    const tag = document.createElement("span");
+    tag.className = "branch-tag";
+    tag.textContent = group.tag;
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "btn btn-ghost btn-sm next-step-add";
+    add.textContent = "+ 添加下一步";
+    add.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openBlockSelector(node, group.value, add.getBoundingClientRect());
+    });
+    head.append(tag, add);
+    wrap.appendChild(head);
+
+    if (related.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "next-step-empty";
+      empty.textContent = "未连接 · 点右上「+ 添加下一步」选择去向";
+      wrap.appendChild(empty);
+      return wrap;
+    }
+
+    related.forEach((edge) => {
+      const row = document.createElement("div");
+      row.className = "next-step-row";
+      const arrow = document.createElement("span");
+      arrow.className = "edge-arrow";
+      arrow.textContent = "→";
+      const target = document.createElement("select");
+      target.className = "select";
+      state.nodes
+        .filter((n) => n.id !== node.id)
+        .forEach((n) => appendOption(target, n.id, nodeDisplayName(n), `${nodeDisplayName(n)}（${n.id}）`));
+      target.value = edge.to;
+      target.addEventListener("change", () => { edge.to = target.value; refreshAfterEdgeChange(); });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon-btn-sm next-step-remove";
+      remove.title = "删除这条连线";
+      remove.textContent = "×";
+      remove.addEventListener("click", () => {
+        const index = state.edges.indexOf(edge);
+        if (index >= 0) state.edges.splice(index, 1);
+        refreshAfterEdgeChange();
+      });
+      row.append(arrow, target, remove);
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  function refreshAfterEdgeChange() {
+    renderInspector();
+    renderRouteMap();
+    renderNodes();
+    renderEdges();
+  }
+
+  // 高级连线编辑：保留完整 from/to/条件/备注/流程 表单，默认折叠
+  function renderAdvancedEdgeEditor(node) {
+    const details = document.createElement("details");
+    details.className = "inspector-advanced edge-advanced";
+    const summary = document.createElement("summary");
+    summary.textContent = "高级连线编辑（条件 / 备注 / 流程分组）";
+    details.appendChild(summary);
+    const related = state.edges
+      .map((edge, index) => ({ edge, index }))
+      .filter(({ edge }) => edge.from === node.id || edge.to === node.id);
     if (related.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "该节点暂无连线 · 悬停节点拖出端口可连线";
-      els.edgeList.appendChild(empty);
-      return;
+      empty.textContent = "该节点暂无连线";
+      details.appendChild(empty);
+      return details;
     }
     related.forEach(({ edge, index }) => {
       const row = document.createElement("div");
@@ -849,35 +1285,33 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       routeInput.placeholder = "所属流程（如：退货流程）";
       const remove = document.createElement("button");
       remove.type = "button"; remove.className = "edge-remove"; remove.textContent = "删除连线";
-      from.addEventListener("change", () => { edge.from = from.value; renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
-      to.addEventListener("change", () => { edge.to = to.value; renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
+      from.addEventListener("change", () => { edge.from = from.value; refreshAfterEdgeChange(); });
+      to.addEventListener("change", () => { edge.to = to.value; refreshAfterEdgeChange(); });
       condition.addEventListener("change", () => { edge.condition = condition.value.trim(); renderRouteMap(); renderNodes(); renderEdges(); });
       labelInput.addEventListener("change", () => { edge.label = cleanText(labelInput.value); renderRouteMap(); renderNodes(); renderEdges(); renderInspector(); });
       routeInput.addEventListener("change", () => { edge.route = cleanText(routeInput.value); renderRouteMap(); renderNodes(); renderEdges(); renderInspector(); });
-      remove.addEventListener("click", () => { state.edges.splice(index, 1); renderInspector(); renderRouteMap(); renderNodes(); renderEdges(); });
+      remove.addEventListener("click", () => { state.edges.splice(index, 1); refreshAfterEdgeChange(); });
       row.append(from, arrow, to, condition, labelInput, routeInput, remove);
-      els.edgeList.appendChild(row);
+      details.appendChild(row);
     });
+    return details;
   }
 
   function addEdgeFromSelected() {
     const node = findSelectedNode();
     if (!node) return;
-    const target = state.nodes.find((n) => n.id !== node.id);
-    if (!target) return;
-    state.edges.push({ from: node.id, to: target.id, condition: "", label: "", route: cleanText(node.route) });
-    renderInspector(); renderRouteMap(); renderNodes(); renderEdges();
+    openBlockSelector(node, "", els.addEdge?.getBoundingClientRect() || els.edgeList.getBoundingClientRect());
   }
 
   function edgeConditionControl(fromNode, value) {
     if (fromNode?.type === "loop") {
       const select = document.createElement("select"); select.className = "select";
-      appendOption(select, "body", "body"); appendOption(select, "exit", "exit"); appendOption(select, "", "(无)");
+      appendOption(select, "body", "循环体"); appendOption(select, "exit", "退出循环"); appendOption(select, "", "不设置");
       select.value = value || ""; return select;
     }
     if (fromNode?.type === "condition") {
       const select = document.createElement("select"); select.className = "select";
-      appendOption(select, "true", "true"); appendOption(select, "false", "false"); appendOption(select, "", "(无)");
+      appendOption(select, "true", "满足"); appendOption(select, "false", "不满足"); appendOption(select, "", "不设置");
       select.value = value || ""; return select;
     }
     const input = textControl(value);
@@ -914,11 +1348,11 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       { from: loopId, to: afterId, condition: "exit", label: "退出循环", route: "循环流程" },
       { from: afterId, to: endNode.id, condition: "", label: "输出循环结果", route: "循环流程" }
     );
-    const baseY = 90 + Math.floor(state.nodes.length / 4) * 170;
+    const baseY = 120 + Math.floor(state.nodes.length / 4) * 190;
     state.positions.set(loopId, { x: 200, y: baseY });
-    state.positions.set(bodyId, { x: 480, y: baseY });
-    state.positions.set(loopBackId, { x: 760, y: baseY });
-    state.positions.set(afterId, { x: 480, y: baseY + 170 });
+    state.positions.set(bodyId, { x: 540, y: baseY });
+    state.positions.set(loopBackId, { x: 880, y: baseY });
+    state.positions.set(afterId, { x: 540, y: baseY + 190 });
     state.selectedNodeId = loopId;
     saveCanvasPositions();
     renderAll();
@@ -955,13 +1389,16 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
 
   function selectOrConnectNode(nodeId) {
     if (state.connectSourceId && state.connectSourceId !== nodeId) {
-      const duplicate = state.edges.some((e) => e.from === state.connectSourceId && e.to === nodeId);
+      const condition = state.connectSourceBranch || "";
+      const duplicate = state.edges.some((e) =>
+        e.from === state.connectSourceId && e.to === nodeId && (e.condition || "") === condition);
       if (!duplicate) {
         const sourceNode = state.nodes.find((node) => node.id === state.connectSourceId);
-        state.edges.push({ from: state.connectSourceId, to: nodeId, condition: "", label: "", route: cleanText(sourceNode?.route) });
+        state.edges.push({ from: state.connectSourceId, to: nodeId, condition, label: "", route: cleanText(sourceNode?.route) });
         toast("已连线");
       }
       state.connectSourceId = null;
+      state.connectSourceBranch = "";
     }
     state.selectedNodeId = nodeId;
     renderNodes();
@@ -1093,6 +1530,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     state.definitionStatus = null;
     state.lastRunId = null;
     state.connectSourceId = null;
+    state.connectSourceBranch = "";
     state.selectedNodeId = null;
     if (els.definitionSelect) els.definitionSelect.value = "";
     if (els.definitionName) els.definitionName.value = response.name || "自然语言生成工作流";

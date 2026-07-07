@@ -80,6 +80,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("definition-history")))
                 .andExpect(content().string(containsString("route-map-panel")))
                 .andExpect(content().string(containsString("route-map-list")))
+                .andExpect(content().string(containsString("wf-issues")))
+                .andExpect(content().string(containsString("wf-issues-pop")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("路由分配"))
                 .andExpect(content().string(containsString("reset-document-editor")))
@@ -186,7 +188,40 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("outputMode")))
                 .andExpect(content().string(containsString("outputSchema")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
-                        .contains("输出结构约束"))
+                        .contains("输出结构约束", "复合条件模式", "复合条件列表"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("OPTION_LABELS", "全部满足", "任一满足", "等于", "包含", "文本"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("VARIABLE_PRESETS", "选择变量来源", "上一步输出", "节点输出"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("templateControlForField", "conditionListControl", "添加条件", "删除条件"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("conditionRuleControl", "condition-rule-card", "分支规则", "规则类型",
+                                "单条件", "多条件", "左侧取值", "右侧取值", "高级配置", "原始条件 JSON"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("DEFAULT_NODE_OUTPUT_FIELDS", "nodeOutputDescriptors", "outputSchemaFieldDescriptors",
+                                "结构化输出", "完整输出"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("nodeOutputOptionLabel", "schemaFieldLabel", "结构化 ·", "intent: \"意图\""))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("conditionBranchDescription", "templateShortLabel", "connectSourceBranch",
+                                "EDGE_CONDITION_LABELS"))
+                // Visual output-schema editor: fields defined on canvas drive the variable picker,
+                // and user-provided titles beat the hardcoded label map.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("outputSchemaControl", "buildOutputSchema", "normalizeOutputSchema",
+                                "添加字段", "显示名", "schema.title"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .doesNotContain("label: `节点输出 · ${nodeDisplayName(node)} · ${descriptor.label}`",
+                                "结构化输出 · ${variableLabel(labelKey)}"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .doesNotContain("orderId: \"订单号\"", "customerName: \"客户姓名\"",
+                                "trackingNumber: \"运单号\"", "latestEvent: \"最新动态\"",
+                                "tool: [\"text\", \"found\", \"orderId\", \"status\", \"latestEvent\"]"))
+                .andExpect(content().string(containsString("field.constraints?.allowedValues")))
+                .andExpect(content().string(containsString("optionLabel(field.name, option)")))
+                .andExpect(content().string(containsString("type === \"array\"")))
+                .andExpect(content().string(containsString("parseJsonInput(value, [])")))
                 .andExpect(content().string(containsString("FIELD_LABELS")));
     }
 
@@ -195,6 +230,8 @@ class FrontendStaticAssetsTest {
         mockMvc.perform(get("/js/ui.js"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("loadHealth")))
+                .andExpect(content().string(containsString("setActiveViewMode")))
+                .andExpect(content().string(containsString("workflow-dify-mode")))
                 .andExpect(content().string(containsString("renderRuntimeDetails")))
                 .andExpect(content().string(containsString("workflowRuntime")))
                 .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
@@ -224,6 +261,23 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("route-highlight")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("显示名称", "所属流程", "技术 ID"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("满足", "不满足", "循环体", "退出循环"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderConditionNodeConfig", "node.type === \"condition\""))
+                // Dify-like canvas cards: branch rows with per-branch connect ports.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("nodeBranches", "node-branch-row", "branch-port", "node-head", "node-in-dot"))
+                // Dify-like inspector shell: node header + advanced settings fold.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("panel-node-head", "renderAdvancedNodeSettings", "高级设置", "inspector-section-title"))
+                // Dify-like build flow: "+" opens a block selector that auto-creates and connects.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("openBlockSelector", "addNextNode", "nextNodePosition",
+                                "添加下一步", "连接到已有节点"))
+                // Guided checklist: dangling nodes and missing branch targets are surfaced with jump-to.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("workflowIssues", "renderIssues", "jumpToNode", "项待完善", "检查通过"))
                 .andExpect(content().string(containsString("explicitRouteSummaries")))
                 .andExpect(content().string(containsString("loadDefinitionHistory")));
     }
@@ -329,6 +383,30 @@ class FrontendStaticAssetsTest {
     void servesWorkbenchStylesheet() throws Exception {
         mockMvc.perform(get("/styles.css"))
                 .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Dify-like workflow editor")))
+                .andExpect(content().string(containsString("body.workflow-dify-mode")))
+                .andExpect(content().string(containsString("--dify-bg: #f0f2f7")))
+                .andExpect(content().string(containsString("--dify-panel")))
+                .andExpect(content().string(containsString("--dify-blue")))
+                .andExpect(content().string(containsString(".node-branch-row")))
+                .andExpect(content().string(containsString(".branch-tag")))
+                .andExpect(content().string(containsString(".panel-node-head")))
+                .andExpect(content().string(containsString(".inspector-advanced")))
+                .andExpect(content().string(containsString(".block-selector")))
+                .andExpect(content().string(containsString(".block-option")))
+                .andExpect(content().string(containsString(".next-step-group")))
+                .andExpect(content().string(containsString(".incoming-chip")))
+                .andExpect(content().string(containsString(".issues-chip")))
+                .andExpect(content().string(containsString(".issue-item")))
+                .andExpect(content().string(containsString(".schema-editor")))
+                .andExpect(content().string(containsString(".schema-row")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .wf-topbar")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .workflow-canvas")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .canvas-node")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .inspector-panel")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .palette")))
+                .andExpect(content().string(containsString(".workflow-dify-mode .route-map-panel")))
+                .andExpect(content().string(containsString(".wf-autosave")))
                 .andExpect(content().string(containsString(".workflow-canvas")))
                 .andExpect(content().string(containsString(".canvas-node")))
                 .andExpect(content().string(containsString(".inspector-panel")))
@@ -344,7 +422,17 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".canvas-node.route-highlight")))
                 .andExpect(content().string(containsString(".definition-history")))
                 .andExpect(content().string(containsString(".order-editor-grid")))
-                .andExpect(content().string(containsString(".history-list")));
+                .andExpect(content().string(containsString(".history-list")))
+                .andExpect(content().string(containsString(".template-control")))
+                .andExpect(content().string(containsString(".condition-list-control")))
+                .andExpect(content().string(containsString(".condition-row")))
+                .andExpect(content().string(containsString(".condition-rule-card")))
+                .andExpect(content().string(containsString(".condition-rule-grid")))
+                .andExpect(content().string(containsString(".condition-advanced-details")))
+                .andExpect(content().string(containsString("width: clamp(420px, 34vw, 520px)")))
+                .andExpect(content().string(containsString(".condition-row-body")))
+                .andExpect(content().string(containsString(".condition-cell")))
+                .andExpect(content().string(containsString("grid-template-columns: minmax(0, 1fr) minmax(120px, .45fr)")));
     }
 
     private static void assertScriptsAppearInOrder(String html, List<String> scripts) {
