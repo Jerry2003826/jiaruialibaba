@@ -11,10 +11,23 @@ import java.util.Map;
 final class DemoWorkflowTemplate {
 
     static final String CUSTOMER_SERVICE_WORKFLOW_NAME = "AI智能客服多分支路由工作流";
+    static final String TRAVEL_EXPENSE_CONDITION_WORKFLOW_NAME = "差旅报销多条件判断 Demo";
 
     private static final String CUSTOMER_SERVICE_WORKFLOW_DESCRIPTION = """
             区分通用政策、商品咨询、具体订单查询和缺少订单号的客服工作流。
             意图节点输出受 JSON Schema 约束；后续条件节点只读取 parsed.intent 做确定性分支。
+            """;
+    private static final String TRAVEL_EXPENSE_CONDITION_WORKFLOW_DESCRIPTION = """
+            使用两个条件节点证明复合条件可在流程中稳定分支。
+            第一个节点用 mode=all 判断报销资料是否齐全；第二个节点用 mode=any 判断是否需要人工复核。
+
+            示例输入：
+            1. {"message":"上海差旅报销，帮我加急","expenseType":"travel","receiptProvided":true,"amount":1200,"priority":"normal"}
+               -> 资料齐全 AND=true，复核 OR=true。
+            2. {"message":"上海差旅报销","expenseType":"travel","receiptProvided":true,"amount":380,"priority":"normal"}
+               -> 资料齐全 AND=true，复核 OR=false。
+            3. {"message":"上海差旅报销","expenseType":"travel","receiptProvided":false,"amount":380,"priority":"normal"}
+               -> 资料齐全 AND=false。
             """;
 
     private DemoWorkflowTemplate() {
@@ -25,6 +38,11 @@ final class DemoWorkflowTemplate {
                 CUSTOMER_SERVICE_WORKFLOW_DESCRIPTION, customerServiceWorkflow());
     }
 
+    static WorkflowDefinitionSaveRequest travelExpenseConditionWorkflowRequest() {
+        return new WorkflowDefinitionSaveRequest(TRAVEL_EXPENSE_CONDITION_WORKFLOW_NAME,
+                TRAVEL_EXPENSE_CONDITION_WORKFLOW_DESCRIPTION, travelExpenseConditionWorkflow());
+    }
+
     static boolean needsSync(WorkflowDefinition definition) {
         WorkflowNode intentNode = findNode(definition, "llm_intent");
         if (intentNode == null || !"json".equalsIgnoreCase(String.valueOf(intentNode.config().get("outputMode")))
@@ -33,6 +51,27 @@ final class DemoWorkflowTemplate {
         }
         return definition.nodes().stream()
                 .anyMatch(node -> isLegacyNode(node) || usesLegacyIntentAnswer(node));
+    }
+
+    static boolean travelExpenseConditionWorkflowNeedsSync(WorkflowDefinition definition) {
+        WorkflowNode complete = findNode(definition, "condition_expense_complete");
+        WorkflowNode review = findNode(definition, "condition_manual_review");
+        return !isCompositeCondition(complete, "all", 3) || !isCompositeCondition(review, "any", 3)
+                || findNode(definition, "tool_missing_info") == null
+                || findNode(definition, "tool_manual_review") == null
+                || findNode(definition, "tool_auto_approve") == null;
+    }
+
+    private static boolean isCompositeCondition(WorkflowNode node, String mode, int expectedConditions) {
+        if (node == null || !"condition".equals(node.type())
+                || !mode.equalsIgnoreCase(String.valueOf(node.config().get("mode")))) {
+            return false;
+        }
+        Object conditions = node.config().get("conditions");
+        if (conditions instanceof List<?> list) {
+            return list.size() == expectedConditions;
+        }
+        return false;
     }
 
     private static WorkflowDefinition customerServiceWorkflow() {
@@ -91,6 +130,41 @@ final class DemoWorkflowTemplate {
                         edge("llm_other_handle", "end", null, "输出兜底答复", "其他流程")));
     }
 
+    private static WorkflowDefinition travelExpenseConditionWorkflow() {
+        return new WorkflowDefinition(List.of(
+                node("start", "start", Map.of(), "接收报销申请", "入口"),
+                node("condition_expense_complete", "condition", Map.of(
+                        "mode", "all",
+                        "conditions", List.of(
+                                conditionRule("{{input.expenseType}}", "exists", "", false),
+                                conditionRule("{{input.receiptProvided}}", "equals", "true", false),
+                                conditionRule("{{input.amount}}", "greaterThan", 0, false))),
+                        "资料齐全判断", "AND 多条件"),
+                node("condition_manual_review", "condition", Map.of(
+                        "mode", "any",
+                        "conditions", List.of(
+                                conditionRule("{{input.priority}}", "equals", "urgent", false),
+                                conditionRule("{{input.message}}", "contains", "加急", false),
+                                conditionRule("{{input.amount}}", "greaterThan", 1000, false))),
+                        "人工复核判断", "OR 多条件"),
+                toolOutcome("tool_missing_info", "资料不全处理", "资料不全",
+                        "AND 判断未全部满足：资料或金额字段不完整，需要补齐后再审核。"),
+                toolOutcome("tool_manual_review", "人工复核处理", "人工复核",
+                        "OR 判断命中至少一条：申请需要人工复核。"),
+                toolOutcome("tool_auto_approve", "自动通过处理", "自动通过",
+                        "AND 已全部满足，OR 未命中：申请可进入自动通过路径。"),
+                node("end", "end", Map.of(), "结束输出", "出口")),
+                List.of(
+                        edge("start", "condition_expense_complete", null, "开始 AND 判断", "AND 多条件"),
+                        edge("condition_expense_complete", "condition_manual_review", "true", "资料齐全", "AND 多条件"),
+                        edge("condition_expense_complete", "tool_missing_info", "false", "任一资料缺失", "资料不全"),
+                        edge("condition_manual_review", "tool_manual_review", "true", "命中任一复核条件", "OR 多条件"),
+                        edge("condition_manual_review", "tool_auto_approve", "false", "未命中复核条件", "自动通过"),
+                        edge("tool_missing_info", "end", null, "输出资料补全提示", "资料不全"),
+                        edge("tool_manual_review", "end", null, "输出人工复核结论", "人工复核"),
+                        edge("tool_auto_approve", "end", null, "输出自动通过结论", "自动通过")));
+    }
+
     private static WorkflowNode condition(String id, String label, String intent, String route) {
         return node(id, "condition", Map.of(
                 "left", "{{nodes.llm_intent.parsed.intent}}",
@@ -98,6 +172,22 @@ final class DemoWorkflowTemplate {
                 "right", intent,
                 "caseSensitive", false),
                 label, route);
+    }
+
+    private static WorkflowNode toolOutcome(String id, String label, String route, String message) {
+        return node(id, "tool", Map.of(
+                "toolName", "getCurrentTime",
+                "arguments", Map.of("message", message),
+                "idempotent", true),
+                label, route);
+    }
+
+    private static Map<String, Object> conditionRule(String left, String operator, Object right, boolean caseSensitive) {
+        return Map.of(
+                "left", left,
+                "operator", operator,
+                "right", right,
+                "caseSensitive", caseSensitive);
     }
 
     private static WorkflowNode node(String id, String type, Map<String, Object> config, String label, String route) {

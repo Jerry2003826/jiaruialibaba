@@ -1,5 +1,6 @@
 package com.example.agentdemo.demo;
 
+import com.example.agentdemo.workflow.WorkflowDefinition;
 import com.example.agentdemo.workflow.WorkflowDefinitionResponse;
 import com.example.agentdemo.workflow.WorkflowDefinitionSaveRequest;
 import com.example.agentdemo.workflow.WorkflowDefinitionService;
@@ -10,6 +11,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+
+import java.util.function.Predicate;
 
 @Component
 @Profile("dev")
@@ -26,32 +29,51 @@ public class DemoWorkflowSeeder implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        syncCustomerServiceWorkflow();
+        syncDemoWorkflow(DemoWorkflowTemplate.customerServiceWorkflowRequest(),
+                DemoWorkflowTemplate::needsSync,
+                "customer-service");
+        syncDemoWorkflow(DemoWorkflowTemplate.travelExpenseConditionWorkflowRequest(),
+                DemoWorkflowTemplate::travelExpenseConditionWorkflowNeedsSync,
+                "travel-expense-conditions");
     }
 
     void syncCustomerServiceWorkflow() {
-        WorkflowDefinitionSaveRequest template = DemoWorkflowTemplate.customerServiceWorkflowRequest();
-        workflowDefinitionService.list().stream()
-                .filter(definition -> DemoWorkflowTemplate.CUSTOMER_SERVICE_WORKFLOW_NAME.equals(definition.name()))
-                .findFirst()
-                .ifPresentOrElse(
-                        existing -> syncExisting(existing, template),
-                        () -> createAndPublish(template));
+        syncDemoWorkflow(DemoWorkflowTemplate.customerServiceWorkflowRequest(),
+                DemoWorkflowTemplate::needsSync,
+                "customer-service");
     }
 
-    private void syncExisting(WorkflowDefinitionResponse existing, WorkflowDefinitionSaveRequest template) {
-        if (!DemoWorkflowTemplate.needsSync(existing.workflowDefinition())) {
+    void syncTravelExpenseConditionWorkflow() {
+        syncDemoWorkflow(DemoWorkflowTemplate.travelExpenseConditionWorkflowRequest(),
+                DemoWorkflowTemplate::travelExpenseConditionWorkflowNeedsSync,
+                "travel-expense-conditions");
+    }
+
+    private void syncDemoWorkflow(WorkflowDefinitionSaveRequest template,
+            Predicate<WorkflowDefinition> needsSync,
+            String logName) {
+        workflowDefinitionService.list().stream()
+                .filter(definition -> template.name().equals(definition.name()))
+                .findFirst()
+                .ifPresentOrElse(
+                        existing -> syncExisting(existing, template, needsSync, logName),
+                        () -> createAndPublish(template, logName));
+    }
+
+    private void syncExisting(WorkflowDefinitionResponse existing, WorkflowDefinitionSaveRequest template,
+            Predicate<WorkflowDefinition> needsSync,
+            String logName) {
+        if (!needsSync.test(existing.workflowDefinition())) {
             return;
         }
         WorkflowDefinitionResponse updated = workflowDefinitionService.update(existing.definitionId(), template);
         workflowDefinitionService.publish(updated.definitionId());
-        log.info("Updated demo customer-service workflow {} to structured intent template",
-                updated.definitionId());
+        log.info("Updated demo {} workflow {}", logName, updated.definitionId());
     }
 
-    private void createAndPublish(WorkflowDefinitionSaveRequest template) {
+    private void createAndPublish(WorkflowDefinitionSaveRequest template, String logName) {
         WorkflowDefinitionResponse created = workflowDefinitionService.save(template);
         workflowDefinitionService.publish(created.definitionId());
-        log.info("Created demo customer-service workflow {}", created.definitionId());
+        log.info("Created demo {} workflow {}", logName, created.definitionId());
     }
 }
