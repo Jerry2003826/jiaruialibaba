@@ -315,7 +315,13 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("payload.route = cleanText(node.route)")))
                 .andExpect(content().string(containsString("buildCompositeContainersFromSteps")))
                 .andExpect(content().string(containsString("tokenUsageSummary")))
-                .andExpect(content().string(containsString("tokenUsage")));
+                .andExpect(content().string(containsString("tokenUsage")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("applyAutomaticStructuredOutputContracts", "inferStructuredOutputProfile",
+                                "CUSTOMER_SERVICE_INTENT_PROFILE", "autoStructuredOutputContract")
+                        .contains("config.outputMode = \"json\"",
+                                "config.outputSchema = cloneStructuredValue(schema)",
+                                "config.writeState = { ...profile.writeState, ...existingWriteState }"));
     }
 
     @Test

@@ -22,6 +22,7 @@ public class WorkflowDefinitionService {
     private final WorkflowRunRecordRepository workflowRunRecordRepository;
     private final WorkflowCompiler workflowCompiler;
     private final WorkflowRuntimeProperties workflowRuntimeProperties;
+    private final WorkflowStructuredOutputAutoconfigurer structuredOutputAutoconfigurer;
     private final JsonPayloadCodec jsonPayloadCodec;
     private final PublicIdGenerator publicIdGenerator;
 
@@ -29,12 +30,14 @@ public class WorkflowDefinitionService {
     public WorkflowDefinitionService(WorkflowDefinitionRepository workflowDefinitionRepository,
             WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository, WorkflowCompiler workflowCompiler,
             JsonPayloadCodec jsonPayloadCodec, WorkflowRunRecordRepository workflowRunRecordRepository,
-            WorkflowRuntimeProperties workflowRuntimeProperties, PublicIdGenerator publicIdGenerator) {
+            WorkflowRuntimeProperties workflowRuntimeProperties, PublicIdGenerator publicIdGenerator,
+            WorkflowStructuredOutputAutoconfigurer structuredOutputAutoconfigurer) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowDefinitionRevisionRepository = workflowDefinitionRevisionRepository;
         this.workflowRunRecordRepository = workflowRunRecordRepository;
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntimeProperties = workflowRuntimeProperties;
+        this.structuredOutputAutoconfigurer = structuredOutputAutoconfigurer;
         this.jsonPayloadCodec = jsonPayloadCodec;
         this.publicIdGenerator = publicIdGenerator;
     }
@@ -45,14 +48,24 @@ public class WorkflowDefinitionService {
             WorkflowRuntimeProperties workflowRuntimeProperties) {
         this(workflowDefinitionRepository, workflowDefinitionRevisionRepository, workflowCompiler,
                 new JsonPayloadCodec(objectMapper), workflowRunRecordRepository, workflowRuntimeProperties,
-                new PublicIdGenerator());
+                new PublicIdGenerator(), new WorkflowStructuredOutputAutoconfigurer());
+    }
+
+    WorkflowDefinitionService(WorkflowDefinitionRepository workflowDefinitionRepository,
+            WorkflowDefinitionRevisionRepository workflowDefinitionRevisionRepository, WorkflowCompiler workflowCompiler,
+            JsonPayloadCodec jsonPayloadCodec, WorkflowRunRecordRepository workflowRunRecordRepository,
+            WorkflowRuntimeProperties workflowRuntimeProperties, PublicIdGenerator publicIdGenerator) {
+        this(workflowDefinitionRepository, workflowDefinitionRevisionRepository, workflowCompiler, jsonPayloadCodec,
+                workflowRunRecordRepository, workflowRuntimeProperties, publicIdGenerator,
+                new WorkflowStructuredOutputAutoconfigurer());
     }
 
     @Transactional
     public WorkflowDefinitionResponse save(WorkflowDefinitionSaveRequest request) {
-        workflowCompiler.compile(request.workflowDefinition());
+        WorkflowDefinition workflowDefinition = structuredOutputAutoconfigurer.apply(request.workflowDefinition());
+        workflowCompiler.compile(workflowDefinition);
         WorkflowDefinitionEntity entity = new WorkflowDefinitionEntity(newId(), request.name().trim(),
-                normalizeDescription(request.description()), toJson(request.workflowDefinition()));
+                normalizeDescription(request.description()), toJson(workflowDefinition));
         applyMetadata(entity, request);
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
         saveRevision(saved);
@@ -61,10 +74,11 @@ public class WorkflowDefinitionService {
 
     @Transactional
     public WorkflowDefinitionResponse update(String definitionId, WorkflowDefinitionSaveRequest request) {
-        workflowCompiler.compile(request.workflowDefinition());
+        WorkflowDefinition workflowDefinition = structuredOutputAutoconfigurer.apply(request.workflowDefinition());
+        workflowCompiler.compile(workflowDefinition);
         WorkflowDefinitionEntity entity = findEntity(definitionId);
         entity.updateDraft(request.name().trim(), normalizeDescription(request.description()),
-                toJson(request.workflowDefinition()));
+                toJson(workflowDefinition));
         applyMetadata(entity, request);
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(entity);
         saveRevision(saved);

@@ -622,7 +622,42 @@ window.AgentWorkbench = window.AgentWorkbench || {};
   // ============================================================
   // 工作流定义构建
   // ============================================================
+  const CUSTOMER_SERVICE_INTENT_PROFILE = {
+    id: "customer_service_intent",
+    intents: [
+      "order_policy", "order_query", "need_order_id", "product_consult",
+      "complaint", "human_transfer", "bug_feedback", "sales_lead", "chitchat"
+    ],
+    outputSchema: {
+      type: "object",
+      required: ["intent", "hasOrderId", "needsOrderId", "orderIds", "confidence"],
+      additionalProperties: false,
+      properties: {
+        intent: {
+          type: "string",
+          title: "意图",
+          enum: [
+            "order_policy", "order_query", "need_order_id", "product_consult",
+            "complaint", "human_transfer", "bug_feedback", "sales_lead", "chitchat"
+          ]
+        },
+        hasOrderId: { type: "boolean", title: "是否已有订单号" },
+        needsOrderId: { type: "boolean", title: "是否需要补充订单号" },
+        orderIds: { type: "array", title: "订单号列表", items: { type: "string" } },
+        confidence: { type: "number", title: "置信度" }
+      }
+    },
+    writeState: {
+      intent: "{{lastOutput.parsed.intent}}",
+      hasOrderId: "{{lastOutput.parsed.hasOrderId}}",
+      needsOrderId: "{{lastOutput.parsed.needsOrderId}}",
+      orderIds: "{{lastOutput.parsed.orderIds}}",
+      confidence: "{{lastOutput.parsed.confidence}}"
+    }
+  };
+
   function buildWorkflowDefinition() {
+    applyAutomaticStructuredOutputContracts();
     return {
       nodes: state.nodes.map((node) => {
         const payload = { id: node.id, type: node.type, config: cleanConfig(node.config) };
@@ -638,6 +673,93 @@ window.AgentWorkbench = window.AgentWorkbench || {};
         return payload;
       })
     };
+  }
+
+  function applyAutomaticStructuredOutputContracts() {
+    state.nodes
+      .filter((node) => node.type === "llm")
+      .forEach((node) => {
+        const config = node.config || (node.config = {});
+        if (hasManualStructuredOutputContract(config)) return;
+        const profile = inferStructuredOutputProfile(node);
+        if (!profile) return;
+        const enumValues = mergeUnique(profile.intents, conditionValuesForNodeField(node.id, "intent"));
+        const schema = cloneStructuredValue(profile.outputSchema);
+        schema.properties.intent.enum = enumValues;
+        const existingWriteState = config.writeState && typeof config.writeState === "object" && !Array.isArray(config.writeState)
+          ? config.writeState
+          : {};
+        config.outputMode = "json";
+        config.outputSchema = cloneStructuredValue(schema);
+        config.writeState = { ...profile.writeState, ...existingWriteState };
+        config.prompt = promptWithStructuredOutputInstruction(config.prompt || "");
+        config.autoStructuredOutputContract = profile.id;
+      });
+  }
+
+  function inferStructuredOutputProfile(node) {
+    const intentValues = conditionValuesForNodeField(node.id, "intent");
+    if (intentValues.some((value) => CUSTOMER_SERVICE_INTENT_PROFILE.intents.includes(value))) {
+      return CUSTOMER_SERVICE_INTENT_PROFILE;
+    }
+    const text = [
+      node.id, node.label, node.route,
+      node.config?.prompt
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    const router = ["意图", "intent", "路由", "分流", "分类", "判断", "route", "classif"]
+      .some((word) => text.includes(word));
+    const service = ["客服", "订单", "商品", "政策", "物流", "退款", "退货", "customer", "order", "product", "policy"]
+      .some((word) => text.includes(word));
+    return router && service ? CUSTOMER_SERVICE_INTENT_PROFILE : null;
+  }
+
+  function hasManualStructuredOutputContract(config) {
+    const schema = config.outputSchema;
+    return schema && typeof schema === "object" && !Array.isArray(schema)
+      && Object.keys(schema).length > 0
+      && config.autoStructuredOutputContract !== CUSTOMER_SERVICE_INTENT_PROFILE.id;
+  }
+
+  function conditionValuesForNodeField(nodeId, fieldName) {
+    const values = [];
+    const marker = `{{nodes.${nodeId}.parsed.${fieldName}}}`;
+    const inspect = (value) => {
+      if (!value) return;
+      if (Array.isArray(value)) { value.forEach(inspect); return; }
+      if (typeof value === "object") {
+        if (String(value.left || "").replace(/\s+/g, "") === marker) {
+          const right = cleanText(value.right);
+          if (right) values.push(right);
+        }
+        Object.values(value).forEach(inspect);
+      }
+    };
+    state.nodes.filter((node) => node.type === "condition").forEach((node) => inspect(node.config));
+    return mergeUnique(values, []);
+  }
+
+  function promptWithStructuredOutputInstruction(prompt) {
+    const base = cleanText(prompt) || "请根据用户消息识别客服意图：{{input.message}}";
+    if (base.includes("必须只输出一个 JSON 对象")) return base;
+    return `${base}
+
+结构化输出要求：
+必须只输出一个 JSON 对象，不要 Markdown，不要解释，不要多余文本。JSON 字段必须为：
+{
+  "intent": "order_policy | order_query | need_order_id | product_consult | complaint | human_transfer | bug_feedback | sales_lead | chitchat",
+  "hasOrderId": true/false,
+  "needsOrderId": true/false,
+  "orderIds": ["识别到的订单号，没有则为空数组"],
+  "confidence": 0.0 到 1.0
+}`;
+  }
+
+  function mergeUnique(first, second) {
+    return Array.from(new Set([...(first || []), ...(second || [])].filter(Boolean)));
+  }
+
+  function cloneStructuredValue(value) {
+    return JSON.parse(JSON.stringify(value));
   }
 
   function cleanConfig(config) {

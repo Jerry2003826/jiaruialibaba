@@ -31,13 +31,15 @@ public class WorkflowService {
     private final WorkflowRunBudgetRegistry workflowRunBudgetRegistry;
     private final WorkflowRuntimeProperties workflowRuntimeProperties;
     private final PageRequestValidator pageRequestValidator;
+    private final WorkflowStructuredOutputAutoconfigurer structuredOutputAutoconfigurer;
 
     @Autowired
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
             WorkflowRunRecordRepository workflowRunRecordRepository,
             WorkflowRunBudgetRegistry workflowRunBudgetRegistry,
-            WorkflowRuntimeProperties workflowRuntimeProperties, PageRequestValidator pageRequestValidator) {
+            WorkflowRuntimeProperties workflowRuntimeProperties, PageRequestValidator pageRequestValidator,
+            WorkflowStructuredOutputAutoconfigurer structuredOutputAutoconfigurer) {
         this.workflowCompiler = workflowCompiler;
         this.workflowRuntime = workflowRuntime;
         this.traceService = traceService;
@@ -46,13 +48,15 @@ public class WorkflowService {
         this.workflowRunBudgetRegistry = workflowRunBudgetRegistry;
         this.workflowRuntimeProperties = workflowRuntimeProperties;
         this.pageRequestValidator = pageRequestValidator;
+        this.structuredOutputAutoconfigurer = structuredOutputAutoconfigurer;
     }
 
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
             TraceService traceService, WorkflowDefinitionService workflowDefinitionService,
             WorkflowRunRecordRepository workflowRunRecordRepository) {
         this(workflowCompiler, workflowRuntime, traceService, workflowDefinitionService, workflowRunRecordRepository,
-                new WorkflowRunBudgetRegistry(), new WorkflowRuntimeProperties(), new PageRequestValidator());
+                new WorkflowRunBudgetRegistry(), new WorkflowRuntimeProperties(), new PageRequestValidator(),
+                new WorkflowStructuredOutputAutoconfigurer());
     }
 
     public WorkflowService(WorkflowCompiler workflowCompiler, WorkflowRuntime workflowRuntime,
@@ -61,7 +65,8 @@ public class WorkflowService {
             WorkflowRunBudgetRegistry workflowRunBudgetRegistry,
             WorkflowRuntimeProperties workflowRuntimeProperties) {
         this(workflowCompiler, workflowRuntime, traceService, workflowDefinitionService, workflowRunRecordRepository,
-                workflowRunBudgetRegistry, workflowRuntimeProperties, new PageRequestValidator());
+                workflowRunBudgetRegistry, workflowRuntimeProperties, new PageRequestValidator(),
+                new WorkflowStructuredOutputAutoconfigurer());
     }
 
     public WorkflowRunResponse run(WorkflowRunRequest request) {
@@ -111,9 +116,10 @@ public class WorkflowService {
 
     public WorkflowValidationResponse validate(WorkflowValidationRequest request) {
         try {
-            WorkflowExecutionPlan executionPlan = workflowCompiler.compile(request.workflowDefinition());
+            WorkflowDefinition workflowDefinition = structuredOutputAutoconfigurer.apply(request.workflowDefinition());
+            WorkflowExecutionPlan executionPlan = workflowCompiler.compile(workflowDefinition);
             return WorkflowValidationResponse.valid(
-                    WorkflowValidationSummaryFactory.from(request.workflowDefinition(), executionPlan));
+                    WorkflowValidationSummaryFactory.from(workflowDefinition, executionPlan));
         }
         catch (BusinessException ex) {
             return WorkflowValidationResponse.invalid(ex.getCode(), ex.getMessage());
@@ -162,7 +168,8 @@ public class WorkflowService {
                 throw new BusinessException("WORKFLOW_INLINE_RUN_DISABLED",
                         "Inline workflow runs are disabled when published definitions are required");
             }
-            return new WorkflowDefinitionResolution(null, null, request.workflowDefinition());
+            return new WorkflowDefinitionResolution(null, null,
+                    structuredOutputAutoconfigurer.apply(request.workflowDefinition()));
         }
         if (StringUtils.hasText(request.definitionId())) {
             return workflowDefinitionService.resolveDefinition(request.definitionId(), request.definitionVersion());
