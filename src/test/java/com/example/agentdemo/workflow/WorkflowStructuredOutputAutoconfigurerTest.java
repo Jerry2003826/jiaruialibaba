@@ -83,6 +83,42 @@ class WorkflowStructuredOutputAutoconfigurerTest {
         assertThat(config).doesNotContainKey("autoStructuredOutputContract");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void reclaimsLegacyCustomerServiceIntentSchemaAsAutomaticContract() {
+        Map<String, Object> legacySchema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "confidence", Map.of("type", "number"),
+                        "intent", Map.of("type", "string"),
+                        "needsOrderId", Map.of("type", "boolean"),
+                        "hasOrderId", Map.of("type", "boolean"),
+                        "orderIds", Map.of("type", "array")));
+        WorkflowDefinition normalized = autoconfigurer.apply(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("llm_intent", "llm", Map.of(
+                                "prompt", "识别客服意图：{{input.message}}",
+                                "outputMode", "json",
+                                "outputSchema", legacySchema),
+                                "意图识别", null),
+                        new WorkflowNode("condition_order", "condition", Map.of(
+                                "left", "{{nodes.llm_intent.parsed.intent}}",
+                                "operator", "equals",
+                                "right", "order_query"))),
+                List.of(new WorkflowEdge("llm_intent", "condition_order"))));
+
+        Map<String, Object> config = node(normalized, "llm_intent").config();
+        Map<String, Object> schema = (Map<String, Object>) config.get("outputSchema");
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+
+        assertThat(config.get("autoStructuredOutputContract")).isEqualTo("customer_service_intent");
+        assertThat((String) config.get("prompt")).contains("必须只输出一个 JSON 对象");
+        assertThat(properties).containsKeys("intent", "hasOrderId", "needsOrderId", "orderIds", "confidence");
+        assertThat((Map<String, Object>) config.get("writeState"))
+                .containsEntry("intent", "{{lastOutput.parsed.intent}}")
+                .containsEntry("confidence", "{{lastOutput.parsed.confidence}}");
+    }
+
     private WorkflowNode node(WorkflowDefinition definition, String id) {
         return definition.nodes().stream()
                 .filter(candidate -> candidate.id().equals(id))

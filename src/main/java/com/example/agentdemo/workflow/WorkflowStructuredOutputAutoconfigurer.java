@@ -58,7 +58,21 @@ class WorkflowStructuredOutputAutoconfigurer {
     private boolean hasManualOutputSchema(Map<String, Object> config) {
         Object schema = config.get("outputSchema");
         return schema instanceof Map<?, ?> map && !map.isEmpty()
-                && !CUSTOMER_SERVICE_INTENT_CONTRACT.equals(config.get("autoStructuredOutputContract"));
+                && !CUSTOMER_SERVICE_INTENT_CONTRACT.equals(config.get("autoStructuredOutputContract"))
+                && !isCustomerServiceIntentSchema(map);
+    }
+
+    private boolean isCustomerServiceIntentSchema(Map<?, ?> schema) {
+        Object properties = schema.get("properties");
+        if (!(properties instanceof Map<?, ?> propertyMap)) {
+            return false;
+        }
+        Set<String> fieldNames = new LinkedHashSet<>();
+        propertyMap.keySet().forEach(key -> fieldNames.add(String.valueOf(key)));
+        long matchedFields = List.of("intent", "hasOrderId", "needsOrderId", "orderIds", "confidence").stream()
+                .filter(fieldNames::contains)
+                .count();
+        return fieldNames.contains("intent") && fieldNames.contains("confidence") && matchedFields >= 4;
     }
 
     private boolean isCustomerServiceIntentNode(WorkflowNode node, Set<String> intentValues) {

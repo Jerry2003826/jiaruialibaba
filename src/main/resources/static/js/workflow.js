@@ -2,6 +2,13 @@
 
 var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
 
+  const AUTO_STRUCTURED_HIDDEN_FIELDS = new Set(["outputMode", "outputSchema", "writeState"]);
+  const CUSTOMER_SERVICE_INTENT_CONTRACT = "customer_service_intent";
+  const CUSTOMER_SERVICE_INTENTS = [
+    "order_policy", "order_query", "need_order_id", "product_consult",
+    "complaint", "human_transfer", "bug_feedback", "sales_lead", "chitchat"
+  ];
+  const CUSTOMER_SERVICE_SCHEMA_FIELDS = ["intent", "hasOrderId", "needsOrderId", "orderIds", "confidence"];
 
   // ============================================================
   // 控制器（保留全局名，前端资源测试依赖）
@@ -1037,10 +1044,14 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     sectionTitle.textContent = "设置";
     els.inspectorForm.appendChild(sectionTitle);
 
+    const autoStructured = isAutoStructuredOutputNode(node);
+    if (autoStructured) els.inspectorForm.appendChild(renderAutoStructuredOutputNotice(node));
+
     if (node.type === "condition") {
       renderConditionNodeConfig(node);
     } else {
       (schema.configFields || []).forEach((field) => {
+        if (autoStructured && AUTO_STRUCTURED_HIDDEN_FIELDS.has(field.name)) return;
         const shell = fieldShell(configFieldLabel(field.name));
         let control;
         if (node.type === "subgraph" && field.name === "definitionId") {
@@ -1070,6 +1081,85 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
 
     els.inspectorForm.appendChild(renderAdvancedNodeSettings(node));
     renderEdgeEditor(node);
+  }
+
+  function isAutoStructuredOutputNode(node) {
+    return inferAutoStructuredOutputProfile(node) !== null;
+  }
+
+  function inferAutoStructuredOutputProfile(node) {
+    if (!node || node.type !== "llm") return null;
+    const config = node.config || {};
+    if (config.autoStructuredOutputContract === CUSTOMER_SERVICE_INTENT_CONTRACT) {
+      return CUSTOMER_SERVICE_INTENT_CONTRACT;
+    }
+    const schemaFields = outputSchemaFieldNames(config.outputSchema);
+    const matchedFields = CUSTOMER_SERVICE_SCHEMA_FIELDS.filter((field) => schemaFields.has(field));
+    if (schemaFields.has("intent") && schemaFields.has("confidence") && matchedFields.length >= 4) {
+      return CUSTOMER_SERVICE_INTENT_CONTRACT;
+    }
+    const intentValues = inspectorConditionValuesForNodeField(node.id, "intent");
+    if (intentValues.some((value) => CUSTOMER_SERVICE_INTENTS.includes(value))) {
+      return CUSTOMER_SERVICE_INTENT_CONTRACT;
+    }
+    const text = [node.id, node.label, node.route, config.prompt]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ");
+    const router = ["意图", "intent", "路由", "分流", "分类", "判断", "route", "classif"]
+      .some((word) => text.includes(word));
+    const service = ["客服", "订单", "商品", "政策", "物流", "退款", "退货", "customer", "order", "product", "policy"]
+      .some((word) => text.includes(word));
+    return router && service ? CUSTOMER_SERVICE_INTENT_CONTRACT : null;
+  }
+
+  function renderAutoStructuredOutputNotice(node) {
+    const notice = document.createElement("div");
+    notice.className = "auto-structured-output-summary";
+    const title = document.createElement("div");
+    title.className = "auto-structured-output-title";
+    title.textContent = "结构化输出已自动配置";
+    const fields = document.createElement("div");
+    fields.className = "auto-structured-output-fields";
+    ["意图", "是否已有订单号", "是否需要补充订单号", "订单号列表", "置信度"]
+      .forEach((label) => {
+        const chip = document.createElement("span");
+        chip.textContent = label;
+        fields.appendChild(chip);
+      });
+    const hint = document.createElement("div");
+    hint.className = "config-hint";
+    hint.textContent = "系统会根据节点语义和下游分支维护 JSON Schema 与变量写入，无需手动编辑字段。";
+    notice.append(title, fields, hint);
+    return notice;
+  }
+
+  function outputSchemaFieldNames(schema) {
+    let parsed = schema;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed || "{}"); } catch (error) { parsed = {}; }
+    }
+    const properties = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      && parsed.properties && typeof parsed.properties === "object" && !Array.isArray(parsed.properties)
+      ? parsed.properties
+      : {};
+    return new Set(Object.keys(properties));
+  }
+
+  function inspectorConditionValuesForNodeField(nodeId, fieldName) {
+    const values = new Set();
+    const marker = `{{nodes.${nodeId}.parsed.${fieldName}}}`;
+    const inspect = (value) => {
+      if (!value) return;
+      if (Array.isArray(value)) { value.forEach(inspect); return; }
+      if (typeof value !== "object") return;
+      if (String(value.left || "").replace(/\s+/g, "") === marker) {
+        const right = String(value.right || "").trim();
+        if (right) values.add(right);
+      }
+      Object.values(value).forEach(inspect);
+    };
+    state.nodes.filter((candidate) => candidate.type === "condition").forEach((candidate) => inspect(candidate.config));
+    return Array.from(values);
   }
 
   // 高级设置折叠区：所属流程 / 技术 ID / 节点类型（低频配置不占主视区）

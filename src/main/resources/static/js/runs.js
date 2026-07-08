@@ -717,7 +717,23 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     const schema = config.outputSchema;
     return schema && typeof schema === "object" && !Array.isArray(schema)
       && Object.keys(schema).length > 0
-      && config.autoStructuredOutputContract !== CUSTOMER_SERVICE_INTENT_PROFILE.id;
+      && config.autoStructuredOutputContract !== CUSTOMER_SERVICE_INTENT_PROFILE.id
+      && !isCustomerServiceIntentSchema(schema);
+  }
+
+  function isCustomerServiceIntentSchema(schema) {
+    let parsed = schema;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed || "{}"); } catch (error) { parsed = {}; }
+    }
+    const properties = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      && parsed.properties && typeof parsed.properties === "object" && !Array.isArray(parsed.properties)
+      ? parsed.properties
+      : {};
+    const fields = new Set(Object.keys(properties));
+    const matchedFields = ["intent", "hasOrderId", "needsOrderId", "orderIds", "confidence"]
+      .filter((field) => fields.has(field));
+    return fields.has("intent") && fields.has("confidence") && matchedFields.length >= 4;
   }
 
   function conditionValuesForNodeField(nodeId, fieldName) {

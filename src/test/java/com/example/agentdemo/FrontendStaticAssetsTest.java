@@ -271,6 +271,12 @@ class FrontendStaticAssetsTest {
                 // Dify-like inspector shell: node header + advanced settings fold.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("panel-node-head", "renderAdvancedNodeSettings", "高级设置", "inspector-section-title"))
+                // Automatically managed LLM router contracts should not expose the manual JSON controls.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("AUTO_STRUCTURED_HIDDEN_FIELDS", "isAutoStructuredOutputNode",
+                                "renderAutoStructuredOutputNotice", "auto-structured-output-summary",
+                                "结构化输出已自动配置")
+                        .contains("autoStructured && AUTO_STRUCTURED_HIDDEN_FIELDS.has(field.name)"))
                 // Dify-like build flow: "+" opens a block selector that auto-creates and connects.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("openBlockSelector", "addNextNode", "nextNodePosition",
@@ -318,10 +324,12 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("tokenUsage")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("applyAutomaticStructuredOutputContracts", "inferStructuredOutputProfile",
-                                "CUSTOMER_SERVICE_INTENT_PROFILE", "autoStructuredOutputContract")
+                                "CUSTOMER_SERVICE_INTENT_PROFILE", "autoStructuredOutputContract",
+                                "isCustomerServiceIntentSchema")
                         .contains("config.outputMode = \"json\"",
                                 "config.outputSchema = cloneStructuredValue(schema)",
-                                "config.writeState = { ...profile.writeState, ...existingWriteState }"));
+                                "config.writeState = { ...profile.writeState, ...existingWriteState }",
+                                "&& !isCustomerServiceIntentSchema(schema)"));
     }
 
     @Test
