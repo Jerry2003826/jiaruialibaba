@@ -271,6 +271,11 @@ class FrontendStaticAssetsTest {
                 // Dify-like inspector shell: node header + advanced settings fold.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("panel-node-head", "renderAdvancedNodeSettings", "高级设置", "inspector-section-title"))
+                // Dify-like condition inspector: IF/ELSE are visible branch sections, with next-step cards inline.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderConditionBranchEditor", "renderConditionBranchNextSteps",
+                                "condition-if-else-card", "IF 条件", "ELSE",
+                                "用于定义当 IF 条件不满足时应执行的逻辑"))
                 // Automatically managed LLM router contracts should not expose the manual JSON controls.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("AUTO_STRUCTURED_HIDDEN_FIELDS", "isAutoStructuredOutputNode",
@@ -442,6 +447,9 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".condition-row")))
                 .andExpect(content().string(containsString(".condition-rule-card")))
                 .andExpect(content().string(containsString(".condition-rule-grid")))
+                .andExpect(content().string(containsString(".condition-if-else-card")))
+                .andExpect(content().string(containsString(".condition-branch-section")))
+                .andExpect(content().string(containsString(".condition-branch-next")))
                 .andExpect(content().string(containsString(".condition-advanced-details")))
                 .andExpect(content().string(containsString("width: clamp(420px, 34vw, 520px)")))
                 .andExpect(content().string(containsString(".condition-row-body")))

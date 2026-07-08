@@ -1010,7 +1010,8 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     els.inspectorTitle.textContent = `${nodeLabel(node.type)} 节点`;
     els.inspectorEmpty.classList.add("hidden");
     els.inspectorForm.classList.remove("hidden");
-    els.edgeSection.classList.remove("hidden");
+    const conditionNode = node.type === "condition";
+    els.edgeSection.classList.toggle("hidden", conditionNode);
     els.deleteNode.disabled = node.type === "start" || node.type === "end";
     els.inspectorForm.innerHTML = "";
 
@@ -1080,7 +1081,11 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     }
 
     els.inspectorForm.appendChild(renderAdvancedNodeSettings(node));
-    renderEdgeEditor(node);
+    if (conditionNode) {
+      els.inspectorForm.appendChild(renderConditionBranchEditor(node));
+    } else {
+      renderEdgeEditor(node);
+    }
   }
 
   function isAutoStructuredOutputNode(node) {
@@ -1214,6 +1219,53 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     els.inspectorForm.appendChild(conditionRuleControl(node.config, updatePreview, refreshPanel));
   }
 
+  function renderConditionBranchEditor(node) {
+    const card = document.createElement("section");
+    card.className = "condition-if-else-card";
+    const title = document.createElement("div");
+    title.className = "condition-if-else-title";
+    title.textContent = "下一步";
+    const hint = document.createElement("div");
+    hint.className = "condition-if-else-hint";
+    hint.textContent = "条件节点按 IF / ELSE 两条出口执行；可直接在这里配置每个分支的下一个节点。";
+    card.append(title, hint);
+
+    const outgoing = state.edges.filter((edge) => edge.from === node.id);
+    const branches = nodeBranches(node);
+    const ifBranch = branches.find((branch) => branch.value === "true") || { value: "true", tag: "IF", desc: "满足" };
+    const elseBranch = branches.find((branch) => branch.value === "false") || { value: "false", tag: "ELSE", desc: "不满足" };
+
+    card.appendChild(renderConditionBranchNextSteps(node, ifBranch, outgoing, "IF 条件",
+      "当上方规则判断为满足时执行。"));
+    card.appendChild(renderConditionBranchNextSteps(node, elseBranch, outgoing, "ELSE",
+      "用于定义当 IF 条件不满足时应执行的逻辑。"));
+
+    const incoming = renderIncomingSources(node);
+    if (incoming) card.appendChild(incoming);
+    card.appendChild(renderAdvancedEdgeEditor(node));
+    return card;
+  }
+
+  function renderConditionBranchNextSteps(node, branch, outgoing, heading, description) {
+    const section = document.createElement("section");
+    section.className = "condition-branch-section";
+    const head = document.createElement("div");
+    head.className = "condition-branch-head";
+    const label = document.createElement("div");
+    label.className = "condition-branch-label";
+    label.textContent = heading;
+    const desc = document.createElement("div");
+    desc.className = "condition-branch-desc";
+    desc.textContent = description;
+    head.append(label, desc);
+    section.appendChild(head);
+
+    const next = renderNextStepGroup(node, branch, outgoing, true);
+    next.classList.add("condition-branch-next");
+    section.appendChild(next);
+    return section;
+  }
+
   function subgraphDefinitionControl(selectedId) {
     const select = document.createElement("select");
     select.className = "select";
@@ -1239,7 +1291,6 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     els.edgeList.innerHTML = "";
     els.addEdge?.classList.add("hidden");
     const outgoing = state.edges.filter((edge) => edge.from === node.id);
-    const incoming = state.edges.filter((edge) => edge.to === node.id);
     const branches = nodeBranches(node);
 
     if (node.type !== "end") {
@@ -1249,30 +1300,35 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       });
     }
 
-    if (incoming.length > 0) {
-      const line = document.createElement("div");
-      line.className = "incoming-line";
-      const label = document.createElement("span");
-      label.className = "incoming-label";
-      label.textContent = "来源";
-      line.appendChild(label);
-      incoming.forEach((edge) => {
-        const source = state.nodes.find((n) => n.id === edge.from);
-        const chip = document.createElement("button");
-        chip.type = "button";
-        chip.className = "incoming-chip";
-        const branchText = edgeDisplayName({ label: "", condition: edge.condition });
-        chip.textContent = source
-          ? `${nodeDisplayName(source)}${branchText ? ` · ${branchText}` : ""}`
-          : edge.from;
-        chip.title = "点击选中来源节点";
-        chip.addEventListener("click", () => selectOrConnectNode(edge.from));
-        line.appendChild(chip);
-      });
-      els.edgeList.appendChild(line);
-    }
+    const incoming = renderIncomingSources(node);
+    if (incoming) els.edgeList.appendChild(incoming);
 
     els.edgeList.appendChild(renderAdvancedEdgeEditor(node));
+  }
+
+  function renderIncomingSources(node) {
+    const incoming = state.edges.filter((edge) => edge.to === node.id);
+    if (incoming.length === 0) return null;
+    const line = document.createElement("div");
+    line.className = "incoming-line";
+    const label = document.createElement("span");
+    label.className = "incoming-label";
+    label.textContent = "来源";
+    line.appendChild(label);
+    incoming.forEach((edge) => {
+      const source = state.nodes.find((n) => n.id === edge.from);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "incoming-chip";
+      const branchText = edgeDisplayName({ label: "", condition: edge.condition });
+      chip.textContent = source
+        ? `${nodeDisplayName(source)}${branchText ? ` · ${branchText}` : ""}`
+        : edge.from;
+      chip.title = "点击选中来源节点";
+      chip.addEventListener("click", () => selectOrConnectNode(edge.from));
+      line.appendChild(chip);
+    });
+    return line;
   }
 
   function renderNextStepGroup(node, group, outgoing, grouped) {
