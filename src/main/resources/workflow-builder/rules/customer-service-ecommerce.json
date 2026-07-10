@@ -10,6 +10,7 @@
       "severity": "error",
       "title": "CRM and VIP statements require authoritative data",
       "description": "Claims about customer tier, VIP entitlements, or account history must come from verified CRM data.",
+      "repairHint": "Route VIP or CRM claims through verified CRM retrieval before answering, or remove those claims from the customer-facing branch.",
       "detector": "authoritative-crm-vip-data"
     },
     {
@@ -17,6 +18,7 @@
       "severity": "error",
       "title": "Order and logistics answers require real lookup",
       "description": "Shipping, delivery, and order-status statements must be grounded in order or logistics lookup results.",
+      "repairHint": "Insert or fix the order or logistics lookup path so shipment and order-status answers cite real tool output before replying.",
       "detector": "real-order-and-logistics-lookup"
     },
     {
@@ -24,6 +26,7 @@
       "severity": "warning",
       "title": "Missing order identifiers require clarification",
       "description": "If the issue depends on a concrete order, the workflow should ask for an order number before pretending to resolve it.",
+      "repairHint": "Add a clarification branch that asks for the order identifier before any order-specific tool call or promise.",
       "detector": "missing-order-clarification"
     },
     {
@@ -31,6 +34,7 @@
       "severity": "warning",
       "title": "Preserve compound customer issues",
       "description": "When a customer reports multiple problems, the workflow should retain each issue instead of collapsing to one branch.",
+      "repairHint": "Keep each reported issue in state or branching logic so damage, refund, logistics, and policy concerns survive together.",
       "detector": "multi-issue-preservation"
     },
     {
@@ -38,6 +42,7 @@
       "severity": "warning",
       "title": "Low-confidence intent routing should clarify",
       "description": "When intent classification is uncertain or ambiguous, the workflow should ask a narrowing question before taking action.",
+      "repairHint": "Add a low-confidence clarification step before routing when the intent classifier cannot confidently choose a customer-service path.",
       "detector": "low-confidence-clarification"
     },
     {
@@ -45,6 +50,7 @@
       "severity": "error",
       "title": "Tool failures and empty results need a safe fallback",
       "description": "If the order, logistics, or CRM tool fails or returns no result, the workflow should explain the limitation and request the next best customer input.",
+      "repairHint": "Add a fallback response that explains the failed or empty lookup and requests the next best customer detail or escalation step.",
       "detector": "tool-failure-or-no-result-fallback"
     }
   ],

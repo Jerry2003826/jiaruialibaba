@@ -10,6 +10,7 @@
       "severity": "error",
       "title": "Only registered workflow node types may appear",
       "description": "Generated or repaired graphs must stay within the existing workflow node catalog and may not invent new node types.",
+      "repairHint": "Replace unsupported nodes with the closest existing platform node type and rewire the flow around the supported catalog only.",
       "detector": "registered-node-types"
     },
     {
@@ -17,6 +18,7 @@
       "severity": "error",
       "title": "Tool calls must map to approved tools",
       "description": "Tool nodes must reference approved platform tools rather than unsupported business-side placeholders.",
+      "repairHint": "Swap placeholder tool names for approved platform tools and move unsupported business logic into prompts or existing routing nodes.",
       "detector": "registered-tool-names"
     },
     {
@@ -24,6 +26,7 @@
       "severity": "warning",
       "title": "Prompt templates and output contracts must agree",
       "description": "Structured-output prompts, declared schemas, and downstream variable usage should not contradict one another.",
+      "repairHint": "Align the prompt, declared output schema, and downstream variable references so every consumed field is actually produced.",
       "detector": "template-output-contract-consistency"
     },
     {
@@ -31,6 +34,7 @@
       "severity": "warning",
       "title": "Final answers must remain customer-readable",
       "description": "Terminal customer-facing responses should avoid raw internal fields, debugging fragments, and incomplete placeholders.",
+      "repairHint": "Rewrite the terminal response into customer-facing language and remove internal variables, debugging text, or unfinished placeholders.",
       "detector": "customer-readable-final-output"
     },
     {
@@ -38,6 +42,7 @@
       "severity": "error",
       "title": "Do not fabricate unsupported business claims",
       "description": "The workflow must not promise refunds, compensation, or policy outcomes without an approved data source or rule.",
+      "repairHint": "Remove unsupported guarantees and add a clarification, policy lookup, or human-handoff path before making outcome claims.",
       "detector": "unsupported-business-claims"
     }
   ],

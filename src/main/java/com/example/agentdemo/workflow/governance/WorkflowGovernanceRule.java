@@ -5,5 +5,6 @@ public record WorkflowGovernanceRule(
         String severity,
         String title,
         String description,
+        String repairHint,
         String detector) {
 }

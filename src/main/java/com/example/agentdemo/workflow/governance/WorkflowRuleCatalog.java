@@ -27,10 +27,10 @@ public class WorkflowRuleCatalog {
     private static final Set<String> ALLOWED_SEVERITIES = Set.of("info", "warning", "error");
     private static final String CORE_PACK_ID = "core";
     private static final String CUSTOMER_SERVICE_DOMAIN = "customer-service-ecommerce";
-    private static final Set<String> CUSTOMER_SERVICE_KEYWORDS = Set.of(
-            "customer service", "customer-support", "customer_support", "客服", "售后", "投诉",
-            "订单", "物流", "退货", "换货", "退款", "催发货", "补发", "crm", "vip",
-            "queryorderapi", "logistics", "shipping", "order lookup", "return", "exchange");
+    private static final Set<String> CUSTOMER_SERVICE_SIGNALS = Set.of(
+            "客服", "售后", "投诉", "客户", "crm", "vip", "工单", "客诉");
+    private static final Set<String> ECOMMERCE_SIGNALS = Set.of(
+            "订单", "订单号", "物流", "发货", "催发货", "退款", "退货", "换货", "补发");
 
     private final List<WorkflowRulePack> packs;
 
@@ -59,11 +59,12 @@ public class WorkflowRuleCatalog {
             return null;
         }
         String haystack = flattenDefinition(definition).toLowerCase(Locale.ROOT);
-        long matches = CUSTOMER_SERVICE_KEYWORDS.stream()
-                .map(keyword -> keyword.toLowerCase(Locale.ROOT))
-                .filter(haystack::contains)
-                .count();
-        if (haystack.contains("queryorderapi") || matches >= 2) {
+        if (haystack.contains("queryorderapi")) {
+            return CUSTOMER_SERVICE_DOMAIN;
+        }
+        boolean hasCustomerServiceSignal = containsAny(haystack, CUSTOMER_SERVICE_SIGNALS);
+        boolean hasEcommerceSignal = containsAny(haystack, ECOMMERCE_SIGNALS);
+        if (hasCustomerServiceSignal && hasEcommerceSignal) {
             return CUSTOMER_SERVICE_DOMAIN;
         }
         return null;
@@ -212,6 +213,7 @@ public class WorkflowRuleCatalog {
                 severity,
                 requireNonBlank(rule.title(), "Workflow rule title must not be blank"),
                 requireNonBlank(rule.description(), "Workflow rule description must not be blank"),
+                requireNonBlank(rule.repairHint(), "Workflow rule repair hint must not be blank"),
                 requireNonBlank(rule.detector(), "Workflow rule detector must not be blank"));
     }
 
@@ -238,6 +240,12 @@ public class WorkflowRuleCatalog {
             throw new IllegalStateException(message);
         }
         return normalized;
+    }
+
+    private boolean containsAny(String haystack, Set<String> signals) {
+        return signals.stream()
+                .map(signal -> signal.toLowerCase(Locale.ROOT))
+                .anyMatch(haystack::contains);
     }
 
     private String normalize(String value) {

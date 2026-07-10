@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowRuleCatalogTest {
 
@@ -48,7 +49,41 @@ class WorkflowRuleCatalogTest {
     }
 
     @Test
-    void loadedPacksExposeUniqueRuleIdsAndNonBlankVersions() {
+    void detectDomainDoesNotFalsePositiveForGenericBusinessWorkflowWords() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of("summary", "Warehouse shipping return workflow")),
+                        new WorkflowNode("decision", "condition",
+                                Map.of("left", "{{input.type}}", "operator", "equals", "right", "return")),
+                        new WorkflowNode("reply", "llm",
+                                Map.of("prompt", "Summarize internal warehouse shipping and return process"))
+                ),
+                List.of(
+                        new WorkflowEdge("start", "decision"),
+                        new WorkflowEdge("decision", "reply")
+                ));
+
+        assertThat(catalog.detectDomain(definition)).isNull();
+    }
+
+    @Test
+    void detectDomainActivatesForQueryOrderApiEvenWithoutChineseKeywords() {
+        WorkflowDefinition definition = new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of("summary", "Check order")),
+                        new WorkflowNode("lookup", "tool", Map.of("toolName", "queryOrderAPI")),
+                        new WorkflowNode("reply", "llm", Map.of("prompt", "Explain the order result"))
+                ),
+                List.of(
+                        new WorkflowEdge("start", "lookup"),
+                        new WorkflowEdge("lookup", "reply")
+                ));
+
+        assertThat(catalog.detectDomain(definition)).isEqualTo("customer-service-ecommerce");
+    }
+
+    @Test
+    void loadedPacksExposeUniqueRuleIdsNonBlankVersionsAndRepairHints() {
         List<WorkflowRulePack> packs = catalog.allPacks();
 
         assertThat(packs)
@@ -59,6 +94,11 @@ class WorkflowRuleCatalogTest {
                 .flatMap(pack -> pack.rules().stream())
                 .map(WorkflowGovernanceRule::id))
                 .doesNotHaveDuplicates();
+
+        assertThat(packs.stream()
+                .flatMap(pack -> pack.rules().stream())
+                .map(WorkflowGovernanceRule::repairHint))
+                .allMatch(hint -> hint != null && !hint.isBlank());
     }
 
     @Test
@@ -79,6 +119,139 @@ class WorkflowRuleCatalogTest {
                         "vague-complaint",
                         "greeting-only",
                         "missing-order-result-tool-failure");
+    }
+
+    @Test
+    void rejectsDuplicatePackIds() {
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), corePack())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate workflow pack id");
+    }
+
+    @Test
+    void rejectsDuplicateRuleIdsAcrossPacks() {
+        WorkflowRulePack duplicateRulePack = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(rule("core-node-types")),
+                List.of("entry"),
+                List.of(evaluationCase("case-b")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), duplicateRulePack)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate workflow rule id");
+    }
+
+    @Test
+    void rejectsDuplicateEvaluationCaseIdsAcrossPacks() {
+        WorkflowRulePack duplicateCasePack = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(rule("other-rule")),
+                List.of("entry"),
+                List.of(evaluationCase("core-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), duplicateCasePack)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate workflow evaluation case id");
+    }
+
+    @Test
+    void rejectsBlankVersions() {
+        WorkflowRulePack invalid = new WorkflowRulePack(
+                "other",
+                "   ",
+                List.of("other"),
+                List.of(rule("other-rule")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Workflow rule pack version must not be blank");
+    }
+
+    @Test
+    void rejectsUnknownSeverities() {
+        WorkflowRulePack invalid = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(new WorkflowGovernanceRule(
+                        "other-rule",
+                        "fatal",
+                        "Title",
+                        "Description",
+                        "repair it",
+                        "detector")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unknown workflow rule severity");
+    }
+
+    @Test
+    void rejectsMissingCorePack() {
+        WorkflowRulePack otherPack = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(rule("other-rule")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(otherPack)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must include core");
+    }
+
+    @Test
+    void rejectsBlankRepairHints() {
+        WorkflowRulePack invalid = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(new WorkflowGovernanceRule(
+                        "other-rule",
+                        "warning",
+                        "Title",
+                        "Description",
+                        "   ",
+                        "detector")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Workflow rule repair hint must not be blank");
+    }
+
+    private WorkflowRulePack corePack() {
+        return new WorkflowRulePack(
+                "core",
+                "1.0.0",
+                List.of("core"),
+                List.of(rule("core-node-types")),
+                List.of("entry"),
+                List.of(evaluationCase("core-case")));
+    }
+
+    private WorkflowGovernanceRule rule(String id) {
+        return new WorkflowGovernanceRule(
+                id,
+                "warning",
+                "Title",
+                "Description",
+                "Repair the workflow by asking for grounded data or restructuring the affected branch.",
+                "detector");
+    }
+
+    private WorkflowEvaluationCase evaluationCase(String id) {
+        return new WorkflowEvaluationCase(id, "Prompt", "Expected behavior");
     }
 
 }
