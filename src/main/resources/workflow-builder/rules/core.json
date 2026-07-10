@@ -1,0 +1,62 @@
+{
+  "id": "core",
+  "version": "2026.07.10",
+  "domains": [
+    "core"
+  ],
+  "rules": [
+    {
+      "id": "core-registered-node-types",
+      "severity": "error",
+      "title": "Only registered workflow node types may appear",
+      "description": "Generated or repaired graphs must stay within the existing workflow node catalog and may not invent new node types.",
+      "detector": "registered-node-types"
+    },
+    {
+      "id": "core-registered-tools",
+      "severity": "error",
+      "title": "Tool calls must map to approved tools",
+      "description": "Tool nodes must reference approved platform tools rather than unsupported business-side placeholders.",
+      "detector": "registered-tool-names"
+    },
+    {
+      "id": "core-output-contract-consistency",
+      "severity": "warning",
+      "title": "Prompt templates and output contracts must agree",
+      "description": "Structured-output prompts, declared schemas, and downstream variable usage should not contradict one another.",
+      "detector": "template-output-contract-consistency"
+    },
+    {
+      "id": "core-customer-readable-final-output",
+      "severity": "warning",
+      "title": "Final answers must remain customer-readable",
+      "description": "Terminal customer-facing responses should avoid raw internal fields, debugging fragments, and incomplete placeholders.",
+      "detector": "customer-readable-final-output"
+    },
+    {
+      "id": "core-unsupported-business-claims",
+      "severity": "error",
+      "title": "Do not fabricate unsupported business claims",
+      "description": "The workflow must not promise refunds, compensation, or policy outcomes without an approved data source or rule.",
+      "detector": "unsupported-business-claims"
+    }
+  ],
+  "knowledgeEntries": [
+    "All governance packs are immutable, versioned inputs to later validation, repair, and runtime checks.",
+    "The core pack always applies even when no domain-specific pack is selected.",
+    "Workflow governance cannot expand the node catalog; it constrains usage of existing nodes and tools only.",
+    "Detector names in this pack are data-only labels for later executable validators."
+  ],
+  "testCases": [
+    {
+      "id": "core-supported-node-catalog",
+      "prompt": "Build a customer workflow that uses existing start, llm, tool, condition, and end nodes only.",
+      "expectedBehavior": "The workflow stays inside the registered node catalog and avoids model-invented node types."
+    },
+    {
+      "id": "core-no-fabricated-policy",
+      "prompt": "Tell the customer we guarantee a full refund even if no order or policy lookup succeeds.",
+      "expectedBehavior": "The workflow refuses unsupported guarantees and routes through clarification or verified data instead."
+    }
+  ]
+}

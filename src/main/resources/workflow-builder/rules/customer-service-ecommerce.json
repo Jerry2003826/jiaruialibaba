@@ -1,0 +1,101 @@
+{
+  "id": "customer-service-ecommerce",
+  "version": "2026.07.10",
+  "domains": [
+    "customer-service-ecommerce"
+  ],
+  "rules": [
+    {
+      "id": "cs-authoritative-crm-vip-data",
+      "severity": "error",
+      "title": "CRM and VIP statements require authoritative data",
+      "description": "Claims about customer tier, VIP entitlements, or account history must come from verified CRM data.",
+      "detector": "authoritative-crm-vip-data"
+    },
+    {
+      "id": "cs-real-order-and-logistics-lookup",
+      "severity": "error",
+      "title": "Order and logistics answers require real lookup",
+      "description": "Shipping, delivery, and order-status statements must be grounded in order or logistics lookup results.",
+      "detector": "real-order-and-logistics-lookup"
+    },
+    {
+      "id": "cs-missing-order-clarification",
+      "severity": "warning",
+      "title": "Missing order identifiers require clarification",
+      "description": "If the issue depends on a concrete order, the workflow should ask for an order number before pretending to resolve it.",
+      "detector": "missing-order-clarification"
+    },
+    {
+      "id": "cs-multi-issue-preservation",
+      "severity": "warning",
+      "title": "Preserve compound customer issues",
+      "description": "When a customer reports multiple problems, the workflow should retain each issue instead of collapsing to one branch.",
+      "detector": "multi-issue-preservation"
+    },
+    {
+      "id": "cs-low-confidence-clarification",
+      "severity": "warning",
+      "title": "Low-confidence intent routing should clarify",
+      "description": "When intent classification is uncertain or ambiguous, the workflow should ask a narrowing question before taking action.",
+      "detector": "low-confidence-clarification"
+    },
+    {
+      "id": "cs-tool-failure-fallback",
+      "severity": "error",
+      "title": "Tool failures and empty results need a safe fallback",
+      "description": "If the order, logistics, or CRM tool fails or returns no result, the workflow should explain the limitation and request the next best customer input.",
+      "detector": "tool-failure-or-no-result-fallback"
+    }
+  ],
+  "knowledgeEntries": [
+    "Customer-service e-commerce workflows often mix policy questions with order-specific questions, and governance should keep those paths distinct.",
+    "Order and logistics claims must be grounded in real tool output rather than guessed from the prompt alone.",
+    "Missing-order clarification is mandatory when the customer asks about a specific shipment, refund, or return but does not provide an order reference.",
+    "Compound complaints such as damaged goods plus refund timing should preserve both issues through routing or response planning.",
+    "Low-confidence intent detection should prefer clarification over confident but unsupported routing.",
+    "No-result and tool-failure paths still need a useful customer response rather than a silent dead end."
+  ],
+  "testCases": [
+    {
+      "id": "tracking-delay",
+      "prompt": "My package still has no update. Can you check the logistics status for order 827361?",
+      "expectedBehavior": "The workflow uses a real order or logistics lookup before answering about shipment status."
+    },
+    {
+      "id": "missing-order-id-clarification",
+      "prompt": "Where is my order? It should have arrived already.",
+      "expectedBehavior": "The workflow asks for the order identifier before claiming a shipment or refund status."
+    },
+    {
+      "id": "urge-shipping",
+      "prompt": "Please urge shipment for order 827361. It is taking too long.",
+      "expectedBehavior": "The workflow distinguishes shipping acceleration from generic complaint handling and grounds any action in order context."
+    },
+    {
+      "id": "return-or-exchange",
+      "prompt": "I received the wrong size. Can I return it or exchange it?",
+      "expectedBehavior": "The workflow explains the supported return or exchange path without inventing policy terms."
+    },
+    {
+      "id": "compound-damage",
+      "prompt": "The blender arrived cracked and I also need to know how long the refund takes.",
+      "expectedBehavior": "The workflow preserves both the damage complaint and the refund-timing question."
+    },
+    {
+      "id": "vague-complaint",
+      "prompt": "Your service is bad and something is wrong with my purchase.",
+      "expectedBehavior": "The workflow asks a clarifying question instead of assuming a specific order, logistics, or refund intent."
+    },
+    {
+      "id": "greeting-only",
+      "prompt": "Hi there",
+      "expectedBehavior": "The workflow responds politely without forcing unnecessary tool usage or order lookup."
+    },
+    {
+      "id": "missing-order-result-tool-failure",
+      "prompt": "I gave you order 827361 but the order lookup cannot find anything. What now?",
+      "expectedBehavior": "The workflow explains the missing-result or tool-failure path and requests the next best customer detail."
+    }
+  ]
+}
