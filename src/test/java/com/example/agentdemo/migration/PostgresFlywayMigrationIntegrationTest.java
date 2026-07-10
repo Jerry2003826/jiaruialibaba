@@ -3,6 +3,7 @@ package com.example.agentdemo.migration;
 import com.example.agentdemo.AgentBackendDemoApplication;
 import com.example.agentdemo.common.PublicIdGenerator;
 import com.example.agentdemo.knowledge.Citation;
+import com.example.agentdemo.knowledge.KnowledgeBaseEntity;
 import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
 import com.example.agentdemo.knowledge.KnowledgeIngestionService;
 import com.example.agentdemo.knowledge.KnowledgeSearchService;
@@ -36,9 +37,11 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Verifies the Flyway migrations produce a schema that Hibernate {@code validate} accepts on a real
@@ -242,6 +245,42 @@ class PostgresFlywayMigrationIntegrationTest {
     }
 
     @Test
+    void concurrentBuilderInstancesRecoverWhenCreatingTheManagedKnowledgeBase() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String ownerId = "owner-kb-race-" + suffix;
+        CyclicBarrier creationBarrier = new CyclicBarrier(2);
+        KnowledgeBaseRepository barrierRepository = mock(KnowledgeBaseRepository.class);
+        when(barrierRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                ownerId, com.example.agentdemo.knowledge.KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenAnswer(invocation -> knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                        ownerId, com.example.agentdemo.knowledge.KnowledgeBasePurpose.WORKFLOW_BUILDER));
+        doAnswer(invocation -> {
+            creationBarrier.await(30, TimeUnit.SECONDS);
+            return knowledgeBaseRepository.saveAndFlush(invocation.getArgument(0));
+        }).when(barrierRepository).saveAndFlush(any(KnowledgeBaseEntity.class));
+
+        WorkflowBuilderKnowledgeService first = builderService(barrierRepository, knowledgeIngestionService);
+        WorkflowBuilderKnowledgeService second = builderService(barrierRepository, knowledgeIngestionService);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<List<Citation>> firstResult = executor.submit(
+                    () -> runAs(ownerId,
+                            () -> first.retrieve("customer-service-ecommerce", "refund order", 6)));
+            Future<List<Citation>> secondResult = executor.submit(
+                    () -> runAs(ownerId,
+                            () -> second.retrieve("customer-service-ecommerce", "refund order", 6)));
+
+            assertThat(firstResult.get(90, TimeUnit.SECONDS)).isNotEmpty();
+            assertThat(secondResult.get(90, TimeUnit.SECONDS)).isNotEmpty();
+        }
+
+        Integer managedKnowledgeBases = jdbcTemplate.queryForObject(
+                "select count(*) from knowledge_bases where owner_id = ? and purpose = 'WORKFLOW_BUILDER' "
+                        + "and system_managed = true",
+                Integer.class, ownerId);
+        assertThat(managedKnowledgeBases).isEqualTo(1);
+    }
+
+    @Test
     void synchronizationReplacesChangedGuidanceAndDeletesObsoleteGuidanceOnPostgres() throws Exception {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String ownerId = "owner-stale-" + suffix;
@@ -271,9 +310,14 @@ class PostgresFlywayMigrationIntegrationTest {
     }
 
     private WorkflowBuilderKnowledgeService builderService(KnowledgeIngestionService ingestionService) {
+        return builderService(knowledgeBaseRepository, ingestionService);
+    }
+
+    private WorkflowBuilderKnowledgeService builderService(KnowledgeBaseRepository repository,
+            KnowledgeIngestionService ingestionService) {
         return new WorkflowBuilderKnowledgeService(
                 workflowRuleCatalog,
-                knowledgeBaseRepository,
+                repository,
                 documentRepository,
                 ingestionService,
                 documentManagementService,

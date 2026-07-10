@@ -1,6 +1,7 @@
 package com.example.agentdemo.rag;
 
 import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
 import com.example.agentdemo.support.TestAlibabaPolicies;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,7 @@ class DocumentRetrieverConfigTest {
 
         assertThatThrownBy(() -> config.documentRetriever(ragProperties, vectorStoreGateway,
                 mock(DocumentRepository.class), mock(DocumentChunkRepository.class),
-                mock(ObjectProvider.class), mock(KeywordDocumentRetriever.class),
+                mock(ObjectProvider.class), mock(KnowledgeBaseRepository.class), mock(KeywordDocumentRetriever.class),
                 TestAlibabaPolicies.strictMode()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("DASHVECTOR_ENDPOINT");

@@ -2,6 +2,7 @@ package com.example.agentdemo.rag;
 
 import com.example.agentdemo.config.AlibabaRuntimePolicy;
 import com.example.agentdemo.config.RagProperties;
+import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,12 +17,13 @@ public class DocumentRetrieverConfig {
     @Primary
     public DocumentRetriever documentRetriever(RagProperties ragProperties, VectorStoreGateway vectorStoreGateway,
             DocumentRepository documentRepository, DocumentChunkRepository documentChunkRepository,
-            ObjectProvider<EmbeddingModel> embeddingModelProvider, KeywordDocumentRetriever keywordDocumentRetriever,
+            ObjectProvider<EmbeddingModel> embeddingModelProvider, KnowledgeBaseRepository knowledgeBaseRepository,
+            KeywordDocumentRetriever keywordDocumentRetriever,
             AlibabaRuntimePolicy alibabaRuntimePolicy) {
         if ("dashvector".equalsIgnoreCase(ragProperties.getRag().getRetriever())
                 && vectorStoreGateway.isConfigured()) {
             return new DashVectorDocumentRetriever(vectorStoreGateway, documentRepository, documentChunkRepository,
-                    embeddingModelProvider);
+                    embeddingModelProvider, knowledgeBaseRepository);
         }
         if ("dashvector".equalsIgnoreCase(ragProperties.getRag().getRetriever())
                 && alibabaRuntimePolicy.isAlibabaStackRequired()) {

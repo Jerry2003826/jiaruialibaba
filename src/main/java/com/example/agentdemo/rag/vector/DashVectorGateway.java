@@ -267,12 +267,23 @@ public class DashVectorGateway implements VectorStoreGateway {
         List<String> clauses = new ArrayList<>();
         appendEqualsFilter(clauses, "ownerId", metadataFilter.get("ownerId"));
         appendEqualsFilter(clauses, "kbId", metadataFilter.get("kbId"));
+        appendNotEqualsFilter(clauses, "kbId", metadataFilter.get("excludeKbId"));
         return clauses.isEmpty() ? null : String.join(" and ", clauses);
+    }
+
+    String metadataFilterForTest(Map<String, Object> metadataFilter) {
+        return metadataFilter(metadataFilter);
     }
 
     private void appendEqualsFilter(List<String> clauses, String field, Object value) {
         if (value instanceof String text && StringUtils.hasText(text)) {
             clauses.add(field + " = '" + text.replace("'", "\\'") + "'");
+        }
+    }
+
+    private void appendNotEqualsFilter(List<String> clauses, String field, Object value) {
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            clauses.add(field + " != '" + text.replace("'", "\\'") + "'");
         }
     }
 

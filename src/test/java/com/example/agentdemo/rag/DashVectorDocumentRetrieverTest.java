@@ -1,6 +1,9 @@
 package com.example.agentdemo.rag;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.knowledge.KnowledgeBaseEntity;
+import com.example.agentdemo.knowledge.KnowledgeBasePurpose;
+import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.rag.vector.VectorSearchResult;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
@@ -16,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +39,9 @@ class DashVectorDocumentRetrieverTest {
 
     @Mock
     private DocumentRepository documentRepository;
+
+    @Mock
+    private KnowledgeBaseRepository knowledgeBaseRepository;
 
     @Mock
     private DocumentChunkRepository chunkRepository;
@@ -107,6 +114,29 @@ class DashVectorDocumentRetrieverTest {
 
         assertThat(contexts).extracting(RetrievedContext::documentId).containsExactly(10L);
         verify(vectorStoreGateway).search(queryVector, 50, Map.<String, Object>of("ownerId", "workbench-dev"));
+    }
+
+    @Test
+    void excludesManagedBuilderKnowledgeBaseInsideTheVectorQuery() {
+        DashVectorDocumentRetriever retriever = retriever();
+        float[] queryVector = new float[] { 1.0f, 2.0f };
+        KnowledgeBaseEntity builderKb = new KnowledgeBaseEntity(
+                "kb-builder", "Builder", "Hidden", null, KnowledgeBasePurpose.WORKFLOW_BUILDER, true);
+        when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                "workbench-dev", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.of(builderKb));
+        when(vectorStoreGateway.isConfigured()).thenReturn(true);
+        when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
+        when(embeddingModel.embed("question")).thenReturn(queryVector);
+        when(vectorStoreGateway.search(eq(queryVector), eq(20), eq(Map.of(
+                "ownerId", "workbench-dev",
+                "excludeKbId", "kb-builder"))))
+                .thenReturn(List.of());
+
+        assertThat(retriever.retrieve("question", 2)).isEmpty();
+        verify(vectorStoreGateway).search(queryVector, 20, Map.of(
+                "ownerId", "workbench-dev",
+                "excludeKbId", "kb-builder"));
     }
 
     @Test
@@ -206,7 +236,7 @@ class DashVectorDocumentRetrieverTest {
 
     private DashVectorDocumentRetriever retriever() {
         return new DashVectorDocumentRetriever(vectorStoreGateway, documentRepository, chunkRepository,
-                embeddingModelProvider);
+                embeddingModelProvider, knowledgeBaseRepository);
     }
 
     private static DocumentEntity document(Long id, String title, String content) {

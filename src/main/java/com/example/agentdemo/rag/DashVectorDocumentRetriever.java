@@ -1,6 +1,8 @@
 package com.example.agentdemo.rag;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.knowledge.KnowledgeBasePurpose;
+import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
 import com.example.agentdemo.rag.dto.RetrievedContext;
 import com.example.agentdemo.rag.vector.VectorSearchResult;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
@@ -26,13 +28,16 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
     private final ObjectProvider<EmbeddingModel> embeddingModelProvider;
+    private final KnowledgeBaseRepository knowledgeBaseRepository;
 
     public DashVectorDocumentRetriever(VectorStoreGateway vectorStoreGateway, DocumentRepository documentRepository,
-            DocumentChunkRepository chunkRepository, ObjectProvider<EmbeddingModel> embeddingModelProvider) {
+            DocumentChunkRepository chunkRepository, ObjectProvider<EmbeddingModel> embeddingModelProvider,
+            KnowledgeBaseRepository knowledgeBaseRepository) {
         this.vectorStoreGateway = vectorStoreGateway;
         this.documentRepository = documentRepository;
         this.chunkRepository = chunkRepository;
         this.embeddingModelProvider = embeddingModelProvider;
+        this.knowledgeBaseRepository = knowledgeBaseRepository;
     }
 
     @Override
@@ -62,7 +67,11 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
 
         String ownerId = SecurityIdentity.currentOwnerId();
         int vectorLimit = Math.min(MAX_VECTOR_FETCH, Math.max(limit, limit * OVER_FETCH_MULTIPLIER));
-        Map<String, Object> metadataFilter = Map.of("ownerId", ownerId);
+        Map<String, Object> metadataFilter = new LinkedHashMap<>();
+        metadataFilter.put("ownerId", ownerId);
+        knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                ownerId, KnowledgeBasePurpose.WORKFLOW_BUILDER)
+                .ifPresent(knowledgeBase -> metadataFilter.put("excludeKbId", knowledgeBase.getKbId()));
         List<VectorSearchResult> vectorResults = vectorStoreGateway.search(queryVector, vectorLimit, metadataFilter);
         if (vectorResults.isEmpty()) {
             return List.of();
