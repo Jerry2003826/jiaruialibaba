@@ -20,6 +20,8 @@ import java.time.Instant;
 @Table(name = "rag_documents")
 public class DocumentEntity {
 
+    public static final String WORKFLOW_BUILDER_SOURCE_TYPE = "BUILDER";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -129,6 +131,10 @@ public class DocumentEntity {
 
     public String getSourceType() {
         return sourceType;
+    }
+
+    public boolean isWorkflowBuilderManaged() {
+        return WORKFLOW_BUILDER_SOURCE_TYPE.equals(sourceType);
     }
 
     public String getFileName() {

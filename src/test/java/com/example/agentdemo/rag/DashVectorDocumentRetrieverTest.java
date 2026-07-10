@@ -64,7 +64,7 @@ class DashVectorDocumentRetrieverTest {
 
         DocumentEntity highDocument = readyDocument(10L, "High Title", "full high");
         DocumentEntity lowDocument = readyDocument(20L, null, "full low");
-        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+        when(documentRepository.findPublicByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
                         eq(DocumentIndexStatus.READY)))
                 .thenReturn(List.of(highDocument, lowDocument));
 
@@ -99,7 +99,7 @@ class DashVectorDocumentRetrieverTest {
         DocumentChunkEntity readyChunk = new DocumentChunkEntity(10L, 0, "vec-ready", "ready content");
         when(chunkRepository.findByVectorIdIn(anyCollection())).thenReturn(List.of(readyChunk));
         DocumentEntity readyDocument = readyDocument(10L, "Ready Title", "full ready");
-        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+        when(documentRepository.findPublicByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
                         eq(DocumentIndexStatus.READY)))
                 .thenReturn(List.of(readyDocument));
 
@@ -125,7 +125,7 @@ class DashVectorDocumentRetrieverTest {
         when(chunkRepository.findByVectorIdIn(anyCollection())).thenReturn(List.of(pendingChunk, readyChunk));
 
         DocumentEntity readyDocument = readyDocument(10L, "Ready Title", "full ready");
-        when(documentRepository.findByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+        when(documentRepository.findPublicByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
                         eq(DocumentIndexStatus.READY)))
                 .thenReturn(List.of(readyDocument));
 
@@ -136,6 +136,27 @@ class DashVectorDocumentRetrieverTest {
                 .containsExactly(10L);
         assertThat(contexts.getFirst().title()).isEqualTo("Ready Title");
         assertThat(contexts.getFirst().snippet()).isEqualTo("ready content");
+    }
+
+    @Test
+    void skipsSystemManagedBuilderDocuments() {
+        DashVectorDocumentRetriever retriever = retriever();
+        float[] queryVector = new float[] { 1.0f, 2.0f };
+        when(vectorStoreGateway.isConfigured()).thenReturn(true);
+        when(embeddingModelProvider.getIfAvailable()).thenReturn(embeddingModel);
+        when(embeddingModel.embed("question")).thenReturn(queryVector);
+        when(vectorStoreGateway.search(eq(queryVector), eq(20), any())).thenReturn(List.of(
+                new VectorSearchResult("vec-builder", 0.95, Map.of())));
+
+        DocumentChunkEntity builderChunk = new DocumentChunkEntity(30L, 0, "vec-builder", "internal guidance");
+        when(chunkRepository.findByVectorIdIn(anyCollection())).thenReturn(List.of(builderChunk));
+        DocumentEntity builderDocument = readyDocument(30L, "Builder guidance", "internal guidance");
+        builderDocument.assignKnowledge("kb-builder", "BUILDER", null, "text/plain", 17L, "hash");
+        when(documentRepository.findPublicByOwnerIdAndIdInAndIndexStatus(eq("workbench-dev"), anyCollection(),
+                        eq(DocumentIndexStatus.READY)))
+                .thenReturn(List.of(builderDocument));
+
+        assertThat(retriever.retrieve("question", 2)).isEmpty();
     }
 
     @Test

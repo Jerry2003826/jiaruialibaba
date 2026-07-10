@@ -6,6 +6,7 @@ import com.example.agentdemo.rag.dto.DocumentResponse;
 import com.example.agentdemo.rag.vector.VectorStoreGateway;
 import com.example.agentdemo.support.TestAlibabaPolicies;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -13,7 +14,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -103,6 +106,75 @@ class DocumentManagementServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getCode())
                 .isEqualTo("DOCUMENT_NOT_FOUND");
+    }
+
+    @Test
+    void listDocumentsUsesPublicRepositoryView() {
+        DocumentEntity document = new DocumentEntity("Public", "content");
+        ReflectionTestUtils.setField(document, "id", 1L);
+        when(documentRepository.findPublicByOwnerIdAndIndexStatusNotOrderByCreatedAtDesc(
+                eq("workbench-dev"), eq(DocumentIndexStatus.DELETED), any()))
+                .thenReturn(new PageImpl<>(List.of(document)));
+
+        assertThat(service.listDocuments(0, 20).content())
+                .extracting(summary -> summary.id())
+                .containsExactly(1L);
+    }
+
+    @Test
+    void builderDocumentIsNotReadableThroughPublicDocumentService() {
+        DocumentEntity document = builderDocument(7L);
+        when(documentRepository.findByIdAndOwnerId(7L, "workbench-dev")).thenReturn(Optional.of(document));
+
+        assertDocumentNotFound(() -> service.getDocument(7L));
+    }
+
+    @Test
+    void builderDocumentIsNotEditableThroughPublicDocumentService() {
+        DocumentEntity document = builderDocument(7L);
+        when(documentRepository.findByIdAndOwnerId(7L, "workbench-dev")).thenReturn(Optional.of(document));
+        when(documentRepository.save(document)).thenReturn(document);
+
+        assertDocumentNotFound(() -> service.updateDocument(7L, new DocumentRequest("Changed", "changed")));
+    }
+
+    @Test
+    void builderDocumentIsNotDeletableThroughPublicDocumentService() {
+        DocumentEntity document = builderDocument(7L);
+        when(documentRepository.findByIdAndOwnerId(7L, "workbench-dev")).thenReturn(Optional.of(document));
+
+        assertDocumentNotFound(() -> service.deleteDocument(7L));
+        verify(documentRepository, never()).delete(document);
+    }
+
+    @Test
+    void internalManagedDeletionOnlyDeletesBuilderDocuments() {
+        DocumentEntity document = builderDocument(7L);
+        when(documentRepository.findByIdAndOwnerId(7L, "workbench-dev")).thenReturn(Optional.of(document));
+
+        service.deleteManagedDocument(7L);
+
+        verify(documentRepository).delete(document);
+    }
+
+    private DocumentEntity builderDocument(long id) {
+        DocumentEntity document = new DocumentEntity("Builder", "internal guidance");
+        ReflectionTestUtils.setField(document, "id", id);
+        document.assignKnowledge("kb-builder", "BUILDER", null, "text/plain", 17L, "hash");
+        document.markReady();
+        return document;
+    }
+
+    private void assertDocumentNotFound(ThrowingRunnable operation) {
+        assertThatThrownBy(operation::run)
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("DOCUMENT_NOT_FOUND");
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run();
     }
 
 }

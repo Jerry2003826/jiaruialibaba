@@ -24,8 +24,6 @@ import java.util.HexFormat;
 public class KnowledgeIngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeIngestionService.class);
-    private static final String BUILDER_SOURCE_TYPE = "BUILDER";
-
     private final KnowledgeBaseAccessService knowledgeBaseAccessService;
     private final DocumentRepository documentRepository;
     private final DocumentIndexingService documentIndexingService;
@@ -59,7 +57,7 @@ public class KnowledgeIngestionService {
     @Transactional
     public KnowledgeDocumentResponse addManagedTextDocument(String kbId, String title, String content) {
         KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId, KnowledgeBasePurpose.WORKFLOW_BUILDER);
-        return addTextDocument(kb, title, content, BUILDER_SOURCE_TYPE);
+        return addTextDocument(kb, title, content, DocumentEntity.WORKFLOW_BUILDER_SOURCE_TYPE);
     }
 
     private KnowledgeDocumentResponse addTextDocument(KnowledgeBaseEntity kb, String title, String content) {
@@ -123,7 +121,7 @@ public class KnowledgeIngestionService {
         document.assignKnowledge(kbId, sourceType, fileName, mimeType, sizeBytes, sha256(contentBytes));
         // Builder documents have a partial unique index on their stable rule identity. Flush
         // before embedding/indexing so a cross-instance loser fails without doing external work.
-        DocumentEntity saved = BUILDER_SOURCE_TYPE.equals(sourceType)
+        DocumentEntity saved = DocumentEntity.WORKFLOW_BUILDER_SOURCE_TYPE.equals(sourceType)
                 ? documentRepository.saveAndFlush(document)
                 : documentRepository.save(document);
         try {

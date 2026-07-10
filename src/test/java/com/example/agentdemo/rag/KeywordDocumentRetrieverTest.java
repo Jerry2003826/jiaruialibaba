@@ -22,7 +22,7 @@ class KeywordDocumentRetrieverTest {
     void retrievesDocumentsByScanningRepositoryPages() {
         DocumentRepository documentRepository = mock(DocumentRepository.class);
         DocumentEntity document = document(7L, "Alpha guide", "alpha notes");
-        when(documentRepository.findByOwnerIdAndIndexStatusNotIn(org.mockito.ArgumentMatchers.eq("workbench-dev"),
+        when(documentRepository.findPublicByOwnerIdAndIndexStatusNotIn(org.mockito.ArgumentMatchers.eq("workbench-dev"),
                         anyCollection(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(document)));
         when(documentRepository.findByIndexStatusNotIn(anyCollection()))

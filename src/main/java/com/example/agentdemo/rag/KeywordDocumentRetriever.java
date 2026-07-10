@@ -64,7 +64,7 @@ public class KeywordDocumentRetriever implements DocumentRetriever {
         String ownerId = SecurityIdentity.currentOwnerId();
         Page<DocumentEntity> page;
         do {
-            page = documentRepository.findByOwnerIdAndIndexStatusNotIn(ownerId, NON_RETRIEVABLE_STATUSES,
+            page = documentRepository.findPublicByOwnerIdAndIndexStatusNotIn(ownerId, NON_RETRIEVABLE_STATUSES,
                     PageRequest.of(pageNumber++, DOCUMENT_SCAN_PAGE_SIZE, Sort.by("id").ascending()));
             for (DocumentEntity document : page.getContent()) {
                 if (scannedDocuments++ >= MAX_SCANNED_DOCUMENTS) {

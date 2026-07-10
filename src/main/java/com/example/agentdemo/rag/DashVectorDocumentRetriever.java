@@ -84,8 +84,9 @@ public class DashVectorDocumentRetriever implements DocumentRetriever {
                 .map(DocumentChunkEntity::getDocumentId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, DocumentEntity> documentsById = documentRepository
-                .findByOwnerIdAndIdInAndIndexStatus(ownerId, documentIds, DocumentIndexStatus.READY)
+                .findPublicByOwnerIdAndIdInAndIndexStatus(ownerId, documentIds, DocumentIndexStatus.READY)
                 .stream()
+                .filter(document -> !document.isWorkflowBuilderManaged())
                 .collect(Collectors.toMap(DocumentEntity::getId, Function.identity()));
 
         return resultsByVectorId.values()

@@ -66,7 +66,7 @@ public class DocumentManagementService {
         validatePageRequest(page, size);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<DocumentEntity> documentPage = documentRepository
-                .findByOwnerIdAndIndexStatusNotOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId(),
+                .findPublicByOwnerIdAndIndexStatusNotOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId(),
                         DocumentIndexStatus.DELETED, pageable);
         List<DocumentSummaryResponse> content = documentPage.getContent().stream()
                 .map(this::toSummary)
@@ -103,11 +103,21 @@ public class DocumentManagementService {
     @Transactional
     @Audited(action = "document.delete", resourceType = "document", resourceId = "#documentId")
     public void deleteDocument(Long documentId) {
-        // Drop any still-queued UPSERT for this document first so an obsolete event cannot re-create
-        // its vectors after the delete completes. Done before loading the document so the bulk update's
-        // context clear cannot detach entities we still operate on.
+        deleteDocument(documentId, false);
+    }
+
+    /** Internal deletion path for system-managed workflow Builder guidance only. */
+    @Transactional
+    public void deleteManagedDocument(Long documentId) {
+        deleteDocument(documentId, true);
+    }
+
+    private void deleteDocument(Long documentId, boolean managed) {
+        // Validate access before canceling events, then reload because the bulk update may clear
+        // the persistence context and detach the first entity.
+        DocumentEntity document = managed ? findManagedDocument(documentId) : findDocument(documentId);
         cancelPendingUpserts(documentId);
-        DocumentEntity document = findDocument(documentId);
+        document = managed ? findManagedDocument(documentId) : findDocument(documentId);
         List<DocumentChunkEntity> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
         List<String> vectorIds = chunks.stream().map(DocumentChunkEntity::getVectorId).toList();
         if (deleteLocallyWhenVectorStoreIsAbsent(document, documentId, vectorIds)) {
@@ -181,8 +191,24 @@ public class DocumentManagementService {
         if (documentId == null) {
             throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
         }
-        return documentRepository.findByIdAndOwnerId(documentId, SecurityIdentity.currentOwnerId())
+        DocumentEntity document = documentRepository.findByIdAndOwnerId(documentId, SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("DOCUMENT_NOT_FOUND", "Document not found: " + documentId));
+        if (document.isWorkflowBuilderManaged()) {
+            throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found: " + documentId);
+        }
+        return document;
+    }
+
+    private DocumentEntity findManagedDocument(Long documentId) {
+        if (documentId == null) {
+            throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
+        }
+        DocumentEntity document = documentRepository.findByIdAndOwnerId(documentId, SecurityIdentity.currentOwnerId())
+                .orElseThrow(() -> new BusinessException("DOCUMENT_NOT_FOUND", "Document not found: " + documentId));
+        if (!document.isWorkflowBuilderManaged()) {
+            throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found: " + documentId);
+        }
+        return document;
     }
 
     private void validatePageRequest(int page, int size) {

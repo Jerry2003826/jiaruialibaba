@@ -31,12 +31,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class WorkflowBuilderKnowledgeService {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowBuilderKnowledgeService.class);
-    private static final String BUILDER_SOURCE_TYPE = "BUILDER";
     private static final String DOCUMENT_TITLE_PREFIX = "Workflow Builder Guidance: ";
     private static final String MANAGED_KB_NAME = "Workflow Builder Guidance";
     private static final String MANAGED_KB_DESCRIPTION =
@@ -53,7 +53,7 @@ public class WorkflowBuilderKnowledgeService {
     private final DocumentManagementService documentManagementService;
     private final KnowledgeSearchService knowledgeSearchService;
     private final PublicIdGenerator publicIdGenerator;
-    private final ConcurrentMap<String, Object> ownerSynchronizationLocks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, OwnerSynchronizationLock> ownerSynchronizationLocks = new ConcurrentHashMap<>();
 
     public WorkflowBuilderKnowledgeService(WorkflowRuleCatalog workflowRuleCatalog,
             KnowledgeBaseRepository knowledgeBaseRepository,
@@ -73,20 +73,48 @@ public class WorkflowBuilderKnowledgeService {
 
     public List<Citation> retrieve(String domain, String query, int topK) {
         String ownerId = SecurityIdentity.currentOwnerId();
+        OwnerSynchronizationLock ownerLock = null;
         try {
             KnowledgeBaseEntity knowledgeBase;
-            Object ownerLock = ownerSynchronizationLocks.computeIfAbsent(ownerId, ignored -> new Object());
-            synchronized (ownerLock) {
+            ownerLock = acquireOwnerLock(ownerId);
+            ownerLock.lock.lock();
+            try {
                 knowledgeBase = ensureManagedKnowledgeBase(ownerId);
                 synchronizeGuidance(ownerId, knowledgeBase.getKbId(), workflowRuleCatalog.activePacks(domain));
+            }
+            finally {
+                ownerLock.lock.unlock();
+                releaseOwnerLock(ownerId, ownerLock);
+                ownerLock = null;
             }
             int boundedTopK = Math.max(1, Math.min(topK, MAX_TOP_K));
             return knowledgeSearchService.searchManaged(knowledgeBase.getKbId(), query, boundedTopK).citations();
         }
         catch (RuntimeException exception) {
+            if (ownerLock != null) {
+                releaseOwnerLock(ownerId, ownerLock);
+            }
             log.warn("Workflow builder knowledge retrieval failed for owner {}", ownerId, exception);
             return List.of();
         }
+    }
+
+    private OwnerSynchronizationLock acquireOwnerLock(String ownerId) {
+        return ownerSynchronizationLocks.compute(ownerId, (ignored, current) -> {
+            OwnerSynchronizationLock resolved = current == null ? new OwnerSynchronizationLock() : current;
+            resolved.references++;
+            return resolved;
+        });
+    }
+
+    private void releaseOwnerLock(String ownerId, OwnerSynchronizationLock released) {
+        ownerSynchronizationLocks.computeIfPresent(ownerId, (ignored, current) -> {
+            if (current != released) {
+                return current;
+            }
+            current.references--;
+            return current.references == 0 ? null : current;
+        });
     }
 
     String guidanceContentForTest(WorkflowRulePack pack, WorkflowGovernanceRule rule) {
@@ -95,6 +123,10 @@ public class WorkflowBuilderKnowledgeService {
 
     String contentHashForTest(String content) {
         return contentHash(content);
+    }
+
+    int ownerLockCountForTest() {
+        return ownerSynchronizationLocks.size();
     }
 
     private KnowledgeBaseEntity ensureManagedKnowledgeBase(String ownerId) {
@@ -176,7 +208,7 @@ public class WorkflowBuilderKnowledgeService {
 
     private void deleteDocument(DocumentEntity document) {
         if (document.getId() != null) {
-            documentManagementService.deleteDocument(document.getId());
+            documentManagementService.deleteManagedDocument(document.getId());
         }
     }
 
@@ -186,7 +218,7 @@ public class WorkflowBuilderKnowledgeService {
         Page<DocumentEntity> page;
         do {
             page = documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
-                    ownerId, kbId, BUILDER_SOURCE_TYPE, NON_RETRIEVABLE,
+                    ownerId, kbId, DocumentEntity.WORKFLOW_BUILDER_SOURCE_TYPE, NON_RETRIEVABLE,
                     PageRequest.of(pageNumber++, SCAN_PAGE_SIZE, Sort.by("id").ascending()));
             documents.addAll(page.getContent());
         }
@@ -234,5 +266,10 @@ public class WorkflowBuilderKnowledgeService {
     }
 
     private record ManagedGuidanceDocument(String title, String content, String contentHash) {
+    }
+
+    private static final class OwnerSynchronizationLock {
+        private final ReentrantLock lock = new ReentrantLock();
+        private int references;
     }
 }

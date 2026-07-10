@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.PageImpl;
@@ -37,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -151,7 +153,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         runAs("owner-a", () -> service.retrieve("customer-service-ecommerce", "refund", 3));
 
         verify(knowledgeIngestionService, never()).addManagedTextDocument(any(), any(), any());
-        verify(documentManagementService, never()).deleteDocument(any());
+        verify(documentManagementService, never()).deleteManagedDocument(any());
         verify(knowledgeSearchService, times(2)).searchManaged("kb-builder", "refund", 3);
     }
 
@@ -185,7 +187,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         runAs("owner-a", () -> service.retrieve("customer-service-ecommerce", "refund", 3));
 
         verify(knowledgeIngestionService, never()).addManagedTextDocument(any(), any(), any());
-        verify(documentManagementService, never()).deleteDocument(any());
+        verify(documentManagementService, never()).deleteManagedDocument(any());
     }
 
     @Test
@@ -238,6 +240,72 @@ class WorkflowBuilderKnowledgeServiceTest {
                 .containsExactlyInAnyOrder(
                         "Workflow Builder Guidance: core/core-registered-node-types",
                         "Workflow Builder Guidance: core/core-registered-tools");
+        assertThat(service.ownerLockCountForTest()).isZero();
+    }
+
+    @Test
+    void retrieveRecoversWhenAnotherInstanceCreatesTheSameRuleDocument() {
+        WorkflowGovernanceRule rule = rule("core-registered-node-types",
+                "Generated or repaired graphs must stay within the existing workflow node catalog.",
+                "Invent a graph node type that does not exist.",
+                "Use the existing condition node for branching instead.",
+                "Replace unsupported nodes with approved platform nodes only.");
+        WorkflowRulePack corePack = pack("core", "2026.07.10",
+                List.of("The core pack always applies."), rule);
+        KnowledgeBaseEntity managedKb = managedKb("kb-builder", "owner-a");
+        String title = "Workflow Builder Guidance: core/core-registered-node-types";
+        String content = service.guidanceContentForTest(corePack, rule);
+        DocumentEntity concurrentWinner = managedDocument("kb-builder", title, "BUILDER",
+                service.contentHashForTest(content));
+        when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.of(managedKb));
+        when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
+                eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
+                .thenReturn(new PageImpl<>(List.of()), new PageImpl<>(List.of(concurrentWinner)));
+        doThrow(new DataIntegrityViolationException("duplicate builder identity"))
+                .when(knowledgeIngestionService).addManagedTextDocument("kb-builder", title, content);
+        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 2))
+                .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
+                        "refund", List.of(new Citation(9L, title, 0, "snippet", 1.0))));
+
+        List<Citation> citations = runAs("owner-a",
+                () -> service.retrieve("customer-service-ecommerce", "refund", 2));
+
+        assertThat(citations).extracting(Citation::documentId).containsExactly(9L);
+        assertThat(service.ownerLockCountForTest()).isZero();
+    }
+
+    @Test
+    void retrieveRecoversWhenAnotherInstanceCreatesTheManagedKnowledgeBase() {
+        WorkflowGovernanceRule rule = rule("core-registered-node-types",
+                "Generated or repaired graphs must stay within the existing workflow node catalog.",
+                "Invent a graph node type that does not exist.",
+                "Use the existing condition node for branching instead.",
+                "Replace unsupported nodes with approved platform nodes only.");
+        WorkflowRulePack corePack = pack("core", "2026.07.10",
+                List.of("The core pack always applies."), rule);
+        KnowledgeBaseEntity concurrentWinner = managedKb("kb-builder", "owner-a");
+        when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.empty(), Optional.of(concurrentWinner));
+        when(publicIdGenerator.next("kb")).thenReturn("kb-loser");
+        when(knowledgeBaseRepository.saveAndFlush(any(KnowledgeBaseEntity.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate managed knowledge base"));
+        when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
+                eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 2))
+                .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
+                        "refund", List.of(new Citation(10L, "core", 0, "snippet", 1.0))));
+
+        List<Citation> citations = runAs("owner-a",
+                () -> service.retrieve("customer-service-ecommerce", "refund", 2));
+
+        assertThat(citations).extracting(Citation::documentId).containsExactly(10L);
+        assertThat(service.ownerLockCountForTest()).isZero();
     }
 
     @Test
