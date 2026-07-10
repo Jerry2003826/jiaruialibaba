@@ -15,3 +15,7 @@ alter table knowledge_bases alter column system_managed set not null;
 create unique index uq_knowledge_bases_owner_workflow_builder_managed
     on knowledge_bases (owner_id)
     where system_managed = true and purpose = 'WORKFLOW_BUILDER';
+
+create unique index uq_rag_documents_builder_identity_active
+    on rag_documents (owner_id, kb_id, title)
+    where source_type = 'BUILDER' and index_status not in ('DELETING', 'DELETED');

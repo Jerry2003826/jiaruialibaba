@@ -10,6 +10,12 @@
       "severity": "error",
       "title": "Only registered workflow node types may appear",
       "description": "Generated or repaired graphs must stay within the existing workflow node catalog and may not invent new node types.",
+      "antiPatterns": [
+        "Invent a node type because its name sounds suitable for the requested business step."
+      ],
+      "examples": [
+        "Use an existing condition, tool, LLM, or end node and express the business behavior through supported configuration."
+      ],
       "repairHint": "Replace unsupported nodes with the closest existing platform node type and rewire the flow around the supported catalog only.",
       "detector": "registered-node-types"
     },
@@ -18,6 +24,12 @@
       "severity": "error",
       "title": "Tool calls must map to approved tools",
       "description": "Tool nodes must reference approved platform tools rather than unsupported business-side placeholders.",
+      "antiPatterns": [
+        "Configure a plausible CRM, logistics, notification, or ticket tool name that is absent from the runtime registry."
+      ],
+      "examples": [
+        "Select an exact registered tool name; when no suitable tool exists, clarify the limitation or route to a human."
+      ],
       "repairHint": "Swap placeholder tool names for approved platform tools and move unsupported business logic into prompts or existing routing nodes.",
       "detector": "registered-tool-names"
     },
@@ -26,6 +38,12 @@
       "severity": "warning",
       "title": "Prompt templates and output contracts must agree",
       "description": "Structured-output prompts, declared schemas, and downstream variable usage should not contradict one another.",
+      "antiPatterns": [
+        "Ask the model for one set of fields while downstream conditions reference different or undeclared fields."
+      ],
+      "examples": [
+        "Declare every field used by downstream nodes and use the same names and value vocabulary in the prompt."
+      ],
       "repairHint": "Align the prompt, declared output schema, and downstream variable references so every consumed field is actually produced.",
       "detector": "template-output-contract-consistency"
     },
@@ -34,6 +52,12 @@
       "severity": "warning",
       "title": "Final answers must remain customer-readable",
       "description": "Terminal customer-facing responses should avoid raw internal fields, debugging fragments, and incomplete placeholders.",
+      "antiPatterns": [
+        "Return raw JSON, unresolved template variables, internal routing labels, or stack traces to the customer."
+      ],
+      "examples": [
+        "Convert internal results into a concise natural-language answer that states the outcome and next step."
+      ],
       "repairHint": "Rewrite the terminal response into customer-facing language and remove internal variables, debugging text, or unfinished placeholders.",
       "detector": "customer-readable-final-output"
     },
@@ -42,6 +66,12 @@
       "severity": "error",
       "title": "Do not fabricate unsupported business claims",
       "description": "The workflow must not promise refunds, compensation, or policy outcomes without an approved data source or rule.",
+      "antiPatterns": [
+        "State that a refund, compensation, shipment, or account action succeeded when no approved tool or policy result supports it."
+      ],
+      "examples": [
+        "Explain what can be verified now and request required information or escalate before committing to a business outcome."
+      ],
       "repairHint": "Remove unsupported guarantees and add a clarification, policy lookup, or human-handoff path before making outcome claims.",
       "detector": "unsupported-business-claims"
     }

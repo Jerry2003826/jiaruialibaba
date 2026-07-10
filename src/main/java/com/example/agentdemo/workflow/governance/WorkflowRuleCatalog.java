@@ -213,6 +213,12 @@ public class WorkflowRuleCatalog {
                 severity,
                 requireNonBlank(rule.title(), "Workflow rule title must not be blank"),
                 requireNonBlank(rule.description(), "Workflow rule description must not be blank"),
+                requireNonEmptyEntries(rule.antiPatterns(),
+                        "Workflow rule anti-patterns must not be empty",
+                        "Workflow rule anti-pattern must not be blank"),
+                requireNonEmptyEntries(rule.examples(),
+                        "Workflow rule examples must not be empty",
+                        "Workflow rule example must not be blank"),
                 requireNonBlank(rule.repairHint(), "Workflow rule repair hint must not be blank"),
                 requireNonBlank(rule.detector(), "Workflow rule detector must not be blank"));
     }
@@ -232,6 +238,15 @@ public class WorkflowRuleCatalog {
                 throw new IllegalStateException("Duplicate workflow " + type + " id: " + id);
             }
         }
+    }
+
+    private List<String> requireNonEmptyEntries(List<String> values, String emptyMessage, String blankMessage) {
+        if (values == null || values.isEmpty()) {
+            throw new IllegalStateException(emptyMessage);
+        }
+        return values.stream()
+                .map(value -> requireNonBlank(value, blankMessage))
+                .toList();
     }
 
     private String requireNonBlank(String value, String message) {

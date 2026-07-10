@@ -132,6 +132,18 @@ class PostgresFlywayMigrationIntegrationTest {
                         + "values (?, ?, ?, ?, ?, now(), now())",
                 "kb-builder-2", "owner-builder", "Builder KB 2", "WORKFLOW_BUILDER", true))
                 .hasMessageContaining("uq_knowledge_bases_owner_workflow_builder_managed");
+
+        jdbcTemplate.update(
+                "insert into rag_documents (owner_id, title, content, created_at, index_status, kb_id, source_type) "
+                        + "values (?, ?, ?, now(), ?, ?, ?)",
+                "owner-builder", "Workflow Builder Guidance: core/core-registered-node-types",
+                "content", "READY", "kb-builder-1", "BUILDER");
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "insert into rag_documents (owner_id, title, content, created_at, index_status, kb_id, source_type) "
+                        + "values (?, ?, ?, now(), ?, ?, ?)",
+                "owner-builder", "Workflow Builder Guidance: core/core-registered-node-types",
+                "duplicate", "PENDING", "kb-builder-1", "BUILDER"))
+                .hasMessageContaining("uq_rag_documents_builder_identity_active");
     }
 
 }

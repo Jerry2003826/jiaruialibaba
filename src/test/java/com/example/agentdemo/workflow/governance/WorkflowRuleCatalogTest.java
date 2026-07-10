@@ -99,6 +99,16 @@ class WorkflowRuleCatalogTest {
                 .flatMap(pack -> pack.rules().stream())
                 .map(WorkflowGovernanceRule::repairHint))
                 .allMatch(hint -> hint != null && !hint.isBlank());
+
+        assertThat(packs.stream()
+                .flatMap(pack -> pack.rules().stream())
+                .map(WorkflowGovernanceRule::antiPatterns))
+                .allMatch(entries -> entries != null && !entries.isEmpty());
+
+        assertThat(packs.stream()
+                .flatMap(pack -> pack.rules().stream())
+                .map(WorkflowGovernanceRule::examples))
+                .allMatch(entries -> entries != null && !entries.isEmpty());
     }
 
     @Test
@@ -184,6 +194,8 @@ class WorkflowRuleCatalogTest {
                         "fatal",
                         "Title",
                         "Description",
+                        List.of("anti-pattern"),
+                        List.of("example"),
                         "repair it",
                         "detector")),
                 List.of("entry"),
@@ -220,6 +232,8 @@ class WorkflowRuleCatalogTest {
                         "warning",
                         "Title",
                         "Description",
+                        List.of("anti-pattern"),
+                        List.of("example"),
                         "   ",
                         "detector")),
                 List.of("entry"),
@@ -228,6 +242,52 @@ class WorkflowRuleCatalogTest {
         assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Workflow rule repair hint must not be blank");
+    }
+
+    @Test
+    void rejectsBlankAntiPatternEntries() {
+        WorkflowRulePack invalid = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(new WorkflowGovernanceRule(
+                        "other-rule",
+                        "warning",
+                        "Title",
+                        "Description",
+                        List.of("valid", "   "),
+                        List.of("example"),
+                        "repair",
+                        "detector")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Workflow rule anti-pattern must not be blank");
+    }
+
+    @Test
+    void rejectsBlankExampleEntries() {
+        WorkflowRulePack invalid = new WorkflowRulePack(
+                "other",
+                "1.0.0",
+                List.of("other"),
+                List.of(new WorkflowGovernanceRule(
+                        "other-rule",
+                        "warning",
+                        "Title",
+                        "Description",
+                        List.of("anti-pattern"),
+                        List.of("valid", "   "),
+                        "repair",
+                        "detector")),
+                List.of("entry"),
+                List.of(evaluationCase("other-case")));
+
+        assertThatThrownBy(() -> new WorkflowRuleCatalog(List.of(corePack(), invalid)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Workflow rule example must not be blank");
     }
 
     private WorkflowRulePack corePack() {
@@ -246,6 +306,8 @@ class WorkflowRuleCatalogTest {
                 "warning",
                 "Title",
                 "Description",
+                List.of("Do not improvise unsupported nodes."),
+                List.of("Use an existing supported node and keep the graph executable."),
                 "Repair the workflow by asking for grounded data or restructuring the affected branch.",
                 "detector");
     }

@@ -42,6 +42,9 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
     Page<DocumentEntity> findByOwnerIdAndKbIdAndIndexStatusNotIn(String ownerId, String kbId,
             Collection<DocumentIndexStatus> indexStatuses, Pageable pageable);
 
+    Page<DocumentEntity> findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(String ownerId, String kbId,
+            String sourceType, Collection<DocumentIndexStatus> indexStatuses, Pageable pageable);
+
     @Query("""
             select d.kbId as kbId, count(d) as count
             from DocumentEntity d

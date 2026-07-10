@@ -24,6 +24,7 @@ import java.util.HexFormat;
 public class KnowledgeIngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeIngestionService.class);
+    private static final String BUILDER_SOURCE_TYPE = "BUILDER";
 
     private final KnowledgeBaseAccessService knowledgeBaseAccessService;
     private final DocumentRepository documentRepository;
@@ -58,10 +59,15 @@ public class KnowledgeIngestionService {
     @Transactional
     public KnowledgeDocumentResponse addManagedTextDocument(String kbId, String title, String content) {
         KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId, KnowledgeBasePurpose.WORKFLOW_BUILDER);
-        return addTextDocument(kb, title, content);
+        return addTextDocument(kb, title, content, BUILDER_SOURCE_TYPE);
     }
 
     private KnowledgeDocumentResponse addTextDocument(KnowledgeBaseEntity kb, String title, String content) {
+        return addTextDocument(kb, title, content, "TEXT");
+    }
+
+    private KnowledgeDocumentResponse addTextDocument(KnowledgeBaseEntity kb, String title, String content,
+            String sourceType) {
         if (content.length() > knowledgeProperties.getMaxContentChars()) {
             throw new BusinessException("DOCUMENT_CONTENT_TOO_LARGE",
                     "Document content exceeds the maximum size of " + knowledgeProperties.getMaxContentChars()
@@ -69,7 +75,8 @@ public class KnowledgeIngestionService {
         }
         String resolvedTitle = StringUtils.hasText(title) ? title.trim() : "Untitled";
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        return ingest(kb.getKbId(), resolvedTitle, content, "TEXT", null, "text/plain", (long) bytes.length, bytes);
+        return ingest(kb.getKbId(), resolvedTitle, content, sourceType, null, "text/plain", (long) bytes.length,
+                bytes);
     }
 
     @Transactional
@@ -114,7 +121,11 @@ public class KnowledgeIngestionService {
             String fileName, String mimeType, Long sizeBytes, byte[] contentBytes) {
         DocumentEntity document = new DocumentEntity(title, content);
         document.assignKnowledge(kbId, sourceType, fileName, mimeType, sizeBytes, sha256(contentBytes));
-        DocumentEntity saved = documentRepository.save(document);
+        // Builder documents have a partial unique index on their stable rule identity. Flush
+        // before embedding/indexing so a cross-instance loser fails without doing external work.
+        DocumentEntity saved = BUILDER_SOURCE_TYPE.equals(sourceType)
+                ? documentRepository.saveAndFlush(document)
+                : documentRepository.save(document);
         try {
             documentIndexingService.index(saved);
         }
