@@ -36,6 +36,7 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
@@ -80,6 +81,7 @@ class WorkflowBuilderKnowledgeServiceTest {
                 firstRule, secondRule);
 
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.empty());
@@ -89,7 +91,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
                 eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(knowledgeSearchService.searchManaged("kb-builder", "order status", 6))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("order status"), eq(6), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "order status", List.of(new Citation(11L, "core", 0, "snippet", 1.0))));
 
@@ -121,7 +123,7 @@ class WorkflowBuilderKnowledgeServiceTest {
                 .contains("Generated or repaired graphs must stay within the existing workflow node catalog.")
                 .contains("Invent a graph node type that does not exist.")
                 .contains("Use the existing condition node for branching instead.");
-        verify(knowledgeSearchService).searchManaged("kb-builder", "order status", 6);
+        verify(knowledgeSearchService).searchManaged(eq("kb-builder"), eq("order status"), eq(6), anySet());
     }
 
     @Test
@@ -139,13 +141,14 @@ class WorkflowBuilderKnowledgeServiceTest {
                 "BUILDER",
                 service.contentHashForTest(service.guidanceContentForTest(corePack, rule)));
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.of(managedKb));
         when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
                 eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(existing)));
-        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 3))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("refund"), eq(3), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "refund", List.of()));
 
@@ -154,7 +157,7 @@ class WorkflowBuilderKnowledgeServiceTest {
 
         verify(knowledgeIngestionService, never()).addManagedTextDocument(any(), any(), any());
         verify(documentManagementService, never()).deleteManagedDocument(any());
-        verify(knowledgeSearchService, times(2)).searchManaged("kb-builder", "refund", 3);
+        verify(knowledgeSearchService, times(2)).searchManaged(eq("kb-builder"), eq("refund"), eq(3), anySet());
     }
 
     @Test
@@ -174,19 +177,55 @@ class WorkflowBuilderKnowledgeServiceTest {
                 "BUILDER",
                 service.contentHashForTest(service.guidanceContentForTest(previousPack, rule)));
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(upgradedPack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(upgradedPack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.of(managedKb));
         when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
                 eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(existing)));
-        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 3))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("refund"), eq(3), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "refund", List.of()));
 
         runAs("owner-a", () -> service.retrieve("customer-service-ecommerce", "refund", 3));
 
         verify(knowledgeIngestionService, never()).addManagedTextDocument(any(), any(), any());
+        verify(documentManagementService, never()).deleteManagedDocument(any());
+    }
+
+    @Test
+    void retrievingOneDomainDoesNotDeleteGuidanceOwnedByAnotherDomain() {
+        WorkflowGovernanceRule coreRule = rule("core-rule", "Core rationale", "Core anti-pattern",
+                "Core example", "Core repair");
+        WorkflowGovernanceRule customerRule = rule("customer-rule", "Customer rationale", "Customer anti-pattern",
+                "Customer example", "Customer repair");
+        WorkflowRulePack corePack = pack("core", "2026.07.10", List.of("Core guidance"), coreRule);
+        WorkflowRulePack customerPack = pack("customer-service-ecommerce", "2026.07.10",
+                List.of("Customer guidance"), customerRule);
+        KnowledgeBaseEntity managedKb = managedKb("kb-builder", "owner-a");
+        DocumentEntity existingCore = managedDocument("kb-builder",
+                "Workflow Builder Guidance: core/core-rule", "BUILDER",
+                service.contentHashForTest(service.guidanceContentForTest(corePack, coreRule)));
+        DocumentEntity existingCustomer = managedDocument("kb-builder",
+                "Workflow Builder Guidance: customer-service-ecommerce/customer-rule", "BUILDER",
+                service.contentHashForTest(service.guidanceContentForTest(customerPack, customerRule)));
+        org.springframework.test.util.ReflectionTestUtils.setField(existingCore, "id", 11L);
+        org.springframework.test.util.ReflectionTestUtils.setField(existingCustomer, "id", 12L);
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack, customerPack));
+        when(workflowRuleCatalog.activePacks("unrelated-domain")).thenReturn(List.of(corePack));
+        when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.of(managedKb));
+        when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
+                eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(existingCore, existingCustomer)));
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("core"), eq(2), anySet()))
+                .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
+                        "core", List.of()));
+
+        runAs("owner-a", () -> service.retrieve("unrelated-domain", "core", 2));
+
         verify(documentManagementService, never()).deleteManagedDocument(any());
     }
 
@@ -207,6 +246,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         KnowledgeBaseEntity managedKb = managedKb("kb-builder", "owner-a");
         CopyOnWriteArrayList<DocumentEntity> documents = new CopyOnWriteArrayList<>();
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.of(managedKb));
@@ -222,7 +262,7 @@ class WorkflowBuilderKnowledgeServiceTest {
                     documents.add(created);
                     return null;
                 });
-        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 2))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("refund"), eq(2), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "refund", List.of()));
 
@@ -258,6 +298,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         DocumentEntity concurrentWinner = managedDocument("kb-builder", title, "BUILDER",
                 service.contentHashForTest(content));
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.of(managedKb));
@@ -266,7 +307,7 @@ class WorkflowBuilderKnowledgeServiceTest {
                 .thenReturn(new PageImpl<>(List.of()), new PageImpl<>(List.of(concurrentWinner)));
         doThrow(new DataIntegrityViolationException("duplicate builder identity"))
                 .when(knowledgeIngestionService).addManagedTextDocument("kb-builder", title, content);
-        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 2))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("refund"), eq(2), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "refund", List.of(new Citation(9L, title, 0, "snippet", 1.0))));
 
@@ -288,6 +329,7 @@ class WorkflowBuilderKnowledgeServiceTest {
                 List.of("The core pack always applies."), rule);
         KnowledgeBaseEntity concurrentWinner = managedKb("kb-builder", "owner-a");
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.empty(), Optional.of(concurrentWinner));
@@ -297,7 +339,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
                 eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(knowledgeSearchService.searchManaged("kb-builder", "refund", 2))
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("refund"), eq(2), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-builder",
                         "refund", List.of(new Citation(10L, "core", 0, "snippet", 1.0))));
 
@@ -318,6 +360,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         WorkflowRulePack corePack = pack("core", "2026.07.10",
                 List.of("The core pack always applies."), rule);
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.empty());
@@ -345,6 +388,7 @@ class WorkflowBuilderKnowledgeServiceTest {
         WorkflowRulePack corePack = pack("core", "2026.07.10",
                 List.of("The core pack always applies."), rule);
         when(workflowRuleCatalog.activePacks("customer-service-ecommerce")).thenReturn(List.of(corePack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(corePack));
         when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
                 "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
                 .thenReturn(Optional.of(managedKb("kb-owner-a", "owner-a")));
@@ -357,18 +401,18 @@ class WorkflowBuilderKnowledgeServiceTest {
         when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
                 eq("owner-b"), eq("kb-owner-b"), eq("BUILDER"), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(knowledgeSearchService.searchManaged("kb-owner-a", "refund", 2))
+        when(knowledgeSearchService.searchManaged(eq("kb-owner-a"), eq("refund"), eq(2), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-owner-a",
                         "refund", List.of()));
-        when(knowledgeSearchService.searchManaged("kb-owner-b", "refund", 2))
+        when(knowledgeSearchService.searchManaged(eq("kb-owner-b"), eq("refund"), eq(2), anySet()))
                 .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse("kb-owner-b",
                         "refund", List.of()));
 
         runAs("owner-a", () -> service.retrieve("customer-service-ecommerce", "refund", 2));
         runAs("owner-b", () -> service.retrieve("customer-service-ecommerce", "refund", 2));
 
-        verify(knowledgeSearchService).searchManaged("kb-owner-a", "refund", 2);
-        verify(knowledgeSearchService).searchManaged("kb-owner-b", "refund", 2);
+        verify(knowledgeSearchService).searchManaged(eq("kb-owner-a"), eq("refund"), eq(2), anySet());
+        verify(knowledgeSearchService).searchManaged(eq("kb-owner-b"), eq("refund"), eq(2), anySet());
     }
 
     private Callable<List<Citation>> callableRetrieve(CountDownLatch start) {

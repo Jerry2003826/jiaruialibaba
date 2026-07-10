@@ -1,18 +1,44 @@
 package com.example.agentdemo.migration;
 
 import com.example.agentdemo.AgentBackendDemoApplication;
+import com.example.agentdemo.common.PublicIdGenerator;
+import com.example.agentdemo.knowledge.Citation;
+import com.example.agentdemo.knowledge.KnowledgeBaseRepository;
+import com.example.agentdemo.knowledge.KnowledgeIngestionService;
+import com.example.agentdemo.knowledge.KnowledgeSearchService;
+import com.example.agentdemo.rag.DocumentManagementService;
+import com.example.agentdemo.rag.DocumentRepository;
+import com.example.agentdemo.workflow.governance.WorkflowBuilderKnowledgeService;
+import com.example.agentdemo.workflow.governance.WorkflowGovernanceRule;
+import com.example.agentdemo.workflow.governance.WorkflowRuleCatalog;
+import com.example.agentdemo.workflow.governance.WorkflowRulePack;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 /**
  * Verifies the Flyway migrations produce a schema that Hibernate {@code validate} accepts on a real
@@ -46,6 +72,30 @@ class PostgresFlywayMigrationIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private WorkflowRuleCatalog workflowRuleCatalog;
+
+    @Autowired
+    private KnowledgeBaseRepository knowledgeBaseRepository;
+
+    @Autowired
+    private DocumentRepository documentRepository;
+
+    @Autowired
+    private KnowledgeIngestionService knowledgeIngestionService;
+
+    @Autowired
+    private DocumentManagementService documentManagementService;
+
+    @Autowired
+    private KnowledgeSearchService knowledgeSearchService;
+
+    @Autowired
+    private PublicIdGenerator publicIdGenerator;
+
+    @Autowired
+    private WorkflowBuilderKnowledgeService workflowBuilderKnowledgeService;
 
     @Test
     void migratesAndValidatesAgainstRealPostgres() {
@@ -144,6 +194,117 @@ class PostgresFlywayMigrationIntegrationTest {
                 "owner-builder", "Workflow Builder Guidance: core/core-registered-node-types",
                 "duplicate", "PENDING", "kb-builder-1", "BUILDER"))
                 .hasMessageContaining("uq_rag_documents_builder_identity_active");
+    }
+
+    @Test
+    void concurrentBuilderInstancesRecoverAfterRealUniqueConstraintLoss() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String ownerId = "owner-concurrent-" + suffix;
+        String kbId = "kb-concurrent-" + suffix;
+        insertManagedKnowledgeBase(kbId, ownerId);
+
+        CyclicBarrier ingestionBarrier = new CyclicBarrier(2);
+        KnowledgeIngestionService barrierIngestion = mock(KnowledgeIngestionService.class);
+        doAnswer(invocation -> {
+            ingestionBarrier.await(30, TimeUnit.SECONDS);
+            return knowledgeIngestionService.addManagedTextDocument(
+                    invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2));
+        }).when(barrierIngestion).addManagedTextDocument(anyString(), anyString(), anyString());
+
+        WorkflowBuilderKnowledgeService first = builderService(barrierIngestion);
+        WorkflowBuilderKnowledgeService second = builderService(barrierIngestion);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<List<Citation>> firstResult = executor.submit(
+                    () -> runAs(ownerId,
+                            () -> first.retrieve("customer-service-ecommerce", "refund order", 6)));
+            Future<List<Citation>> secondResult = executor.submit(
+                    () -> runAs(ownerId,
+                            () -> second.retrieve("customer-service-ecommerce", "refund order", 6)));
+
+            assertThat(firstResult.get(90, TimeUnit.SECONDS)).isNotEmpty();
+            assertThat(secondResult.get(90, TimeUnit.SECONDS)).isNotEmpty();
+        }
+
+        int expectedRuleCount = workflowRuleCatalog.allPacks().stream()
+                .mapToInt(pack -> pack.rules().size())
+                .sum();
+        Integer activeDocuments = jdbcTemplate.queryForObject(
+                "select count(*) from rag_documents where owner_id = ? and kb_id = ? and source_type = 'BUILDER' "
+                        + "and index_status not in ('DELETING', 'DELETED')",
+                Integer.class, ownerId, kbId);
+        Integer duplicateIdentities = jdbcTemplate.queryForObject(
+                "select count(*) from (select title from rag_documents where owner_id = ? and kb_id = ? "
+                        + "and source_type = 'BUILDER' and index_status not in ('DELETING', 'DELETED') "
+                        + "group by title having count(*) > 1) duplicates",
+                Integer.class, ownerId, kbId);
+        assertThat(activeDocuments).isEqualTo(expectedRuleCount);
+        assertThat(duplicateIdentities).isZero();
+    }
+
+    @Test
+    void synchronizationReplacesChangedGuidanceAndDeletesObsoleteGuidanceOnPostgres() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String ownerId = "owner-stale-" + suffix;
+        String kbId = "kb-stale-" + suffix;
+        insertManagedKnowledgeBase(kbId, ownerId);
+        WorkflowRulePack pack = workflowRuleCatalog.allPacks().getFirst();
+        WorkflowGovernanceRule rule = pack.rules().getFirst();
+        String currentTitle = "Workflow Builder Guidance: " + pack.id() + "/" + rule.id();
+        String obsoleteTitle = "Workflow Builder Guidance: removed/obsolete-rule";
+        insertBuilderDocument(ownerId, kbId, currentTitle, "outdated guidance", "stale-hash");
+        insertBuilderDocument(ownerId, kbId, obsoleteTitle, "obsolete guidance", "obsolete-hash");
+
+        List<Citation> citations = runAs(ownerId,
+                () -> workflowBuilderKnowledgeService.retrieve("customer-service-ecommerce", "registered refund", 6));
+
+        assertThat(citations).isNotEmpty();
+        String refreshedHash = jdbcTemplate.queryForObject(
+                "select content_hash from rag_documents where owner_id = ? and kb_id = ? and title = ? "
+                        + "and source_type = 'BUILDER' and index_status not in ('DELETING', 'DELETED')",
+                String.class, ownerId, kbId, currentTitle);
+        Integer obsoleteDocuments = jdbcTemplate.queryForObject(
+                "select count(*) from rag_documents where owner_id = ? and kb_id = ? and title = ? "
+                        + "and source_type = 'BUILDER' and index_status not in ('DELETING', 'DELETED')",
+                Integer.class, ownerId, kbId, obsoleteTitle);
+        assertThat(refreshedHash).isNotEqualTo("stale-hash").hasSize(64);
+        assertThat(obsoleteDocuments).isZero();
+    }
+
+    private WorkflowBuilderKnowledgeService builderService(KnowledgeIngestionService ingestionService) {
+        return new WorkflowBuilderKnowledgeService(
+                workflowRuleCatalog,
+                knowledgeBaseRepository,
+                documentRepository,
+                ingestionService,
+                documentManagementService,
+                knowledgeSearchService,
+                publicIdGenerator);
+    }
+
+    private void insertManagedKnowledgeBase(String kbId, String ownerId) {
+        jdbcTemplate.update(
+                "insert into knowledge_bases (kb_id, owner_id, name, purpose, system_managed, created_at, updated_at) "
+                        + "values (?, ?, ?, 'WORKFLOW_BUILDER', true, now(), now())",
+                kbId, ownerId, "Builder KB");
+    }
+
+    private void insertBuilderDocument(String ownerId, String kbId, String title, String content, String contentHash) {
+        jdbcTemplate.update(
+                "insert into rag_documents (owner_id, title, content, created_at, index_status, kb_id, source_type, "
+                        + "content_hash) values (?, ?, ?, now(), 'READY', ?, 'BUILDER', ?)",
+                ownerId, title, content, kbId, contentHash);
+    }
+
+    private <T> T runAs(String ownerId, Callable<T> action) throws Exception {
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken(ownerId, "n/a", List.of()));
+        SecurityContextHolder.setContext(context);
+        try {
+            return action.call();
+        }
+        finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
 }

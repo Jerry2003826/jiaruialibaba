@@ -98,4 +98,14 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, Long> 
 
     long countByOwnerIdAndIndexStatusNot(String ownerId, DocumentIndexStatus indexStatus);
 
+    @Query("""
+            select count(d) from DocumentEntity d
+            where d.ownerId = :ownerId
+              and d.indexStatus <> :indexStatus
+              and (d.sourceType is null or d.sourceType <> 'BUILDER')
+            """)
+    long countPublicByOwnerIdAndIndexStatusNot(
+            @Param("ownerId") String ownerId,
+            @Param("indexStatus") DocumentIndexStatus indexStatus);
+
 }

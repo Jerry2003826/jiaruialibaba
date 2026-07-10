@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageImpl;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -72,6 +73,29 @@ class KnowledgeSearchServiceTest {
 
         assertThat(response.kbId()).isEqualTo("kb-builder");
         assertThat(response.citations()).extracting(Citation::title).containsExactly("Builder hint");
+    }
+
+    @Test
+    void managedSearchCanBeScopedToActiveRuleDocuments() {
+        KnowledgeBaseEntity managedKb = managedKnowledgeBase("kb-builder");
+        DocumentEntity core = document("Workflow Builder Guidance: core/core-rule", "refund guidance");
+        DocumentEntity customer = document(
+                "Workflow Builder Guidance: customer-service-ecommerce/customer-rule", "refund guidance");
+        org.springframework.test.util.ReflectionTestUtils.setField(core, "id", 1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(customer, "id", 2L);
+        when(knowledgeBaseRepository.findByKbIdAndOwnerIdAndPurposeAndSystemManagedTrue(
+                "kb-builder", "workbench-dev", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.of(managedKb));
+        when(documentRepository.findByOwnerIdAndKbIdAndIndexStatusNotIn(eq("workbench-dev"), eq("kb-builder"),
+                any(), any()))
+                .thenReturn(new PageImpl<>(List.of(core, customer)));
+        when(reranker.rerank(eq("refund"), any(), eq(4)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        KnowledgeSearchResponse response = knowledgeSearchService.searchManaged(
+                "kb-builder", "refund", 4, Set.of(core.getTitle()));
+
+        assertThat(response.citations()).extracting(Citation::title).containsExactly(core.getTitle());
     }
 
     @Test

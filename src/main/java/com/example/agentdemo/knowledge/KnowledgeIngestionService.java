@@ -124,6 +124,12 @@ public class KnowledgeIngestionService {
         DocumentEntity saved = DocumentEntity.WORKFLOW_BUILDER_SOURCE_TYPE.equals(sourceType)
                 ? documentRepository.saveAndFlush(document)
                 : documentRepository.save(document);
+        if (document.isWorkflowBuilderManaged()) {
+            // Builder guidance is retrieved through the hidden KB keyword path. Keeping it out of
+            // the shared vector collection prevents internal rules from consuming public RAG top-k.
+            saved.markReady();
+            return knowledgeResponseMapper.toKnowledgeDocumentResponse(saved);
+        }
         try {
             documentIndexingService.index(saved);
         }

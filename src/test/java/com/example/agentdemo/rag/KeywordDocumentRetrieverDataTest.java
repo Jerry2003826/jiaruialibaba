@@ -53,6 +53,8 @@ class KeywordDocumentRetrieverDataTest {
                 "workbench-dev", List.of(publicDocument, builderDocument), DocumentIndexStatus.READY))
                 .extracting(DocumentEntity::getId)
                 .containsExactly(publicDocument);
+        assertThat(documentRepository.countPublicByOwnerIdAndIndexStatusNot(
+                "workbench-dev", DocumentIndexStatus.DELETED)).isEqualTo(1L);
     }
 
     private long saveBuilder(String title, String content) {

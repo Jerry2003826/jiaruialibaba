@@ -43,7 +43,7 @@ class AlibabaHealthServiceTest {
         when(embeddingModelProvider.getIfAvailable()).thenReturn(mock(EmbeddingModel.class));
         when(vectorStoreGateway.isConfigured()).thenReturn(true);
         when(documentRetriever.name()).thenReturn("DashVectorDocumentRetriever");
-        when(documentRepository.countByOwnerIdAndIndexStatusNot("workbench-dev", DocumentIndexStatus.DELETED))
+        when(documentRepository.countPublicByOwnerIdAndIndexStatusNot("workbench-dev", DocumentIndexStatus.DELETED))
                 .thenReturn(0L);
 
         AlibabaHealthService service = new AlibabaHealthService(aiModelService, embeddingModelProvider,

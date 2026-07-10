@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -76,11 +77,12 @@ public class WorkflowBuilderKnowledgeService {
         OwnerSynchronizationLock ownerLock = null;
         try {
             KnowledgeBaseEntity knowledgeBase;
+            List<WorkflowRulePack> activePacks = workflowRuleCatalog.activePacks(domain);
             ownerLock = acquireOwnerLock(ownerId);
             ownerLock.lock.lock();
             try {
                 knowledgeBase = ensureManagedKnowledgeBase(ownerId);
-                synchronizeGuidance(ownerId, knowledgeBase.getKbId(), workflowRuleCatalog.activePacks(domain));
+                synchronizeGuidance(ownerId, knowledgeBase.getKbId(), workflowRuleCatalog.allPacks());
             }
             finally {
                 ownerLock.lock.unlock();
@@ -88,7 +90,8 @@ public class WorkflowBuilderKnowledgeService {
                 ownerLock = null;
             }
             int boundedTopK = Math.max(1, Math.min(topK, MAX_TOP_K));
-            return knowledgeSearchService.searchManaged(knowledgeBase.getKbId(), query, boundedTopK).citations();
+            return knowledgeSearchService.searchManaged(
+                    knowledgeBase.getKbId(), query, boundedTopK, documentTitles(activePacks)).citations();
         }
         catch (RuntimeException exception) {
             if (ownerLock != null) {
@@ -97,6 +100,13 @@ public class WorkflowBuilderKnowledgeService {
             log.warn("Workflow builder knowledge retrieval failed for owner {}", ownerId, exception);
             return List.of();
         }
+    }
+
+    private Set<String> documentTitles(List<WorkflowRulePack> packs) {
+        return packs.stream()
+                .flatMap(pack -> pack.rules().stream()
+                        .map(rule -> DOCUMENT_TITLE_PREFIX + pack.id() + "/" + rule.id()))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private OwnerSynchronizationLock acquireOwnerLock(String ownerId) {
@@ -231,6 +241,7 @@ public class WorkflowBuilderKnowledgeService {
         append(builder, "Pack: " + pack.id());
         append(builder, "Rule: " + rule.id());
         append(builder, "Title: " + rule.title());
+        append(builder, "Retrieval mode: hidden keyword-only");
         append(builder, "Severity: " + rule.severity());
         append(builder, "Detector: " + rule.detector());
         append(builder, "Rationale:");
