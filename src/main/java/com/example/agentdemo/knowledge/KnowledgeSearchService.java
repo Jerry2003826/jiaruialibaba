@@ -51,11 +51,25 @@ public class KnowledgeSearchService {
     @Transactional(readOnly = true)
     public KnowledgeSearchResponse search(String kbId, String query, Integer requestedTopK) {
         KnowledgeBaseEntity kb = knowledgeBaseAccessService.findKb(kbId);
+        return search(kb, query, requestedTopK);
+    }
+
+    /**
+     * Internal-only system-managed search path for workflow builder guidance retrieval.
+     */
+    @Transactional(readOnly = true)
+    public KnowledgeSearchResponse searchManaged(String kbId, String query, Integer requestedTopK) {
+        KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId,
+                KnowledgeBasePurpose.WORKFLOW_BUILDER);
+        return search(kb, query, requestedTopK);
+    }
+
+    private KnowledgeSearchResponse search(KnowledgeBaseEntity kb, String query, Integer requestedTopK) {
         int topK = requestedTopK != null && requestedTopK > 0 ? Math.min(requestedTopK, 50)
                 : knowledgeResponseMapper.retrievalConfig(kb).topKOr(ragProperties.getRag().getTopK());
-        List<Citation> candidates = keywordSearch(kbId, query, topK);
+        List<Citation> candidates = keywordSearch(kb.getKbId(), query, topK);
         List<Citation> ranked = reranker.rerank(query, candidates, topK);
-        return new KnowledgeSearchResponse(kbId, query, ranked);
+        return new KnowledgeSearchResponse(kb.getKbId(), query, ranked);
     }
 
     private List<Citation> keywordSearch(String kbId, String query, int topK) {

@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies the Flyway migrations produce a schema that Hibernate {@code validate} accepts on a real
@@ -97,6 +98,40 @@ class PostgresFlywayMigrationIntegrationTest {
                         + "where table_name = 'demo_orders' and column_name = 'customer_name'",
                 Integer.class);
         assertThat(customerNameColumns).isEqualTo(1);
+
+        String kbPurposeType = jdbcTemplate.queryForObject(
+                "select data_type from information_schema.columns "
+                        + "where table_name = 'knowledge_bases' and column_name = 'purpose'",
+                String.class);
+        assertThat(kbPurposeType).isEqualTo("character varying");
+
+        String systemManagedType = jdbcTemplate.queryForObject(
+                "select data_type from information_schema.columns "
+                        + "where table_name = 'knowledge_bases' and column_name = 'system_managed'",
+                String.class);
+        assertThat(systemManagedType).isEqualTo("boolean");
+
+        jdbcTemplate.update(
+                "insert into knowledge_bases (kb_id, owner_id, name, created_at, updated_at) values (?, ?, ?, now(), now())",
+                "kb-business-defaults", "owner-business", "Business KB");
+        String defaultPurpose = jdbcTemplate.queryForObject(
+                "select purpose from knowledge_bases where kb_id = 'kb-business-defaults'",
+                String.class);
+        Boolean defaultSystemManaged = jdbcTemplate.queryForObject(
+                "select system_managed from knowledge_bases where kb_id = 'kb-business-defaults'",
+                Boolean.class);
+        assertThat(defaultPurpose).isEqualTo("BUSINESS");
+        assertThat(defaultSystemManaged).isFalse();
+
+        jdbcTemplate.update(
+                "insert into knowledge_bases (kb_id, owner_id, name, purpose, system_managed, created_at, updated_at) "
+                        + "values (?, ?, ?, ?, ?, now(), now())",
+                "kb-builder-1", "owner-builder", "Builder KB", "WORKFLOW_BUILDER", true);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "insert into knowledge_bases (kb_id, owner_id, name, purpose, system_managed, created_at, updated_at) "
+                        + "values (?, ?, ?, ?, ?, now(), now())",
+                "kb-builder-2", "owner-builder", "Builder KB 2", "WORKFLOW_BUILDER", true))
+                .hasMessageContaining("uq_knowledge_bases_owner_workflow_builder_managed");
     }
 
 }

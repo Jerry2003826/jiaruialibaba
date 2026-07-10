@@ -3,6 +3,8 @@ package com.example.agentdemo.knowledge;
 import com.example.agentdemo.security.SecurityIdentity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -42,6 +44,13 @@ public class KnowledgeBaseEntity {
     @Column(name = "retrieval_config_json", length = Integer.MAX_VALUE)
     private String retrievalConfigJson;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private KnowledgeBasePurpose purpose = KnowledgeBasePurpose.BUSINESS;
+
+    @Column(name = "system_managed", nullable = false)
+    private boolean systemManaged;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -52,11 +61,18 @@ public class KnowledgeBaseEntity {
     }
 
     public KnowledgeBaseEntity(String kbId, String name, String description, String retrievalConfigJson) {
+        this(kbId, name, description, retrievalConfigJson, KnowledgeBasePurpose.BUSINESS, false);
+    }
+
+    public KnowledgeBaseEntity(String kbId, String name, String description, String retrievalConfigJson,
+            KnowledgeBasePurpose purpose, boolean systemManaged) {
         this.kbId = kbId;
         this.ownerId = SecurityIdentity.currentOwnerId();
         this.name = name;
         this.description = description;
         this.retrievalConfigJson = retrievalConfigJson;
+        this.purpose = purpose;
+        this.systemManaged = systemManaged;
     }
 
     @PrePersist
@@ -70,6 +86,9 @@ public class KnowledgeBaseEntity {
         }
         if (updatedAt == null) {
             updatedAt = now;
+        }
+        if (purpose == null) {
+            purpose = KnowledgeBasePurpose.BUSINESS;
         }
     }
 
@@ -100,6 +119,14 @@ public class KnowledgeBaseEntity {
 
     public String getRetrievalConfigJson() {
         return retrievalConfigJson;
+    }
+
+    public KnowledgeBasePurpose getPurpose() {
+        return purpose;
+    }
+
+    public boolean isSystemManaged() {
+        return systemManaged;
     }
 
     public Instant getCreatedAt() {

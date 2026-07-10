@@ -19,8 +19,15 @@ class KnowledgeBaseAccessService {
     }
 
     KnowledgeBaseEntity findKb(String kbId) {
-        return knowledgeBaseRepository.findByKbIdAndOwnerId(kbId, SecurityIdentity.currentOwnerId())
+        return knowledgeBaseRepository.findByKbIdAndOwnerIdAndSystemManagedFalse(kbId, SecurityIdentity.currentOwnerId())
                 .orElseThrow(() -> new BusinessException("KNOWLEDGE_BASE_NOT_FOUND", "Knowledge base not found: " + kbId));
+    }
+
+    KnowledgeBaseEntity findManagedKb(String kbId, KnowledgeBasePurpose purpose) {
+        return knowledgeBaseRepository.findByKbIdAndOwnerIdAndPurposeAndSystemManagedTrue(kbId,
+                SecurityIdentity.currentOwnerId(), purpose)
+                .orElseThrow(() -> new BusinessException("KNOWLEDGE_BASE_NOT_FOUND",
+                        "Knowledge base not found: " + kbId));
     }
 
     DocumentEntity findDocument(String kbId, Long documentId) {

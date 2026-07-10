@@ -48,15 +48,28 @@ public class KnowledgeIngestionService {
     @Audited(action = "document.create", resourceType = "document",
             resourceId = "#result == null ? null : #result.documentId()")
     public KnowledgeDocumentResponse addTextDocument(String kbId, TextDocumentRequest request) {
-        knowledgeBaseAccessService.findKb(kbId);
-        if (request.content().length() > knowledgeProperties.getMaxContentChars()) {
+        KnowledgeBaseEntity kb = knowledgeBaseAccessService.findKb(kbId);
+        return addTextDocument(kb, request.title(), request.content());
+    }
+
+    /**
+     * Internal-only system-managed ingestion path for the workflow builder guidance corpus.
+     */
+    @Transactional
+    public KnowledgeDocumentResponse addManagedTextDocument(String kbId, String title, String content) {
+        KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId, KnowledgeBasePurpose.WORKFLOW_BUILDER);
+        return addTextDocument(kb, title, content);
+    }
+
+    private KnowledgeDocumentResponse addTextDocument(KnowledgeBaseEntity kb, String title, String content) {
+        if (content.length() > knowledgeProperties.getMaxContentChars()) {
             throw new BusinessException("DOCUMENT_CONTENT_TOO_LARGE",
                     "Document content exceeds the maximum size of " + knowledgeProperties.getMaxContentChars()
                             + " characters");
         }
-        String title = StringUtils.hasText(request.title()) ? request.title().trim() : "Untitled";
-        byte[] bytes = request.content().getBytes(StandardCharsets.UTF_8);
-        return ingest(kbId, title, request.content(), "TEXT", null, "text/plain", (long) bytes.length, bytes);
+        String resolvedTitle = StringUtils.hasText(title) ? title.trim() : "Untitled";
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        return ingest(kb.getKbId(), resolvedTitle, content, "TEXT", null, "text/plain", (long) bytes.length, bytes);
     }
 
     @Transactional

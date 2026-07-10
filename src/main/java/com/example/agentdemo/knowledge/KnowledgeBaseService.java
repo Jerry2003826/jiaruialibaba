@@ -61,7 +61,7 @@ public class KnowledgeBaseService {
     @Transactional(readOnly = true)
     public List<KnowledgeBaseResponse> listKnowledgeBases() {
         List<KnowledgeBaseEntity> entities = knowledgeBaseRepository
-                .findByOwnerIdOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId());
+                .findByOwnerIdAndSystemManagedFalseOrderByCreatedAtDesc(SecurityIdentity.currentOwnerId());
         if (entities.isEmpty()) {
             return List.of();
         }
