@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -84,7 +85,7 @@ class ApiRateLimitIntegrationTest {
     void rateLimitsRepeatedAiRequestsByPrincipalAndPath() throws Exception {
         when(aiModelService.generate(anyString(), anyList(), anyString()))
                 .thenReturn(AiModelResult.ok("hello", null));
-        when(aiModelService.generate(anyString(), anyList(), anyString(), any()))
+        when(aiModelService.generate(anyString(), anyList(), anyString(), nullable(String.class)))
                 .thenReturn(AiModelResult.ok("hello", null));
         String token = bearer(List.of("chat.execute"));
         String body = "{\"message\":\"hello\"}";
@@ -120,6 +121,107 @@ class ApiRateLimitIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void rateLimitsRepeatedWorkflowSpecDraftRequests() throws Exception {
+        when(aiModelService.generate(anyString(), anyString()))
+                .thenReturn(AiModelResult.ok("""
+                        {
+                          "status": "NEEDS_CLARIFICATION",
+                          "summary": "客户评价自动分流",
+                          "questions": ["是否需要真实调用部门系统？"],
+                          "spec": {"goal": "客户评价分流"},
+                          "generationPrompt": ""
+                        }
+                        """));
+        String token = bearer(List.of("workflow.edit"));
+        String body = "{\"prompt\":\"创建客户评价系统\"}";
+
+        MvcResult first = mockMvc.perform(post("/api/workflows/spec-drafts")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andReturn();
+
+        assertThat(first.getResponse().getStatus()).isEqualTo(200);
+        mockMvc.perform(post("/api/workflows/spec-drafts")
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void rateLimitsWorkflowGovernanceEvaluationPerPrincipal() throws Exception {
+        String body = "{}";
+        String subjectAToken = bearer("governance-subject-a", List.of("workflow.run"));
+        String subjectBToken = bearer("governance-subject-b", List.of("workflow.run"));
+
+        MvcResult subjectAFirst = mockMvc.perform(post("/api/workflows/governance/evaluate")
+                        .header(HttpHeaders.AUTHORIZATION, subjectAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andReturn();
+        assertThat(subjectAFirst.getResponse().getStatus()).isNotEqualTo(429);
+
+        mockMvc.perform(post("/api/workflows/governance/evaluate")
+                        .header(HttpHeaders.AUTHORIZATION, subjectAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isTooManyRequests());
+
+        MvcResult subjectBFirst = mockMvc.perform(post("/api/workflows/governance/evaluate")
+                        .header(HttpHeaders.AUTHORIZATION, subjectBToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andReturn();
+        assertThat(subjectBFirst.getResponse().getStatus()).isNotEqualTo(429);
+    }
+
+    @Test
+    void rateLimitsExactWorkflowPublishPath() throws Exception {
+        String token = bearer("publish-subject", List.of("workflow.publish", "workflow.run"));
+        String path = "/api/workflows/definitions/missing-definition/publish";
+
+        MvcResult first = mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andReturn();
+        assertThat(first.getResponse().getStatus()).isNotEqualTo(429);
+
+        mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void workflowPublishRateLimitCannotBeBypassedByChangingDefinitionId() throws Exception {
+        String token = bearer("publish-multi-definition-subject", List.of("workflow.publish", "workflow.run"));
+
+        MvcResult first = mockMvc.perform(post("/api/workflows/definitions/missing-a/publish")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andReturn();
+        assertThat(first.getResponse().getStatus()).isNotEqualTo(429);
+
+        mockMvc.perform(post("/api/workflows/definitions/missing-b/publish")
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void workflowPublishRateLimitPatternDoesNotMatchLongerPaths() throws Exception {
+        String token = bearer("publish-neighbor-subject", List.of("workflow.edit"));
+        String path = "/api/workflows/definitions/example/publish/extra";
+
+        MvcResult first = mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andReturn();
+        MvcResult second = mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andReturn();
+
+        assertThat(first.getResponse().getStatus()).isNotEqualTo(429);
+        assertThat(second.getResponse().getStatus()).isNotEqualTo(429);
     }
 
     @Test
@@ -245,9 +347,13 @@ class ApiRateLimitIntegrationTest {
     }
 
     private String bearer(List<String> scopes) throws Exception {
+        return bearer("rate-limit-user", scopes);
+    }
+
+    private String bearer(String subject, List<String> scopes) throws Exception {
         Instant now = Instant.now();
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject("rate-limit-user")
+                .subject(subject)
                 .issuer("agent-backend-demo")
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(now.plusSeconds(300)))

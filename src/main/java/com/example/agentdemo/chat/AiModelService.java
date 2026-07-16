@@ -13,17 +13,20 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 @Service
 public class AiModelService {
 
     private static final long DEFAULT_STREAM_TIMEOUT_MS = 90_000L;
+    private static final long DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000L;
     private static final int DEFAULT_MAX_TOKENS_PER_CALL = 32_000;
 
     private final ObjectProvider<ChatClient> chatClientProvider;
@@ -129,6 +132,17 @@ public class AiModelService {
 
     public void stream(String systemPrompt, List<ConversationMessage> history, String userMessage,
             Consumer<String> onChunk) {
+        stream(systemPrompt, history, userMessage, onChunk, null);
+    }
+
+    public void streamUntilComplete(String systemPrompt, String userMessage, Consumer<String> onChunk,
+            BooleanSupplier completionPredicate) {
+        stream(systemPrompt, List.of(), userMessage, onChunk,
+                Objects.requireNonNull(completionPredicate, "completionPredicate"));
+    }
+
+    private void stream(String systemPrompt, List<ConversationMessage> history, String userMessage,
+            Consumer<String> onChunk, BooleanSupplier completionPredicate) {
         if (!isModelConfigured()) {
             throw unavailableLlmException("AI_DASHSCOPE_API_KEY is not configured");
         }
@@ -138,7 +152,7 @@ public class AiModelService {
         }
         AtomicInteger chunks = new AtomicInteger();
         try {
-            chatClient.prompt()
+            Flux<String> content = chatClient.prompt()
                     .system(systemPrompt)
                     .messages(SpringMessageConverter.toSpringMessages(history, userMessage))
                     .stream()
@@ -148,7 +162,12 @@ public class AiModelService {
                             chunks.incrementAndGet();
                             onChunk.accept(chunk);
                         }
-                    })
+                    });
+            if (completionPredicate != null) {
+                content = content.takeUntil(ignored -> completionPredicate.getAsBoolean());
+            }
+            content
+                    .timeout(streamIdleTimeout())
                     .blockLast(streamTimeout());
         }
         catch (Exception ex) {
@@ -166,6 +185,15 @@ public class AiModelService {
                 DEFAULT_STREAM_TIMEOUT_MS);
         if (timeoutMs == null || timeoutMs <= 0) {
             timeoutMs = DEFAULT_STREAM_TIMEOUT_MS;
+        }
+        return Duration.ofMillis(timeoutMs);
+    }
+
+    private Duration streamIdleTimeout() {
+        Long timeoutMs = environment.getProperty("demo.ai.stream-idle-timeout-ms", Long.class,
+                DEFAULT_STREAM_IDLE_TIMEOUT_MS);
+        if (timeoutMs == null || timeoutMs <= 0) {
+            timeoutMs = DEFAULT_STREAM_IDLE_TIMEOUT_MS;
         }
         return Duration.ofMillis(timeoutMs);
     }

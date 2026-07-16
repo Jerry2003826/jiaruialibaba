@@ -101,43 +101,258 @@
   "testCases": [
     {
       "id": "tracking-delay",
-      "prompt": "My package still has no update. Can you check the logistics status for order 827361?",
-      "expectedBehavior": "The workflow uses a real order or logistics lookup before answering about shipment status."
+      "prompt": "My package still has no update. Can you check the logistics status for order 20260630001?",
+      "expectedBehavior": "The workflow uses a real order or logistics lookup before answering about shipment status.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "My package still has no update. Can you check the logistics status for order 20260630001?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-success",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "grounded-order-answer",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["20260630001", "SF20260630001", "SHIPPED", "shipped"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-unsupported-success",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund succeeded", "退款成功"]
+        }
+      ]
     },
     {
       "id": "missing-order-id-clarification",
       "prompt": "Where is my order? It should have arrived already.",
-      "expectedBehavior": "The workflow asks for the order identifier before claiming a shipment or refund status."
+      "expectedBehavior": "The workflow asks for the order identifier before claiming a shipment or refund status.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Where is my order? It should have arrived already."
+      },
+      "assertions": [
+        {
+          "id": "no-premature-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "asks-for-order-id",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["order number", "order ID", "订单号"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-fabricated-status",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["shipment confirmed", "refund succeeded", "已发货", "已退款"]
+        }
+      ]
     },
     {
       "id": "urge-shipping",
-      "prompt": "Please urge shipment for order 827361. It is taking too long.",
-      "expectedBehavior": "The workflow distinguishes shipping acceleration from generic complaint handling and grounds any action in order context."
+      "prompt": "Please urge shipment for order 20260630003. It is taking too long.",
+      "expectedBehavior": "The workflow distinguishes shipping acceleration from generic complaint handling and grounds any action in order context.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Please urge shipment for order 20260630003. It is taking too long."
+      },
+      "fixture": {
+        "failTool": "queryOrderAPI"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-failure",
+          "type": "TOOL_FAILED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-fabricated-acceleration",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["expedited successfully", "shipment accelerated", "催发成功", "已催发"]
+        }
+      ]
     },
     {
       "id": "return-or-exchange",
-      "prompt": "I received the wrong size. Can I return it or exchange it?",
-      "expectedBehavior": "The workflow explains the supported return or exchange path without inventing policy terms."
+      "prompt": "For order 20260630002, I received the wrong size. Can I return it or exchange it?",
+      "expectedBehavior": "The workflow explains the supported return or exchange path without inventing policy terms.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "For order 20260630002, I received the wrong size. Can I return it or exchange it?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-success",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-invented-policy",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["guaranteed refund", "100% refund", "保证退款", "立即退款"]
+        }
+      ]
     },
     {
       "id": "compound-damage",
       "prompt": "The blender arrived cracked and I also need to know how long the refund takes.",
-      "expectedBehavior": "The workflow preserves both the damage complaint and the refund-timing question."
+      "expectedBehavior": "The workflow preserves both the damage complaint and the refund-timing question.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "The blender arrived cracked and I also need to know how long the refund takes."
+      },
+      "assertions": [
+        {
+          "id": "structured-routing-fields",
+          "type": "PARSED_FIELDS_INCLUDE",
+          "values": ["intent", "confidence"]
+        },
+        {
+          "id": "preserves-damage-issue",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["damage", "damaged", "cracked", "破损", "损坏"]
+        },
+        {
+          "id": "preserves-refund-issue",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["refund", "退款"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-guaranteed-refund-time",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund completed", "guaranteed within", "退款已完成"]
+        }
+      ]
     },
     {
       "id": "vague-complaint",
       "prompt": "Your service is bad and something is wrong with my purchase.",
-      "expectedBehavior": "The workflow asks a clarifying question instead of assuming a specific order, logistics, or refund intent."
+      "expectedBehavior": "The workflow asks a clarifying question instead of assuming a specific order, logistics, or refund intent.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Your service is bad and something is wrong with my purchase."
+      },
+      "assertions": [
+        {
+          "id": "no-premature-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "clarifying-question",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["?", "please clarify", "could you tell", "请问", "请说明"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        }
+      ]
     },
     {
       "id": "greeting-only",
       "prompt": "Hi there",
-      "expectedBehavior": "The workflow responds politely without forcing unnecessary tool usage or order lookup."
+      "expectedBehavior": "The workflow responds politely without forcing unnecessary tool usage or order lookup.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Hi there"
+      },
+      "assertions": [
+        {
+          "id": "no-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-business-claim",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund succeeded", "shipment confirmed", "已退款", "已发货"]
+        }
+      ]
     },
     {
       "id": "missing-order-result-tool-failure",
-      "prompt": "I gave you order 827361 but the order lookup cannot find anything. What now?",
-      "expectedBehavior": "The workflow explains the missing-result or tool-failure path and requests the next best customer detail."
+      "prompt": "Please check order 99999999999. If the lookup cannot find it, what should I do next?",
+      "expectedBehavior": "The workflow explains the missing-result path and requests the next best customer detail.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Please check order 99999999999. If the lookup cannot find it, what should I do next?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-completed",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "missing-result-evidence",
+          "type": "TOOL_OUTPUT_FIELD_EQUALS",
+          "values": ["queryOrderAPI"],
+          "field": "found",
+          "expectedValue": false
+        },
+        {
+          "id": "requests-checkable-detail",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["verify", "check", "order ID", "order number", "核对", "订单号"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-false-success",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["order found", "lookup succeeded", "查询成功", "已找到订单"]
+        }
+      ]
     }
   ]
 }

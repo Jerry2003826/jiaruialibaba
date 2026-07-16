@@ -1,12 +1,14 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.common.BusinessException;
+import com.example.agentdemo.common.SecretRedactor;
 import com.example.agentdemo.config.WorkflowRuntimeProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,15 +18,29 @@ import java.util.Map;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
 public class WorkflowCompiler {
 
-    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "llm", "tool", "condition",
-            "parallel", "join", "end", "loop", "loop_back", "subgraph", "dynamic");
+    private static final Set<String> SUPPORTED_TYPES = Set.of("start", "retriever", "tavily_search", "llm", "tool",
+            "http_request", "report_export", "custom", "condition", "parallel", "join", "variable_aggregator",
+            "end", "loop", "loop_back", "subgraph", "dynamic");
+    private static final Set<String> REPORT_FORMATS = Set.of("pdf", "docx", "html", "markdown", "txt");
     private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of("true", "false", "body", "exit");
+    private static final Pattern NODE_VARIABLE_REFERENCE = Pattern.compile(
+            "^\\s*\\{\\{\\s*nodes\\.([a-zA-Z0-9_-]+)(?:\\.[a-zA-Z0-9_.-]+)?\\s*}}\\s*$");
+    private static final Pattern REPORT_CONTENT_REFERENCE = Pattern.compile(
+            "^\\s*\\{\\{\\s*nodes\\.([a-zA-Z0-9_-]+)\\.([a-zA-Z0-9_.-]+)\\s*}}\\s*$");
+    private static final Pattern AGGREGATION_GROUP_KEY = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
+    private static final Pattern CUSTOM_INPUT_KEY = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
+    private static final Pattern EMBEDDED_NODE_VARIABLE_REFERENCE = Pattern.compile(
+            "\\{\\{\\s*nodes\\.([a-zA-Z0-9_-]+)(?:\\.[a-zA-Z0-9_.-]+)?\\s*}}");
+    private static final Set<String> AGGREGATION_OUTPUT_TYPES = Set.of(
+            "string", "number", "boolean", "object", "array");
 
     private final WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry;
     private final WorkflowRuntimeProperties workflowRuntimeProperties;
@@ -46,6 +62,9 @@ public class WorkflowCompiler {
         WorkflowNode start = singleNodeByType(nodesById, "start");
         WorkflowNode end = singleNodeByType(nodesById, "end");
         EdgeIndex edgeIndex = indexEdges(definition.edges(), nodesById);
+        validateCustomNodes(nodesById, edgeIndex);
+        validateReportExports(nodesById, edgeIndex);
+        validateVariableAggregators(nodesById, edgeIndex);
         List<WorkflowParallelBlock> parallelBlocks = validateSupportedTopology(start, end, nodesById, edgeIndex);
         List<WorkflowLoopBlock> loopBlocks = validateLoopBlocks(nodesById, edgeIndex);
         Set<String> compositeScopedNodeIds = compositeScopedNodeIds(loopBlocks, nodesById);
@@ -103,6 +122,286 @@ public class WorkflowCompiler {
             }
             validateConfigField(node, field, configEntry.getValue());
         }
+        if ("http_request".equals(normalizedType)) {
+            validateHttpRequestConfig(node);
+        }
+        if ("report_export".equals(normalizedType)) {
+            validateReportExportConfig(node);
+        }
+        if ("custom".equals(normalizedType)) {
+            validateCustomConfig(node);
+        }
+    }
+
+    private void validateCustomConfig(WorkflowNode node) {
+        String mode = String.valueOf(node.config().getOrDefault("mode", "ai")).toLowerCase(Locale.ROOT);
+        if (!(node.config().getOrDefault("inputs", Map.of()) instanceof Map<?, ?> inputs)) {
+            throw validation(node, "inputs must be object");
+        }
+        for (Object configuredKey : inputs.keySet()) {
+            String key = String.valueOf(configuredKey);
+            if (!CUSTOM_INPUT_KEY.matcher(key).matches()) {
+                throw validation(node,
+                        "input names must start with a letter and contain only letters, digits, _ or -: " + key);
+            }
+        }
+        if ("ai".equals(mode)) {
+            if (!StringUtils.hasText(String.valueOf(node.config().getOrDefault("instruction", "")))) {
+                throw validation(node, "instruction is required in ai mode");
+            }
+            return;
+        }
+        if ("template".equals(mode)) {
+            if (!node.config().containsKey("template") || node.config().get("template") == null) {
+                throw validation(node, "template is required in template mode");
+            }
+            return;
+        }
+        throw validation(node, "mode must be ai or template");
+    }
+
+    private void validateCustomNodes(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        nodesById.values().stream()
+                .filter(node -> "custom".equals(normalizeType(node)))
+                .forEach(node -> {
+                    Set<String> ancestors = collectAncestors(node.id(), edgeIndex.incoming());
+                    validateCustomReferences(node, node.config().getOrDefault("inputs", Map.of()), ancestors);
+                    if ("template".equalsIgnoreCase(String.valueOf(node.config().getOrDefault("mode", "ai")))) {
+                        validateCustomReferences(node, node.config().get("template"), ancestors);
+                    }
+                });
+    }
+
+    private void validateCustomReferences(WorkflowNode node, Object configured, Set<String> ancestors) {
+        if (configured instanceof Map<?, ?> map) {
+            map.values().forEach(value -> validateCustomReferences(node, value, ancestors));
+            return;
+        }
+        if (configured instanceof Iterable<?> iterable) {
+            iterable.forEach(value -> validateCustomReferences(node, value, ancestors));
+            return;
+        }
+        if (!(configured instanceof String text)) {
+            return;
+        }
+        Matcher matcher = EMBEDDED_NODE_VARIABLE_REFERENCE.matcher(text);
+        while (matcher.find()) {
+            if (!ancestors.contains(matcher.group(1))) {
+                throw validation(node, "must reference an upstream node: " + matcher.group(1));
+            }
+        }
+    }
+
+    private void validateReportExportConfig(WorkflowNode node) {
+        Object configured = node.config().getOrDefault("formats", List.of("pdf"));
+        if (!(configured instanceof Iterable<?> values)) {
+            throw validation(node, "formats must be array");
+        }
+        Set<String> formats = new HashSet<>();
+        for (Object value : values) {
+            String format = String.valueOf(value).toLowerCase(Locale.ROOT);
+            if (!REPORT_FORMATS.contains(format)) {
+                throw validation(node, "formats contains unsupported format: " + value);
+            }
+            if (!formats.add(format)) {
+                throw validation(node, "formats contains duplicate format: " + format);
+            }
+        }
+        if (formats.isEmpty()) {
+            throw validation(node, "formats must contain at least one format");
+        }
+    }
+
+    private void validateReportExports(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        nodesById.values().stream()
+                .filter(node -> "report_export".equals(normalizeType(node)))
+                .forEach(node -> validateReportContent(node, nodesById, edgeIndex));
+    }
+
+    private void validateReportContent(WorkflowNode node, Map<String, WorkflowNode> nodesById,
+            EdgeIndex edgeIndex) {
+        String content = String.valueOf(node.config().getOrDefault("content", ""));
+        Matcher matcher = REPORT_CONTENT_REFERENCE.matcher(content);
+        if (!matcher.matches()) {
+            throw validation(node, "content must be an exact reachable upstream string variable");
+        }
+        String sourceId = matcher.group(1);
+        String path = matcher.group(2);
+        Set<String> ancestors = collectAncestors(node.id(), edgeIndex.incoming());
+        WorkflowNode source = nodesById.get(sourceId);
+        if (!ancestors.contains(sourceId) || source == null || !isStringOutput(source, path)) {
+            throw validation(node, "content must be an exact reachable upstream string variable");
+        }
+    }
+
+    private boolean isStringOutput(WorkflowNode node, String path) {
+        return switch (normalizeType(node)) {
+            case "start" -> "message".equals(path);
+            case "retriever" -> Set.of("query", "retrievedContext").contains(path);
+            case "tavily_search" -> Set.of("query", "answer").contains(path);
+            case "llm" -> "answer".equals(path) || declaredStructuredString(node, path);
+            case "custom" -> customStringOutput(node, path);
+            case "http_request" -> "body".equals(path);
+            case "variable_aggregator" -> aggregatorStringOutput(node, path);
+            default -> false;
+        };
+    }
+
+    private boolean customStringOutput(WorkflowNode node, String path) {
+        String mode = String.valueOf(node.config().getOrDefault("mode", "ai")).toLowerCase(Locale.ROOT);
+        if ("ai".equals(mode)) {
+            return "answer".equals(path)
+                    || ("output".equals(path)
+                            && "text".equalsIgnoreCase(String.valueOf(
+                                    node.config().getOrDefault("outputMode", "text"))))
+                    || declaredStructuredString(node, path);
+        }
+        return "output".equals(path) && node.config().get("template") instanceof String;
+    }
+
+    private boolean declaredStructuredString(WorkflowNode node, String path) {
+        if (!path.startsWith("parsed.")) {
+            return false;
+        }
+        Object current = node.config().get("outputSchema");
+        for (String segment : path.substring("parsed.".length()).split("\\.")) {
+            if (!(current instanceof Map<?, ?> schema)
+                    || !(schema.get("properties") instanceof Map<?, ?> properties)) {
+                return false;
+            }
+            current = properties.get(segment);
+        }
+        return current instanceof Map<?, ?> field && "string".equalsIgnoreCase(String.valueOf(field.get("type")));
+    }
+
+    private boolean aggregatorStringOutput(WorkflowNode node, String path) {
+        String mode = String.valueOf(node.config().getOrDefault("mode", "single"));
+        if (!"groups".equalsIgnoreCase(mode)) {
+            return "output".equals(path)
+                    && "string".equalsIgnoreCase(String.valueOf(node.config().getOrDefault("outputType", "string")));
+        }
+        if (!path.endsWith(".output") || !(node.config().get("groups") instanceof Iterable<?> groups)) {
+            return false;
+        }
+        String key = path.substring(0, path.length() - ".output".length());
+        for (Object candidate : groups) {
+            if (candidate instanceof Map<?, ?> group
+                    && key.equals(String.valueOf(group.get("key")))
+                    && "string".equalsIgnoreCase(String.valueOf(
+                            group.containsKey("outputType") ? group.get("outputType") : "string"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void validateHttpRequestConfig(WorkflowNode node) {
+        String method = String.valueOf(node.config().getOrDefault("method", "GET")).toUpperCase(Locale.ROOT);
+        Map<?, ?> authorization = node.config().get("authorization") instanceof Map<?, ?> map
+                ? map : Map.of("type", "none");
+        String authorizationType = String.valueOf(authorization.containsKey("type") ? authorization.get("type") : "none")
+                .toLowerCase(Locale.ROOT);
+        if (!Set.of("none", "credential").contains(authorizationType)) {
+            throw validation(node, "authorization.type must be none or credential");
+        }
+        if ("credential".equals(authorizationType)
+                && !StringUtils.hasText(String.valueOf(authorization.get("credentialId")))) {
+            throw validation(node, "authorization.credentialId is required");
+        }
+        if (authorization.keySet().stream().map(String::valueOf)
+                .anyMatch(key -> !Set.of("type", "credentialId").contains(key))) {
+            throw validation(node, "authorization may only reference credentialId; inline secrets are forbidden");
+        }
+
+        validateHttpRows(node, "headers", node.config().get("headers"), true);
+        validateHttpRows(node, "params", node.config().get("params"), false);
+
+        Map<?, ?> body = node.config().get("body") instanceof Map<?, ?> map
+                ? map : Map.of("type", "none");
+        String bodyType = String.valueOf(body.containsKey("type") ? body.get("type") : "none")
+                .toLowerCase(Locale.ROOT);
+        if (!Set.of("none", "json", "raw", "x-www-form-urlencoded", "form-data").contains(bodyType)) {
+            throw validation(node, "body.type is unsupported");
+        }
+        if (("GET".equals(method) || "HEAD".equals(method)) && !"none".equals(bodyType)) {
+            throw validation(node, method + " requests cannot contain a body");
+        }
+        if (("x-www-form-urlencoded".equals(bodyType) || "form-data".equals(bodyType))) {
+            validateHttpRows(node, "body.value", body.get("value"), false);
+        }
+        if ("json".equals(bodyType) && containsSensitiveHttpBodyField(body.get("value"))) {
+            throw new BusinessException("WORKFLOW_HTTP_INLINE_SECRET_BLOCKED",
+                    "HTTP body contains a sensitive field; use a managed credential");
+        }
+
+        int retryCount = configInteger(node.config().get("retryCount"), 0);
+        if (retryCount > 0 && !Set.of("GET", "HEAD").contains(method)
+                && !Boolean.TRUE.equals(node.config().get("idempotent"))) {
+            throw new BusinessException("WORKFLOW_RETRY_NOT_ALLOWED",
+                    "HTTP request retry requires config.idempotent=true for method " + method + ": " + node.id());
+        }
+    }
+
+    private void validateHttpRows(WorkflowNode node, String field, Object configured, boolean headers) {
+        if (configured == null) {
+            return;
+        }
+        if (!(configured instanceof Iterable<?> rows)) {
+            throw validation(node, field + " must be array");
+        }
+        for (Object rawRow : rows) {
+            if (!(rawRow instanceof Map<?, ?> row)) {
+                throw validation(node, field + " items must be object");
+            }
+            Object keyValue = row.get("key");
+            if (keyValue == null || !StringUtils.hasText(String.valueOf(keyValue))) {
+                continue;
+            }
+            String key = String.valueOf(keyValue);
+            if (SecretRedactor.isSensitiveKey(key)) {
+                throw new BusinessException("WORKFLOW_HTTP_INLINE_SECRET_BLOCKED",
+                        "HTTP " + field + " contains sensitive key " + key + "; use a managed credential");
+            }
+            if (headers && Set.of("host", "content-length", "connection", "transfer-encoding",
+                    "proxy-authorization").contains(key.toLowerCase(Locale.ROOT))) {
+                throw validation(node, "restricted HTTP header: " + key);
+            }
+        }
+    }
+
+    private boolean containsSensitiveHttpBodyField(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (SecretRedactor.isSensitiveKey(String.valueOf(entry.getKey()))
+                        || containsSensitiveHttpBodyField(entry.getValue())) {
+                    return true;
+                }
+            }
+        }
+        else if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (containsSensitiveHttpBodyField(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private int configInteger(Object value, int defaultValue) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? defaultValue : Integer.parseInt(String.valueOf(value));
+        }
+        catch (NumberFormatException ex) {
+            return defaultValue;
+        }
+    }
+
+    private BusinessException validation(WorkflowNode node, String detail) {
+        return new BusinessException("WORKFLOW_VALIDATION_FAILED", "Config " + node.id() + " " + detail);
     }
 
     private void validateConfigField(WorkflowNode node, WorkflowNodeConfigField field, Object value) {
@@ -321,6 +620,103 @@ public class WorkflowCompiler {
             throw new BusinessException("WORKFLOW_UNSUPPORTED", "Workflow nodes must eventually reach end");
         }
         detectCycles(start.id(), edgeIndex.outgoing(), new HashSet<>(), new HashSet<>(), allowedLoopBackEdges(nodesById));
+    }
+
+    private void validateVariableAggregators(Map<String, WorkflowNode> nodesById, EdgeIndex edgeIndex) {
+        nodesById.values().stream()
+                .filter(node -> "variable_aggregator".equals(normalizeType(node)))
+                .forEach(node -> validateVariableAggregator(node, edgeIndex));
+    }
+
+    private void validateVariableAggregator(WorkflowNode node, EdgeIndex edgeIndex) {
+        String mode = String.valueOf(node.config().getOrDefault("mode", "single")).toLowerCase(Locale.ROOT);
+        Set<String> ancestors = collectAncestors(node.id(), edgeIndex.incoming());
+        if ("single".equals(mode)) {
+            validateAggregationOutputType(node.id(), "output",
+                    String.valueOf(node.config().getOrDefault("outputType", "string")));
+            validateAggregationVariables(node.id(), "output", node.config().get("variables"), ancestors);
+            return;
+        }
+        if (!"groups".equals(mode)) {
+            return;
+        }
+        Object configuredGroups = node.config().get("groups");
+        if (!(configuredGroups instanceof Iterable<?> groups)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Config " + node.id() + ".groups must be array");
+        }
+        Set<String> keys = new HashSet<>();
+        int count = 0;
+        for (Object configuredGroup : groups) {
+            count++;
+            if (!(configuredGroup instanceof Map<?, ?> group)) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Config " + node.id() + ".groups items must be object");
+            }
+            String key = group.get("key") == null ? "" : String.valueOf(group.get("key")).trim();
+            if (!AGGREGATION_GROUP_KEY.matcher(key).matches()) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Variable aggregator " + node.id() + " group key must start with a letter and contain only letters, digits, _ or -");
+            }
+            if (!keys.add(key)) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Variable aggregator " + node.id() + " has duplicate group key: " + key);
+            }
+            String outputType = group.get("outputType") == null ? "string" : String.valueOf(group.get("outputType"));
+            validateAggregationOutputType(node.id(), key, outputType);
+            validateAggregationVariables(node.id(), key, group.get("variables"), ancestors);
+        }
+        if (count == 0) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Variable aggregator " + node.id() + " groups must not be empty");
+        }
+    }
+
+    private void validateAggregationOutputType(String nodeId, String groupKey, String outputType) {
+        if (!AGGREGATION_OUTPUT_TYPES.contains(outputType.toLowerCase(Locale.ROOT))) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Variable aggregator " + nodeId + " group " + groupKey + " has unsupported outputType: " + outputType);
+        }
+    }
+
+    private void validateAggregationVariables(String nodeId, String groupKey, Object configuredVariables,
+            Set<String> ancestors) {
+        if (!(configuredVariables instanceof Iterable<?> variables)) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Variable aggregator " + nodeId + " group " + groupKey + " variables must be array");
+        }
+        int count = 0;
+        for (Object configuredVariable : variables) {
+            count++;
+            Matcher matcher = NODE_VARIABLE_REFERENCE.matcher(String.valueOf(configuredVariable));
+            if (!matcher.matches()) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Variable aggregator " + nodeId + " group " + groupKey
+                                + " variables must be exact {{nodes.<nodeId>.<field>}} references");
+            }
+            if (!ancestors.contains(matcher.group(1))) {
+                throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                        "Variable aggregator " + nodeId + " group " + groupKey
+                                + " must reference an upstream node: " + matcher.group(1));
+            }
+        }
+        if (count == 0) {
+            throw new BusinessException("WORKFLOW_VALIDATION_FAILED",
+                    "Variable aggregator " + nodeId + " group " + groupKey + " variables must not be empty");
+        }
+    }
+
+    private Set<String> collectAncestors(String nodeId, Map<String, List<String>> incoming) {
+        Set<String> ancestors = new HashSet<>();
+        ArrayDeque<String> pending = new ArrayDeque<>(incoming.getOrDefault(nodeId, List.of()));
+        while (!pending.isEmpty()) {
+            String current = pending.removeFirst();
+            if (!ancestors.add(current)) {
+                continue;
+            }
+            pending.addAll(incoming.getOrDefault(current, List.of()));
+        }
+        return ancestors;
     }
 
     private Set<String> allowedLoopBackEdges(Map<String, WorkflowNode> nodesById) {

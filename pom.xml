@@ -18,13 +18,18 @@
     <description>Minimal Spring AI Alibaba agent backend demo</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
         <spring-ai.version>1.1.2</spring-ai.version>
         <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
         <spring-ai-alibaba-extensions.version>1.1.2.2</spring-ai-alibaba-extensions.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <tika.version>3.3.1</tika.version>
         <json-schema-validator.version>1.5.9</json-schema-validator.version>
+        <commonmark.version>0.24.0</commonmark.version>
+        <openhtmltopdf.version>1.1.40</openhtmltopdf.version>
+        <pdfbox.version>3.0.7</pdfbox.version>
+        <poi.version>5.4.1</poi.version>
+        <jsoup.version>1.18.3</jsoup.version>
     </properties>
 
     <dependencyManagement>
@@ -59,6 +64,10 @@
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.aliyun</groupId>
             <artifactId>dashvector-java-sdk</artifactId>
             <version>1.0.18</version>
@@ -77,6 +86,41 @@
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
             <version>${json-schema-validator.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>${commonmark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>${commonmark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>${openhtmltopdf.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>xmpbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
         </dependency>
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>

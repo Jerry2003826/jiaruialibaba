@@ -19,6 +19,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -72,6 +74,7 @@ public class WorkflowBuilderKnowledgeService {
         this.publicIdGenerator = publicIdGenerator;
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<Citation> retrieve(String domain, String query, int topK) {
         String ownerId = SecurityIdentity.currentOwnerId();
         OwnerSynchronizationLock ownerLock = null;
@@ -181,8 +184,7 @@ public class WorkflowBuilderKnowledgeService {
                 continue;
             }
 
-            deleteDocument(primary);
-            ingestManagedDocument(ownerId, kbId, desired);
+            updateManagedDocument(primary, kbId, desired);
         }
 
         for (ManagedGuidanceDocument desired : desiredDocuments.values()) {
@@ -214,6 +216,20 @@ public class WorkflowBuilderKnowledgeService {
                 throw exception;
             }
         }
+    }
+
+    private void updateManagedDocument(DocumentEntity document, String kbId, ManagedGuidanceDocument desired) {
+        byte[] contentBytes = desired.content().getBytes(StandardCharsets.UTF_8);
+        document.update(desired.title(), desired.content());
+        document.assignKnowledge(
+                kbId,
+                DocumentEntity.WORKFLOW_BUILDER_SOURCE_TYPE,
+                null,
+                "text/plain",
+                (long) contentBytes.length,
+                desired.contentHash());
+        document.markReady();
+        documentRepository.saveAndFlush(document);
     }
 
     private void deleteDocument(DocumentEntity document) {

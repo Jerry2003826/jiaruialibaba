@@ -27,10 +27,16 @@ public class WorkflowRuleCatalog {
     private static final Set<String> ALLOWED_SEVERITIES = Set.of("info", "warning", "error");
     private static final String CORE_PACK_ID = "core";
     private static final String CUSTOMER_SERVICE_DOMAIN = "customer-service-ecommerce";
-    private static final Set<String> CUSTOMER_SERVICE_SIGNALS = Set.of(
-            "客服", "售后", "投诉", "客户", "crm", "vip", "工单", "客诉");
-    private static final Set<String> ECOMMERCE_SIGNALS = Set.of(
-            "订单", "订单号", "物流", "发货", "催发货", "退款", "退货", "换货", "补发");
+    private static final Set<String> CUSTOMER_SERVICE_ECOMMERCE_EXCLUSIONS = Set.of(
+            "不是电商客服", "非电商客服", "不是电商", "非电商场景", "不属于电商",
+            "not an e-commerce", "not an ecommerce", "not e-commerce", "not ecommerce");
+    private static final Set<String> CUSTOMER_SERVICE_ECOMMERCE_SIGNALS = Set.of(
+            "客服", "售后", "投诉", "工单",
+            "订单", "订单号", "物流", "发货", "催发货", "退款", "退货", "换货", "补发", "配送",
+            "商品", "破损", "会员",
+            "crm", "vip", "order", "logistics", "delivery", "shipping", "shipment", "tracking", "refund",
+            "return", "exchange", "damaged product", "membership", "customer service", "support ticket",
+            "customer-service-ecommerce");
 
     private final List<WorkflowRulePack> packs;
 
@@ -58,13 +64,18 @@ public class WorkflowRuleCatalog {
         if (definition == null) {
             return null;
         }
-        String haystack = flattenDefinition(definition).toLowerCase(Locale.ROOT);
-        if (haystack.contains("queryorderapi")) {
-            return CUSTOMER_SERVICE_DOMAIN;
+        return detectDomainText(flattenDefinition(definition));
+    }
+
+    String detectDomainText(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
         }
-        boolean hasCustomerServiceSignal = containsAny(haystack, CUSTOMER_SERVICE_SIGNALS);
-        boolean hasEcommerceSignal = containsAny(haystack, ECOMMERCE_SIGNALS);
-        if (hasCustomerServiceSignal && hasEcommerceSignal) {
+        String haystack = text.toLowerCase(Locale.ROOT);
+        if (containsAny(haystack, CUSTOMER_SERVICE_ECOMMERCE_EXCLUSIONS)) {
+            return null;
+        }
+        if (containsAny(haystack, CUSTOMER_SERVICE_ECOMMERCE_SIGNALS)) {
             return CUSTOMER_SERVICE_DOMAIN;
         }
         return null;
@@ -224,11 +235,58 @@ public class WorkflowRuleCatalog {
     }
 
     private WorkflowEvaluationCase validateCase(WorkflowEvaluationCase workflowCase) {
+        String caseId = requireNonBlank(workflowCase.id(), "Workflow evaluation case id must not be blank");
+        WorkflowEvaluationCaseKind kind = Objects.requireNonNull(workflowCase.kind(),
+                "Workflow evaluation case kind must not be null");
+        Map<String, Object> runtimeInput = workflowCase.runtimeInput();
+        List<WorkflowEvaluationAssertion> assertions = workflowCase.assertions().stream()
+                .map(assertion -> validateAssertion(caseId, assertion))
+                .toList();
+        if (kind == WorkflowEvaluationCaseKind.RUNTIME) {
+            if (runtimeInput.isEmpty()) {
+                throw new IllegalStateException("Runtime workflow evaluation case input must not be empty: " + caseId);
+            }
+            if (assertions.isEmpty()) {
+                throw new IllegalStateException("Runtime workflow evaluation case assertions must not be empty: " + caseId);
+            }
+        }
+        WorkflowEvaluationFixture fixture = workflowCase.fixture();
+        if (fixture != null) {
+            fixture = new WorkflowEvaluationFixture(requireNonBlank(
+                    fixture.failTool(), "Workflow evaluation fixture failTool must not be blank: " + caseId));
+        }
         return new WorkflowEvaluationCase(
-                requireNonBlank(workflowCase.id(), "Workflow evaluation case id must not be blank"),
+                caseId,
                 requireNonBlank(workflowCase.prompt(), "Workflow evaluation case prompt must not be blank"),
                 requireNonBlank(workflowCase.expectedBehavior(),
-                        "Workflow evaluation case expected behavior must not be blank"));
+                        "Workflow evaluation case expected behavior must not be blank"),
+                kind,
+                runtimeInput,
+                assertions,
+                fixture);
+    }
+
+    private WorkflowEvaluationAssertion validateAssertion(String caseId, WorkflowEvaluationAssertion assertion) {
+        if (assertion == null) {
+            throw new IllegalStateException("Workflow evaluation assertion must not be null: " + caseId);
+        }
+        String assertionId = requireNonBlank(assertion.id(),
+                "Workflow evaluation assertion id must not be blank: " + caseId);
+        WorkflowEvaluationAssertionType type = Objects.requireNonNull(assertion.type(),
+                "Workflow evaluation assertion type must not be null: " + caseId + "/" + assertionId);
+        List<String> values = assertion.values().stream()
+                .map(value -> requireNonBlank(value,
+                        "Workflow evaluation assertion value must not be blank: " + caseId + "/" + assertionId))
+                .toList();
+        String field = normalize(assertion.field());
+        if (type == WorkflowEvaluationAssertionType.TOOL_OUTPUT_FIELD_EQUALS) {
+            if (values.size() != 1 || field == null || assertion.expectedValue() == null) {
+                throw new IllegalStateException(
+                        "Tool output assertion requires one tool name, field, and expected value: "
+                                + caseId + "/" + assertionId);
+            }
+        }
+        return new WorkflowEvaluationAssertion(assertionId, type, values, field, assertion.expectedValue());
     }
 
     private void ensureUniqueIds(List<String> ids, String type) {

@@ -50,6 +50,10 @@ public class WorkflowDefinitionEntity {
     @Column(name = "variables_json", length = Integer.MAX_VALUE)
     private String variablesJson;
 
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "locked_spec_json", length = Integer.MAX_VALUE)
+    private String lockedSpecJson;
+
     @Column(nullable = false)
     private Integer version;
 
@@ -71,11 +75,17 @@ public class WorkflowDefinitionEntity {
     }
 
     public WorkflowDefinitionEntity(String definitionId, String name, String description, String definitionJson) {
+        this(definitionId, name, description, definitionJson, null);
+    }
+
+    public WorkflowDefinitionEntity(String definitionId, String name, String description, String definitionJson,
+            String lockedSpecJson) {
         this.definitionId = definitionId;
         this.ownerId = SecurityIdentity.currentOwnerId();
         this.name = name;
         this.description = description;
         this.definitionJson = definitionJson;
+        this.lockedSpecJson = lockedSpecJson;
         this.version = 1;
         this.status = WorkflowDefinitionStatus.DRAFT;
     }
@@ -106,9 +116,14 @@ public class WorkflowDefinitionEntity {
     }
 
     void updateDraft(String name, String description, String definitionJson) {
+        updateDraft(name, description, definitionJson, lockedSpecJson);
+    }
+
+    void updateDraft(String name, String description, String definitionJson, String lockedSpecJson) {
         this.name = name;
         this.description = description;
         this.definitionJson = definitionJson;
+        this.lockedSpecJson = lockedSpecJson;
         this.version = currentVersion() + 1;
         this.status = WorkflowDefinitionStatus.DRAFT;
     }
@@ -159,6 +174,14 @@ public class WorkflowDefinitionEntity {
 
     public void setVariablesJson(String variablesJson) {
         this.variablesJson = variablesJson;
+    }
+
+    public String getLockedSpecJson() {
+        return lockedSpecJson;
+    }
+
+    public void setLockedSpecJson(String lockedSpecJson) {
+        this.lockedSpecJson = lockedSpecJson;
     }
 
     public Integer getVersion() {

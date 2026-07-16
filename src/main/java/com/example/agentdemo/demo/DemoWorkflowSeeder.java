@@ -1,5 +1,6 @@
 package com.example.agentdemo.demo;
 
+import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.workflow.WorkflowDefinition;
 import com.example.agentdemo.workflow.WorkflowDefinitionResponse;
 import com.example.agentdemo.workflow.WorkflowDefinitionSaveRequest;
@@ -9,8 +10,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.function.Predicate;
 
@@ -22,9 +27,22 @@ public class DemoWorkflowSeeder implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DemoWorkflowSeeder.class);
 
     private final WorkflowDefinitionService workflowDefinitionService;
+    private final TransactionOperations transactionOperations;
 
-    public DemoWorkflowSeeder(WorkflowDefinitionService workflowDefinitionService) {
+    @Autowired
+    public DemoWorkflowSeeder(WorkflowDefinitionService workflowDefinitionService,
+            PlatformTransactionManager transactionManager) {
+        this(workflowDefinitionService, new TransactionTemplate(transactionManager));
+    }
+
+    DemoWorkflowSeeder(WorkflowDefinitionService workflowDefinitionService) {
+        this(workflowDefinitionService, (TransactionOperations) null);
+    }
+
+    private DemoWorkflowSeeder(WorkflowDefinitionService workflowDefinitionService,
+            TransactionOperations transactionOperations) {
         this.workflowDefinitionService = workflowDefinitionService;
+        this.transactionOperations = transactionOperations;
     }
 
     @Override
@@ -50,6 +68,24 @@ public class DemoWorkflowSeeder implements ApplicationRunner {
     }
 
     private void syncDemoWorkflow(WorkflowDefinitionSaveRequest template,
+            Predicate<WorkflowDefinition> needsSync,
+            String logName) {
+        try {
+            if (transactionOperations == null) {
+                syncDemoWorkflowInTransaction(template, needsSync, logName);
+            }
+            else {
+                transactionOperations.executeWithoutResult(status ->
+                        syncDemoWorkflowInTransaction(template, needsSync, logName));
+            }
+        }
+        catch (BusinessException exception) {
+            log.warn("Skipped demo {} workflow sync because {}: {}",
+                    logName, exception.getCode(), exception.getMessage());
+        }
+    }
+
+    private void syncDemoWorkflowInTransaction(WorkflowDefinitionSaveRequest template,
             Predicate<WorkflowDefinition> needsSync,
             String logName) {
         workflowDefinitionService.list().stream()

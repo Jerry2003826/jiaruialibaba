@@ -39,6 +39,9 @@ import org.springframework.util.StringUtils;
 
 import java.util.Locale;
 
+import static org.springframework.security.authorization.AuthorizationManagers.allOf;
+import static org.springframework.security.authorization.AuthorityAuthorizationManager.hasAuthority;
+
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
@@ -134,11 +137,32 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/tools/*/test").hasAuthority("SCOPE_tool.execute")
                         .requestMatchers(HttpMethod.GET, "/api/tools", "/api/tools/**")
                         .hasAuthority("SCOPE_tool.read")
+                        .requestMatchers(HttpMethod.GET, "/api/settings/tavily")
+                        .hasAuthority("SCOPE_workflow.read")
+                        .requestMatchers(HttpMethod.PUT, "/api/settings/tavily")
+                        .hasAuthority("SCOPE_workflow.edit")
+                        .requestMatchers(HttpMethod.DELETE, "/api/settings/tavily")
+                        .hasAuthority("SCOPE_workflow.edit")
+                        .requestMatchers(HttpMethod.GET, "/api/settings/http-credentials")
+                        .hasAuthority("SCOPE_workflow.read")
+                        .requestMatchers(HttpMethod.POST, "/api/settings/http-credentials")
+                        .hasAuthority("SCOPE_workflow.edit")
+                        .requestMatchers(HttpMethod.PATCH, "/api/settings/http-credentials/**")
+                        .hasAuthority("SCOPE_workflow.edit")
+                        .requestMatchers(HttpMethod.DELETE, "/api/settings/http-credentials/**")
+                        .hasAuthority("SCOPE_workflow.edit")
+                        .requestMatchers(HttpMethod.GET, "/api/workflow-artifacts/*/content").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/workflows/runs/*/artifacts")
+                        .hasAuthority("SCOPE_workflow.read")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/run").hasAuthority("SCOPE_workflow.run")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/runs/*/cancel")
                         .hasAuthority("SCOPE_workflow.run")
+                        .requestMatchers(HttpMethod.POST, "/api/workflows/governance/evaluate")
+                        .hasAuthority("SCOPE_workflow.run")
                         .requestMatchers(HttpMethod.POST, "/api/workflows/definitions/*/publish")
-                        .hasAuthority("SCOPE_workflow.publish")
+                        .access(allOf(
+                                hasAuthority("SCOPE_workflow.publish"),
+                                hasAuthority("SCOPE_workflow.run")))
                         .requestMatchers(HttpMethod.GET, "/api/workflows/**").hasAuthority("SCOPE_workflow.read")
                         .requestMatchers("/api/workflows/**").hasAuthority("SCOPE_workflow.edit")
                         .requestMatchers("/api/agent/**").hasAuthority("SCOPE_agent.execute")

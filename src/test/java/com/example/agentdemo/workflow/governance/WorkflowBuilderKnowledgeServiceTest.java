@@ -195,6 +195,52 @@ class WorkflowBuilderKnowledgeServiceTest {
     }
 
     @Test
+    void retrieveUpdatesChangedRuleGuidanceInPlaceWithoutDeleteAndReinsert() {
+        WorkflowGovernanceRule previousRule = rule("core-unsupported-business-claims",
+                "Do not fabricate external capabilities.",
+                "Simulate search.",
+                "State the limitation.",
+                "Remove simulated capabilities.");
+        WorkflowGovernanceRule updatedRule = rule("core-unsupported-business-claims",
+                "Do not fabricate external capabilities.",
+                "Simulate search.",
+                "Use the Tavily search node.",
+                "Replace simulated search with tavily_search.");
+        WorkflowRulePack previousPack = pack("core", "2026.07.10",
+                List.of("Core guidance"), previousRule);
+        WorkflowRulePack updatedPack = pack("core", "2026.07.14",
+                List.of("Core guidance"), updatedRule);
+        KnowledgeBaseEntity managedKb = managedKb("kb-builder", "owner-a");
+        DocumentEntity existing = managedDocument("kb-builder",
+                "Workflow Builder Guidance: core/core-unsupported-business-claims",
+                "BUILDER",
+                service.contentHashForTest(service.guidanceContentForTest(previousPack, previousRule)));
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 31L);
+        when(workflowRuleCatalog.activePacks("core")).thenReturn(List.of(updatedPack));
+        when(workflowRuleCatalog.allPacks()).thenReturn(List.of(updatedPack));
+        when(knowledgeBaseRepository.findByOwnerIdAndPurposeAndSystemManagedTrue(
+                "owner-a", KnowledgeBasePurpose.WORKFLOW_BUILDER))
+                .thenReturn(Optional.of(managedKb));
+        when(documentRepository.findByOwnerIdAndKbIdAndSourceTypeAndIndexStatusNotIn(
+                eq("owner-a"), eq("kb-builder"), eq("BUILDER"), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(existing)));
+        when(documentRepository.saveAndFlush(existing)).thenReturn(existing);
+        when(knowledgeSearchService.searchManaged(eq("kb-builder"), eq("research"), eq(2), anySet()))
+                .thenReturn(new com.example.agentdemo.knowledge.dto.KnowledgeSearchResponse(
+                        "kb-builder", "research", List.of()));
+
+        runAs("owner-a", () -> service.retrieve("core", "research", 2));
+
+        verify(documentRepository).saveAndFlush(existing);
+        verify(documentManagementService, never()).deleteManagedDocument(any());
+        verify(knowledgeIngestionService, never()).addManagedTextDocument(any(), any(), any());
+        assertThat(existing.getContent()).contains("Use the Tavily search node.", "tavily_search");
+        assertThat(existing.getContentHash())
+                .isEqualTo(service.contentHashForTest(service.guidanceContentForTest(updatedPack, updatedRule)));
+        assertThat(existing.getIndexStatus()).isEqualTo(DocumentIndexStatus.READY);
+    }
+
+    @Test
     void retrievingOneDomainDoesNotDeleteGuidanceOwnedByAnotherDomain() {
         WorkflowGovernanceRule coreRule = rule("core-rule", "Core rationale", "Core anti-pattern",
                 "Core example", "Core repair");

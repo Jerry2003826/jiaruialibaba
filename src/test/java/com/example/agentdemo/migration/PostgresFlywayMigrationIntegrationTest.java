@@ -164,6 +164,17 @@ class PostgresFlywayMigrationIntegrationTest {
                 String.class);
         assertThat(systemManagedType).isEqualTo("boolean");
 
+        String definitionLockedSpecType = jdbcTemplate.queryForObject(
+                "select data_type from information_schema.columns "
+                        + "where table_name = 'workflow_definitions' and column_name = 'locked_spec_json'",
+                String.class);
+        String revisionLockedSpecType = jdbcTemplate.queryForObject(
+                "select data_type from information_schema.columns "
+                        + "where table_name = 'workflow_definition_revisions' and column_name = 'locked_spec_json'",
+                String.class);
+        assertThat(definitionLockedSpecType).isEqualTo("text");
+        assertThat(revisionLockedSpecType).isEqualTo("text");
+
         jdbcTemplate.update(
                 "insert into knowledge_bases (kb_id, owner_id, name, created_at, updated_at) values (?, ?, ?, now(), now())",
                 "kb-business-defaults", "owner-business", "Business KB");

@@ -80,6 +80,15 @@ class SseConfigTest {
         }
     }
 
+    @Test
+    void ssePropertiesDefaultWorkflowGenerationTimeoutExceedsEvaluationBudget() {
+        SseConfig.SseProperties properties = new SseConfig.SseProperties(120_000L, 0L);
+
+        assertThat(properties.timeoutMs()).isEqualTo(120_000L);
+        assertThat(properties.workflowGenerationTimeoutMs()).isEqualTo(960_000L);
+        assertThat(properties.workflowGenerationTimeoutMs()).isGreaterThan(900_000L);
+    }
+
     private ThreadPoolTaskExecutor singleThreadExecutor() {
         ThreadPoolTaskExecutor executor = new SseConfig().sseExecutor();
         executor.setCorePoolSize(1);

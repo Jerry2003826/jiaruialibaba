@@ -11,10 +11,16 @@ public record WorkflowDefinitionSaveRequest(
         @Size(max = 512) String description,
         @Valid @NotNull WorkflowDefinition workflowDefinition,
         JsonNode layout,
-        @Valid WorkflowVariableSchema variables) {
+        @Valid WorkflowVariableSchema variables,
+        JsonNode lockedSpec) {
+
+    public WorkflowDefinitionSaveRequest(String name, String description, WorkflowDefinition workflowDefinition,
+            JsonNode layout, WorkflowVariableSchema variables) {
+        this(name, description, workflowDefinition, layout, variables, null);
+    }
 
     /** Compatibility constructor for callers that do not supply layout/variables. */
     public WorkflowDefinitionSaveRequest(String name, String description, WorkflowDefinition workflowDefinition) {
-        this(name, description, workflowDefinition, null, null);
+        this(name, description, workflowDefinition, null, null, null);
     }
 }

@@ -50,6 +50,10 @@ public class WorkflowDefinitionRevisionEntity {
     @Column(nullable = false, length = Integer.MAX_VALUE)
     private String definitionJson;
 
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "locked_spec_json", length = Integer.MAX_VALUE)
+    private String lockedSpecJson;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -61,6 +65,11 @@ public class WorkflowDefinitionRevisionEntity {
 
     public WorkflowDefinitionRevisionEntity(String definitionId, Integer version, WorkflowDefinitionStatus status,
             String name, String description, String definitionJson) {
+        this(definitionId, version, status, name, description, definitionJson, null);
+    }
+
+    public WorkflowDefinitionRevisionEntity(String definitionId, Integer version, WorkflowDefinitionStatus status,
+            String name, String description, String definitionJson, String lockedSpecJson) {
         this.definitionId = definitionId;
         this.ownerId = SecurityIdentity.currentOwnerId();
         this.version = version;
@@ -68,6 +77,7 @@ public class WorkflowDefinitionRevisionEntity {
         this.name = name;
         this.description = description;
         this.definitionJson = definitionJson;
+        this.lockedSpecJson = lockedSpecJson;
     }
 
     @PrePersist
@@ -123,6 +133,10 @@ public class WorkflowDefinitionRevisionEntity {
 
     public String getDefinitionJson() {
         return definitionJson;
+    }
+
+    public String getLockedSpecJson() {
+        return lockedSpecJson;
     }
 
     public Instant getCreatedAt() {

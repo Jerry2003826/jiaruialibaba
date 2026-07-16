@@ -30,6 +30,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void ordinaryBusinessExceptionStillReturnsNullData() {
+        ResponseEntity<ApiResponse<Void>> response = handler.handleBusinessException(
+                new BusinessException("ORDINARY_POLICY_ERROR", "ordinary"));
+
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().data()).isNull();
+    }
+
+    @Test
     void illegalArgumentResponseDoesNotExposeRawExceptionMessage() {
         ResponseEntity<ApiResponse<Void>> response = handler.handleIllegalArgumentException(
                 new IllegalArgumentException("secret backend path /tmp/private-token"));

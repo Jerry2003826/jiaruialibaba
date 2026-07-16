@@ -27,7 +27,7 @@
 
 ## 技术栈
 
-- Java 21
+- Java 25
 - Maven
 - Spring Boot 3.5.7
 - Spring AI 1.1.2
@@ -808,6 +808,8 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `retriever`: 复用 `RagService.retrieve`，底层 retriever 由 `DEMO_RAG_RETRIEVER` 和 DashVector 配置决定，`config.topK` 默认 `3`，最大 `20`。
 - `llm`: 复用 `AiModelService` 调用 DashScope/Qwen；无 `AI_DASHSCOPE_API_KEY` 时返回 LLM 配置错误，不生成本地假回答。支持 workflow 变量。
 - `tool`: 复用 `ToolGatewayService`，当前本地支持 `getCurrentTime` 和 `calculate`；开启 MCP 后可调用远程 MCP tool 名称。
+- `http_request`: 调用外部 HTTP(S) API，支持托管凭据、SSRF 拦截、超时/重试与结构化响应。
+- `report_export`: 将可达上游字符串输出渲染为 PDF、DOCX、HTML、Markdown 和 TXT，并生成受控 HTML 打印预览。`content` 必须为精确的 `{{nodes.<upstreamId>.<stringField>}}` 引用。
 - `condition`: 计算一个布尔条件，并从 `condition=true` 或 `condition=false` 的 outgoing edge 中选择下一节点。支持 `equals`、`notEquals`、`contains`、`notContains`、`startsWith`、`endsWith`、`exists`、`notExists`、`greaterThan`、`lessThan`。
 - `parallel`: 受限并行分支入口，至少两条普通 outgoing edge，每条分支会并发执行。
 - `join`: `parallel` 分支合流节点，输出 `branchOutputs`，key 为分支起始节点 id。
@@ -816,6 +818,8 @@ curl http://localhost:8080/api/runs/{runId}/steps
 - `subgraph`: 按 `definitionId`（+ 可选 `version`）加载已保存 workflow 并在**父 runId** 下 inline 运行；嵌套节点 trace 使用 `{subgraphNodeId}::{nestedNodeId}` 命名空间，便于 run graph 与 `listSteps` 归类。
 - `dynamic`: 按 `itemsFrom` 模板解析列表，顺序执行 `action=tool`（demo 范围）。
 - `end`: 输出最终 workflow 结果。
+
+`report_export` 固定输出 `exportId`、`artifacts`、`primary`、`printPreview` 和 `expiresAt`。JWT 用户可通过 `GET /api/workflows/runs/{runId}/artifacts` 恢复历史运行的下载/打印入口，文件内容通过 `GET /api/workflow-artifacts/{artifactId}/content` 读取。默认保留 30 天，节点可配置 1–365 天。
 
 所有节点都支持通用执行控制字段：
 

@@ -14,6 +14,33 @@ public class LocalToolProvider implements ToolProvider {
     private static final String GET_CURRENT_TIME = "getCurrentTime";
     private static final String CALCULATE = "calculate";
     private static final String QUERY_ORDER_API = "queryOrderAPI";
+    private static final String GET_CURRENT_TIME_SCHEMA = """
+            {"type":"object","properties":{},"additionalProperties":false}
+            """;
+    private static final String CALCULATE_SCHEMA = """
+            {
+              "type":"object",
+              "properties":{"expression":{"type":"string","minLength":1,"maxLength":128}},
+              "required":["expression"],
+              "additionalProperties":false
+            }
+            """;
+    private static final String QUERY_ORDER_API_SCHEMA = """
+            {
+              "type":"object",
+              "properties":{
+                "user_query":{"type":"string","minLength":1},
+                "query":{"type":"string","minLength":1},
+                "orderId":{"type":"string","minLength":1}
+              },
+              "anyOf":[
+                {"required":["user_query"]},
+                {"required":["query"]},
+                {"required":["orderId"]}
+              ],
+              "additionalProperties":false
+            }
+            """;
 
     private final ToolService toolService;
 
@@ -46,11 +73,11 @@ public class LocalToolProvider implements ToolProvider {
     public List<ToolDescriptor> tools() {
         return List.of(
                 new ToolDescriptor(GET_CURRENT_TIME, "Return current server time in ISO-8601 format.",
-                        providerName(), false),
+                        providerName(), false, providerName(), GET_CURRENT_TIME_SCHEMA),
                 new ToolDescriptor(CALCULATE, "Calculate a safe arithmetic expression with +, -, *, / and parentheses.",
-                        providerName(), false),
+                        providerName(), false, providerName(), CALCULATE_SCHEMA),
                 new ToolDescriptor(QUERY_ORDER_API, "Demo customer-service order lookup API.",
-                        providerName(), false)
+                        providerName(), false, providerName(), QUERY_ORDER_API_SCHEMA)
         );
     }
 

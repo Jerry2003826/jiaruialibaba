@@ -12,24 +12,69 @@ import com.example.agentdemo.tool.ToolExecutionLog;
 import com.example.agentdemo.tool.ToolExecutionPolicy;
 import com.example.agentdemo.tool.ToolGatewayService;
 import com.example.agentdemo.tool.ToolProvider;
+import com.example.agentdemo.workflow.report.ReportArtifactMetadata;
+import com.example.agentdemo.workflow.report.ReportExportCommand;
+import com.example.agentdemo.workflow.report.ReportExportResult;
+import com.example.agentdemo.workflow.report.ReportPrintPreviewMetadata;
+import com.example.agentdemo.workflow.report.WorkflowReportExportService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowNodeExecutorTest {
 
     private final WorkflowVariableResolver variableResolver = new WorkflowVariableResolver();
+
+    @Test
+    void reportExportNodeRendersSelectedInputAndReturnsArtifactMetadata() {
+        WorkflowReportExportService reportService = mock(WorkflowReportExportService.class);
+        Instant expiresAt = Instant.parse("2026-08-14T00:00:00Z");
+        ReportArtifactMetadata pdf = new ReportArtifactMetadata("art-1", "pdf", "报告.pdf",
+                "application/pdf", 100, "a".repeat(64), expiresAt,
+                "/api/workflow-artifacts/art-1/content");
+        ReportPrintPreviewMetadata preview = new ReportPrintPreviewMetadata("art-2",
+                "/api/workflow-artifacts/art-2/content");
+        when(reportService.export(any())).thenReturn(
+                new ReportExportResult("exp-1", List.of(pdf), pdf, preview, expiresAt));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class), null, reportService);
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "# 报告内容"), "owner-a");
+
+        Object output = executor.execute("run-1", new WorkflowNode("report-1", "report_export", Map.of(
+                "content", "{{input.message}}",
+                "formats", List.of("pdf"),
+                "fileName", "研究报告")), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class,
+                map -> {
+                    assertThat(map).containsEntry("exportId", "exp-1");
+                    assertThat(map.get("printPreview")).isInstanceOfSatisfying(ReportPrintPreviewMetadata.class,
+                            value -> assertThat(value.contentUrl())
+                                    .isEqualTo("/api/workflow-artifacts/art-2/content"));
+                });
+        ArgumentCaptor<ReportExportCommand> command = ArgumentCaptor.forClass(ReportExportCommand.class);
+        verify(reportService).export(command.capture());
+        assertThat(command.getValue().renderRequest().markdown()).isEqualTo("# 报告内容");
+        assertThat(command.getValue().ownerId()).isEqualTo("owner-a");
+        assertThat(command.getValue().fileName()).isEqualTo("研究报告");
+    }
 
     @Test
     void retrieverNodeRendersQueryTemplateBeforeSearching() {
@@ -53,6 +98,73 @@ class WorkflowNodeExecutorTest {
     }
 
     @Test
+    void customAiNodeAppliesInstructionToNamedRenderedInputsAndParsesStructuredOutput() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), anyString()))
+                .thenReturn(AiModelResult.ok("{\"company\":\"Example AI\",\"patentCount\":12}", null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of(
+                "company", "Example AI",
+                "patentEvidence", List.of("US-1", "US-2")));
+
+        Object output = executor.execute("run-1", new WorkflowNode("patent_metrics", "custom", Map.of(
+                "mode", "ai",
+                "inputs", Map.of(
+                        "company", "{{input.company}}",
+                        "evidence", "{{input.patentEvidence}}"),
+                "instruction", "根据证据提取公司专利指标，不得补造缺失数据。",
+                "outputMode", "json",
+                "outputSchema", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "company", Map.of("type", "string"),
+                                "patentCount", Map.of("type", "integer")),
+                        "required", List.of("company", "patentCount")))), state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class, map -> {
+            assertThat(map).containsEntry("mode", "ai");
+            assertThat(map.get("inputs")).isEqualTo(Map.of(
+                    "company", "Example AI",
+                    "evidence", List.of("US-1", "US-2")));
+            assertThat(map.get("parsed")).isEqualTo(Map.of("company", "Example AI", "patentCount", 12));
+        });
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiModelService).generate(anyString(), prompt.capture());
+        assertThat(prompt.getValue())
+                .contains("根据证据提取公司专利指标，不得补造缺失数据。")
+                .contains("\"company\":\"Example AI\"")
+                .contains("\"evidence\":[\"US-1\",\"US-2\"]");
+    }
+
+    @Test
+    void customTemplateNodeRendersDeterministicOutputWithoutCallingModel() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of(
+                "company", "Example AI",
+                "patentCount", 12));
+
+        Object output = executor.execute("run-1", new WorkflowNode("patent_summary", "custom", Map.of(
+                "mode", "template",
+                "inputs", Map.of("company", "{{input.company}}"),
+                "template", Map.of(
+                        "summary", "{{input.company}} 共有 {{input.patentCount}} 项已验证专利",
+                        "count", "{{input.patentCount}}"))), state);
+
+        assertThat(output).isEqualTo(Map.of(
+                "mode", "template",
+                "inputs", Map.of("company", "Example AI"),
+                "output", Map.of(
+                        "summary", "Example AI 共有 12 项已验证专利",
+                        "count", 12)));
+        verifyNoInteractions(aiModelService);
+    }
+
+    @Test
     void toolNodeUsesToolGatewaySoRemoteToolsCanBeCalled() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new RemoteEchoProvider()),
                 ToolExecutionPolicy.allowOnlyRemoteTools("remote_echo"));
@@ -70,6 +182,165 @@ class WorkflowNodeExecutorTest {
         assertThat(output).isInstanceOf(ToolExecutionLog.class);
         assertThat(state.lastOutput()).isEqualTo("remote:hello");
         assertThat(state.toolCalls()).hasSize(1);
+    }
+
+    @Test
+    void tavilySearchNodeRendersItsQueryAndExposesSearchResultsDirectly() {
+        ToolGatewayService gateway = mock(ToolGatewayService.class);
+        Map<String, Object> searchOutput = Map.of(
+                "query", "Spring AI 1.1 release notes",
+                "answer", "Spring AI 1.1 is available.",
+                "results", List.of(Map.of("title", "Release notes", "url", "https://example.test/release")),
+                "requestId", "req-123");
+        Instant now = Instant.now();
+        when(gateway.execute(eq("tavilySearch"), org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(new ToolExecutionLog("tavilySearch", Map.of(), searchOutput, true, null, now, now));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "Spring AI 1.1 release notes"));
+        WorkflowNode node = new WorkflowNode("search_web", "tavily_search", Map.of(
+                "query", "{{input.message}}",
+                "searchDepth", "advanced",
+                "topic", "news",
+                "maxResults", 6,
+                "includeAnswer", true,
+                "includeRawContent", false,
+                "timeRange", "week",
+                "includeDomains", List.of("spring.io"),
+                "excludeDomains", List.of("spam.test")));
+
+        Object output = executor.execute("run-1", node, state);
+
+        ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
+        verify(gateway).execute(eq("tavilySearch"), arguments.capture());
+        assertThat(arguments.getValue())
+                .containsEntry("query", "Spring AI 1.1 release notes")
+                .containsEntry("search_depth", "advanced")
+                .containsEntry("topic", "news")
+                .containsEntry("max_results", 6)
+                .containsEntry("include_answer", true)
+                .containsEntry("include_raw_content", false)
+                .containsEntry("time_range", "week")
+                .containsEntry("include_domains", List.of("spring.io"))
+                .containsEntry("exclude_domains", List.of("spam.test"));
+        assertThat(output).isEqualTo(searchOutput);
+        assertThat(state.lastOutput()).isEqualTo(searchOutput);
+        assertThat(state.toolCalls()).hasSize(1);
+    }
+
+    @Test
+    void largeTavilyResultsRemainAddressableByDownstreamLlmPrompt() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), anyString())).thenReturn(AiModelResult.ok("grounded report"));
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new LargeTavilyOutputProvider()));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                gateway, variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "AI hardware"));
+        WorkflowNode search = new WorkflowNode("tavily_search_1", "tavily_search", Map.of(
+                "query", "{{input.message}}",
+                "includeAnswer", true));
+
+        executor.execute("run-1", search, state);
+        state.recordNodeOutput(search.id());
+        executor.execute("run-1", new WorkflowNode("llm_report", "llm", Map.of(
+                "prompt", "摘要：{{nodes.tavily_search_1.answer}}\n"
+                        + "结果：{{nodes.tavily_search_1.results}}")), state);
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(aiModelService).generate(anyString(), prompt.capture());
+        assertThat(prompt.getValue())
+                .contains("Grounded Tavily answer")
+                .contains("Primary source")
+                .contains("https://example.test/source");
+    }
+
+    @Test
+    void variableAggregatorSelectsFirstPresentValueAndPreservesEmptyValues() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setLastOutput(Map.of("output", ""));
+        state.recordNodeOutput("branch_b");
+
+        Object output = executor.execute("run-1", new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                "mode", "single",
+                "outputType", "string",
+                "variables", List.of("{{nodes.branch_a.output}}", "{{nodes.branch_b.output}}"))), state);
+
+        assertThat(output).isEqualTo(Map.of("output", ""));
+        assertThat(state.lastOutput()).isEqualTo(output);
+    }
+
+    @Test
+    void groupedVariableAggregatorReportsMissingGroupAndExposesNestedOutputs() {
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        state.setLastOutput(Map.of("result", Map.of("department", "shipping")));
+        state.recordNodeOutput("shipping");
+
+        Object output = executor.execute("run-1", new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                "mode", "groups",
+                "groups", List.of(Map.of(
+                        "key", "departmentResult",
+                        "outputType", "object",
+                        "variables", List.of("{{nodes.after_sales.result}}", "{{nodes.shipping.result}}"))))), state);
+
+        assertThat(output).isEqualTo(Map.of(
+                "departmentResult", Map.of("output", Map.of("department", "shipping"))));
+
+        WorkflowExecutionState missingState = new WorkflowExecutionState(Map.of("message", "hello"));
+        assertThatThrownBy(() -> executor.execute("run-1",
+                new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                        "mode", "groups",
+                        "groups", List.of(Map.of(
+                                "key", "departmentResult",
+                                "outputType", "object",
+                                "variables", List.of("{{nodes.after_sales.result}}"))))), missingState))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo("WORKFLOW_VARIABLE_UNAVAILABLE");
+                    assertThat(exception.getMessage()).contains("departmentResult");
+                });
+    }
+
+    @Test
+    void toolNodeRejectsMissingToolNameWithoutCallingGateway() {
+        ToolGatewayService gateway = mock(ToolGatewayService.class);
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute(
+                "run-1",
+                new WorkflowNode("tool_missing", "tool", Map.of()),
+                state))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("WORKFLOW_VALIDATION_FAILED"))
+                .hasMessageContaining("tool_missing.toolName is required");
+        verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void toolNodeRejectsBlankToolNameWithoutCallingGateway() {
+        ToolGatewayService gateway = mock(ToolGatewayService.class);
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        assertThatThrownBy(() -> executor.execute(
+                "run-1",
+                new WorkflowNode("tool_blank", "tool", Map.of("toolName", "   ")),
+                state))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("WORKFLOW_VALIDATION_FAILED"))
+                .hasMessageContaining("tool_blank.toolName is required");
+        verifyNoInteractions(gateway);
     }
 
     @Test
@@ -268,6 +539,35 @@ class WorkflowNodeExecutorTest {
     }
 
     @Test
+    void llmNodeAddsOutputSchemaContractToSystemPrompt() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), eq("Classify: hello")))
+                .thenReturn(AiModelResult.ok("""
+                        {"intent":"order_query","confidence":0.91}
+                        """, null));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.strictMode(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+
+        executor.execute("run-1",
+                new WorkflowNode("llm_intent", "llm", Map.of(
+                        "prompt", "Classify: {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", intentSchema()
+                )), state);
+
+        ArgumentCaptor<String> systemPrompt = ArgumentCaptor.forClass(String.class);
+        verify(aiModelService).generate(systemPrompt.capture(), eq("Classify: hello"));
+        assertThat(systemPrompt.getValue())
+                .contains("Structured output contract")
+                .contains("Return exactly one valid JSON object")
+                .contains("Do not omit required fields")
+                .contains("\"required\"")
+                .contains("intent", "confidence", "additionalProperties");
+    }
+
+    @Test
     void nodeWritesExplicitWorkflowStateAfterSuccessfulExecution() {
         WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
                 new ToolGatewayService(List.of()), variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
@@ -303,6 +603,73 @@ class WorkflowNodeExecutorTest {
                 state))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ToolExecutionLog.ERROR_REMOTE_TOOL));
+        assertThat(state.toolCalls()).singleElement().satisfies(log -> {
+            assertThat(log.succeeded()).isFalse();
+            assertThat(log.errorMessage()).isEqualTo("remote failed");
+        });
+    }
+
+    @Test
+    void continuedToolFailureExposesStructuredStatusAndPreservesToolLogForTrace() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello"));
+        WorkflowNode node = new WorkflowNode("mcp_1", "tool", Map.of(
+                "toolName", "remote_fail",
+                "continueOnError", true));
+
+        AtomicReference<WorkflowNodeExecutionResult> resultRef = new AtomicReference<>();
+        Throwable failure = catchThrowable(() -> resultRef.set(
+                new WorkflowNodeRunner(executor, mock(ExecutorService.class)).execute("run-1", node, state)));
+
+        assertThat(failure).as("continueOnError=true must not abort the tool node").isNull();
+        WorkflowNodeExecutionResult result = resultRef.get();
+        state.recordNodeOutput(node.id());
+
+        ToolExecutionLog failedLog = state.toolCalls().getFirst();
+        assertThat(result.output()).isInstanceOfSatisfying(Map.class, output -> {
+            assertThat(output)
+                    .containsEntry("status", "FAILED")
+                    .containsEntry("succeeded", false)
+                    .containsEntry("toolName", "remote_fail")
+                    .containsEntry("errorMessage", "remote failed")
+                    .containsEntry("errorCategory", ToolExecutionLog.ERROR_REMOTE_TOOL)
+                    .containsEntry("toolExecutionLog", failedLog);
+        });
+        assertThat(result.traceOutput()).isEqualTo(result.output());
+        assertThat(variableResolver.renderString(
+                "{{lastOutput.status}}|{{lastOutput.errorMessage}}|{{nodes.mcp_1.errorCategory}}", state))
+                .isEqualTo("FAILED|remote failed|REMOTE_TOOL_ERROR");
+        assertThat(state.toolCalls()).containsExactly(failedLog);
+    }
+
+    @Test
+    void evaluationFixtureForcesToolFailureWithoutCallingRealGateway() {
+        ToolGatewayService gateway = mock(ToolGatewayService.class);
+        WorkflowNodeExecutor executor = new WorkflowNodeExecutor(
+                mock(RagService.class), mock(AiModelService.class), gateway, variableResolver,
+                TestAlibabaPolicies.legacyFallbackAllowed(), mock(WorkflowInlineExecutionService.class));
+        WorkflowExecutionState state = new WorkflowExecutionState(
+                WorkflowEvaluationFixtures.withToolFailure(Map.of("message", "test"), "queryOrderAPI"));
+        WorkflowNode node = new WorkflowNode("order_lookup", "tool", Map.of(
+                "toolName", "queryOrderAPI",
+                "continueOnError", true,
+                "arguments", Map.of("userQuery", "{{input.message}}")));
+
+        Object output = executor.execute("run-1", node, state);
+
+        assertThat(output).isInstanceOfSatisfying(Map.class, failure -> assertThat(failure)
+                .containsEntry("status", "FAILED")
+                .containsEntry("succeeded", false)
+                .containsEntry("errorCategory", WorkflowEvaluationFixtures.ERROR_EVALUATION_TOOL_FAILURE));
+        assertThat(state.toolCalls()).singleElement().satisfies(log -> {
+            assertThat(log.succeeded()).isFalse();
+            assertThat(log.errorCategory()).isEqualTo(WorkflowEvaluationFixtures.ERROR_EVALUATION_TOOL_FAILURE);
+        });
+        verifyNoInteractions(gateway);
     }
 
     @Test
@@ -472,6 +839,38 @@ class WorkflowNodeExecutorTest {
         @Override
         public List<ToolDescriptor> tools() {
             return List.of(new ToolDescriptor("remote_fail", "Remote failure", providerName(), true));
+        }
+
+    }
+
+    private static final class LargeTavilyOutputProvider implements ToolProvider {
+
+        @Override
+        public String providerName() {
+            return "tavily";
+        }
+
+        @Override
+        public boolean supports(String toolName) {
+            return "tavilySearch".equals(toolName);
+        }
+
+        @Override
+        public ToolExecutionLog execute(String toolName, Map<String, Object> arguments) {
+            Instant now = Instant.now();
+            Map<String, Object> output = Map.of(
+                    "query", arguments.get("query"),
+                    "answer", "Grounded Tavily answer",
+                    "results", List.of(Map.of(
+                            "title", "Primary source",
+                            "url", "https://example.test/source",
+                            "content", "evidence ".repeat(3_000))));
+            return ToolExecutionLog.success(toolName, arguments, output, now, now, tools().getFirst());
+        }
+
+        @Override
+        public List<ToolDescriptor> tools() {
+            return List.of(new ToolDescriptor("tavilySearch", "Large Tavily output", providerName(), false));
         }
 
     }

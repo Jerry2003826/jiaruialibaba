@@ -20,6 +20,38 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ToolGatewayServiceTest {
 
     @Test
+    void publishesExactInputSchemasForLocalTools() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        Map<String, ToolDescriptor> descriptors = new LocalToolProvider(TestToolServices.toolService()).tools().stream()
+                .collect(java.util.stream.Collectors.toMap(ToolDescriptor::name, descriptor -> descriptor));
+
+        var timeSchema = objectMapper.readTree(descriptors.get("getCurrentTime").inputSchema());
+        var calculateSchema = objectMapper.readTree(descriptors.get("calculate").inputSchema());
+        var orderSchema = objectMapper.readTree(descriptors.get("queryOrderAPI").inputSchema());
+
+        assertThat(timeSchema.path("type").asText()).isEqualTo("object");
+        assertThat(timeSchema.path("properties").isObject()).isTrue();
+        assertThat(timeSchema.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(calculateSchema.path("properties").path("expression").path("type").asText())
+                .isEqualTo("string");
+        assertThat(calculateSchema.path("required").toString()).isEqualTo("[\"expression\"]");
+        assertThat(orderSchema.path("properties").fieldNames()).toIterable()
+                .containsExactly("user_query", "query", "orderId");
+        assertThat(orderSchema.path("anyOf")).hasSize(3);
+        assertThat(orderSchema.path("additionalProperties").asBoolean()).isFalse();
+    }
+
+    @Test
+    void queryOrderAliasesRemainSupportedWithPublishedSchema() {
+        ToolGatewayService gateway = new ToolGatewayService(
+                List.of(new LocalToolProvider(TestToolServices.toolService())));
+
+        assertThat(gateway.execute("queryOrderAPI", Map.of("user_query", "20260630001")).succeeded()).isTrue();
+        assertThat(gateway.execute("queryOrderAPI", Map.of("query", "20260630001")).succeeded()).isTrue();
+        assertThat(gateway.execute("queryOrderAPI", Map.of("orderId", "20260630001")).succeeded()).isTrue();
+    }
+
+    @Test
     void executesLocalToolByName() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
 
@@ -102,11 +134,12 @@ class ToolGatewayServiceTest {
         ToolExecutionLog log = gateway.execute("remote_secret_dump", Map.of());
 
         assertThat(log.succeeded()).isTrue();
-        String output = String.valueOf(log.output());
-        assertThat(output).contains("\"apiKey\":\"" + SecretRedactor.REDACTED + "\"");
-        assertThat(output).doesNotContain("sk-live-secret");
-        assertThat(output).contains("[TRUNCATED]");
-        assertThat(output.length()).isLessThanOrEqualTo(120);
+        assertThat(log.output()).isInstanceOfSatisfying(Map.class, output -> {
+            assertThat(output).containsEntry("apiKey", SecretRedactor.REDACTED);
+            assertThat(output.get("payload")).asString().contains("[TRUNCATED]");
+            assertThat(output.toString()).doesNotContain("sk-live-secret");
+        });
+        assertThat(objectMapper.valueToTree(log.output()).toString().length()).isLessThanOrEqualTo(120);
     }
 
     @Test

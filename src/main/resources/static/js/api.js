@@ -12,6 +12,13 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     nodeSchemas: "/api/workflows/node-schemas",
     generateWorkflow: "/api/workflows/generate",
     generateWorkflowStream: "/api/workflows/generate/stream",
+    editWorkflow: "/api/workflows/edit",
+    editWorkflowStream: "/api/workflows/edit/stream",
+    repairWorkflow: "/api/workflows/repair",
+    repairWorkflowStream: "/api/workflows/repair/stream",
+    specDraft: "/api/workflows/spec-drafts",
+    promptDraft: "/api/workflows/prompt-drafts",
+    governanceEvaluate: "/api/workflows/governance/evaluate",
     validateWorkflow: "/api/workflows/validate",
     previewGraph: "/api/workflows/preview-graph",
     runWorkflow: "/api/workflows/run",
@@ -19,14 +26,20 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     definitionRevisions: (id) => `/api/workflows/definitions/${encodeURIComponent(id)}/revisions`,
     rollbackDefinition: (id, version) => `/api/workflows/definitions/${encodeURIComponent(id)}/rollback/${version}`,
     workflowRuns: (id) => `/api/workflows/runs?definitionId=${encodeURIComponent(id)}&page=0&size=20`,
+    workflowRunDetail: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}`,
     publishDefinition: (id) => `/api/workflows/definitions/${encodeURIComponent(id)}/publish`,
     workflowRunGraph: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/graph`,
     workflowRunEvents: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/events`,
+    workflowRunArtifacts: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/artifacts`,
     cancelWorkflowRun: (runId) => `/api/workflows/runs/${encodeURIComponent(runId)}/cancel`,
     runSteps: (runId) => `/api/runs/${encodeURIComponent(runId)}/steps`,
     runs: "/api/runs",
     tools: "/api/tools",
+    toolsCatalog: "/api/tools/catalog",
     mcpServers: "/api/tools/mcp/servers",
+    tavilySettings: "/api/settings/tavily",
+    httpCredentials: "/api/settings/http-credentials",
+    httpCredential: (id) => `/api/settings/http-credentials/${encodeURIComponent(id)}`,
     chat: "/api/chat",
     chatStream: "/api/chat/stream",
     assistantChat: "/api/agent/assistant-chat",
@@ -67,7 +80,14 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
         throw new Error(response.ok ? `Invalid JSON response: ${preview}` : `HTTP ${response.status}: ${preview}`);
       }
     }
-    if (!response.ok || payload?.success === false) throw new Error(payload?.message || payload?.code || `HTTP ${response.status}`);
+    if (!response.ok || payload?.success === false) {
+      const error = new Error(payload?.message || payload?.code || `HTTP ${response.status}`);
+      error.code = payload?.code;
+      error.data = payload?.data;
+      error.httpStatus = response.status;
+      error.payload = payload;
+      throw error;
+    }
     return payload?.data ?? payload;
   }
 

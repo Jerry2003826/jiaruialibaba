@@ -21,10 +21,19 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(BusinessDataException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBusinessDataException(BusinessDataException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(ex.getCode(), ex.getMessage(), ex.getData()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex) {
-        HttpStatus status = ToolExecutionLog.ERROR_REMOTE_TOOL.equals(ex.getCode())
-                ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST;
+        HttpStatus status = switch (ex.getCode()) {
+            case ToolExecutionLog.ERROR_REMOTE_TOOL -> HttpStatus.BAD_GATEWAY;
+            case "ARTIFACT_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "ARTIFACT_EXPIRED" -> HttpStatus.GONE;
+            default -> HttpStatus.BAD_REQUEST;
+        };
         return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 

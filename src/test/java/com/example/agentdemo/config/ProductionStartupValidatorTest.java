@@ -34,6 +34,8 @@ class ProductionStartupValidatorTest {
         env.setProperty("demo.ai.embedding-model", "text-embedding-v4");
         env.setProperty("demo.dashvector.endpoint", "https://vrs.dashvector.cn");
         env.setProperty("demo.dashvector.api-key", "dv-real-key");
+        env.setProperty("demo.workflow.http.credentials-master-key",
+                "prod-http-credential-master-key-independent-123456");
         return env;
     }
 

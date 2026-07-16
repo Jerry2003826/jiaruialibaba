@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build stage: compile and package the Spring Boot jar with the bundled Maven wrapper ----
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
 # Copy the wrapper and pom first so dependency resolution is cached across source-only changes.
@@ -15,7 +15,7 @@ RUN ./mvnw -B -q -DskipTests clean package \
     && cp target/agent-backend-demo-*.jar app.jar
 
 # ---- Runtime stage: minimal JRE, non-root user, healthcheck ----
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 
 # curl is used by the container HEALTHCHECK; install and clean up in one layer.

@@ -29,16 +29,31 @@ final class WorkflowNodeRunner {
         validateRetryPolicy(node, options);
         List<Map<String, Object>> attempts = new ArrayList<>();
         int maxAttempts = options.retryCount() + 1;
+        Object retryInput = state.lastOutput();
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (attempt > 1 && "http_request".equalsIgnoreCase(node.type())) {
+                state.setLastOutput(retryInput);
+            }
             Instant startedAt = Instant.now();
             try {
                 Object output = executeOnce(runId, node, state, options);
+                if (retryableHttpStatus(node, output) && attempt < maxAttempts) {
+                    BusinessException retry = new BusinessException("WORKFLOW_HTTP_RETRYABLE_STATUS",
+                            "HTTP request returned retryable status " + httpStatus(output));
+                    attempts.add(failedAttempt(attempt, startedAt, Instant.now(), retry));
+                    continue;
+                }
                 attempts.add(succeededAttempt(attempt, startedAt, Instant.now()));
                 return new WorkflowNodeExecutionResult(output, successTraceOutput(output, attempts, options));
             }
             catch (RuntimeException ex) {
                 attempts.add(failedAttempt(attempt, startedAt, Instant.now(), ex));
-                if (attempt >= maxAttempts) {
+                if (attempt >= maxAttempts || !shouldRetryFailure(node, ex)) {
+                    if (continuedHttpTransportFailure(node, ex)) {
+                        Object output = continuedHttpFailureOutput(ex, startedAt);
+                        state.setLastOutput(output);
+                        return new WorkflowNodeExecutionResult(output, successTraceOutput(output, attempts, options));
+                    }
                     throw new WorkflowNodeExecutionFailure(ex, failureTraceOutput(ex, attempts, options),
                             failureSummaryOutput(ex));
                 }
@@ -47,13 +62,75 @@ final class WorkflowNodeRunner {
         throw new IllegalStateException("Workflow node retry loop exited unexpectedly");
     }
 
+    private boolean retryableHttpStatus(WorkflowNode node, Object output) {
+        if (!"http_request".equalsIgnoreCase(node.type()) || !(output instanceof Map<?, ?> map)) {
+            return false;
+        }
+        Object status = map.get("statusCode");
+        if (!(status instanceof Number number)) {
+            return false;
+        }
+        return switch (number.intValue()) {
+            case 429, 502, 503, 504 -> true;
+            default -> false;
+        };
+    }
+
+    private int httpStatus(Object output) {
+        return output instanceof Map<?, ?> map && map.get("statusCode") instanceof Number number
+                ? number.intValue() : 0;
+    }
+
+    private boolean shouldRetryFailure(WorkflowNode node, RuntimeException ex) {
+        if (!"http_request".equalsIgnoreCase(node.type())) {
+            return true;
+        }
+        RuntimeException candidate = ex instanceof WorkflowNodeExecutionFailure failure
+                ? failure.original() : ex;
+        if (!(candidate instanceof BusinessException businessException)) {
+            return true;
+        }
+        return "WORKFLOW_HTTP_TRANSPORT_ERROR".equals(businessException.getCode())
+                || "WORKFLOW_NODE_TIMEOUT".equals(businessException.getCode());
+    }
+
+    private boolean continuedHttpTransportFailure(WorkflowNode node, RuntimeException ex) {
+        return "http_request".equalsIgnoreCase(node.type())
+                && Boolean.TRUE.equals(node.config().get("continueOnError"))
+                && shouldRetryFailure(node, ex);
+    }
+
+    private Object continuedHttpFailureOutput(RuntimeException ex, Instant startedAt) {
+        Map<String, Object> output = orderedMap();
+        output.put("statusCode", 0);
+        output.put("headers", Map.of());
+        output.put("body", "");
+        output.put("json", null);
+        output.put("durationMs", durationMs(startedAt, Instant.now()));
+        output.put("succeeded", false);
+        output.put("errorCode", ex instanceof BusinessException businessException
+                ? businessException.getCode() : "WORKFLOW_HTTP_TRANSPORT_ERROR");
+        output.put("errorMessage", ex.getMessage());
+        return output;
+    }
+
     private void validateRetryPolicy(WorkflowNode node, WorkflowNodeRunOptions options) {
-        if (options.retryCount() <= 0 || !"tool".equalsIgnoreCase(node.type())) {
+        if (options.retryCount() <= 0) {
             return;
+        }
+        String type = node.type().toLowerCase();
+        if (!"tool".equals(type) && !"http_request".equals(type)) {
+            return;
+        }
+        if ("http_request".equals(type)) {
+            String method = String.valueOf(node.config().getOrDefault("method", "GET")).toUpperCase();
+            if ("GET".equals(method) || "HEAD".equals(method)) {
+                return;
+            }
         }
         if (!Boolean.TRUE.equals(node.config().get("idempotent"))) {
             throw new BusinessException("WORKFLOW_RETRY_NOT_ALLOWED",
-                    "Tool node retry requires config.idempotent=true: " + node.id());
+                    node.type() + " node retry requires config.idempotent=true: " + node.id());
         }
     }
 

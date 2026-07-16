@@ -75,9 +75,16 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("clear-chat")))
                 .andExpect(content().string(containsString("runtime-details")))
                 .andExpect(content().string(containsString("generate-workflow")))
+                .andExpect(content().string(containsString("repair-workflow")))
                 .andExpect(content().string(containsString("workflow-generator")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("智能体搭建助手", "修改当前画布", "AI 修复")
+                        .doesNotContain(">创建一个客户评价自动分流系统"))
                 .andExpect(content().string(containsString("insert-loop-template")))
                 .andExpect(content().string(containsString("definition-history")))
+                .andExpect(content().string(containsString("undo-workflow")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("撤回上一步"))
                 .andExpect(content().string(containsString("route-map-panel")))
                 .andExpect(content().string(containsString("route-map-list")))
                 .andExpect(content().string(containsString("wf-issues")))
@@ -94,6 +101,9 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("create-app")))
                 .andExpect(content().string(containsString("app-api-keys")))
                 .andExpect(content().string(containsString("view-settings")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("http-credentials-settings", "http-credential-form",
+                                "http-credential-type", "http-credential-list", "HTTP 凭据中心"))
                 // Knowledge Base product view (new /api/knowledge-bases model).
                 .andExpect(content().string(containsString("data-view=\"kb\"")))
                 .andExpect(content().string(containsString("view-kb")))
@@ -168,8 +178,19 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("HTTP ${response.status}")))
                 .andExpect(content().string(containsString("/api/workflows/generate")))
                 .andExpect(content().string(containsString("/api/workflows/generate/stream")))
+                .andExpect(content().string(containsString("/api/workflows/edit")))
+                .andExpect(content().string(containsString("/api/workflows/edit/stream")))
+                .andExpect(content().string(containsString("/api/workflows/repair")))
+                .andExpect(content().string(containsString("/api/workflows/repair/stream")))
+                .andExpect(content().string(containsString("/api/workflows/spec-drafts")))
+                .andExpect(content().string(containsString("/api/workflows/prompt-drafts")))
+                .andExpect(content().string(containsString("/api/workflows/governance/evaluate")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("error.code = payload?.code", "error.data = payload?.data",
+                                "error.httpStatus = response.status"))
                 .andExpect(content().string(containsString("/api/workflows/run")))
                 .andExpect(content().string(containsString("/api/workflows/validate")))
+                .andExpect(content().string(containsString("/api/settings/http-credentials")))
                 .andExpect(content().string(containsString("/api/agent/assistant-chat")))
                 .andExpect(content().string(containsString("/api/chat/stream")));
     }
@@ -190,6 +211,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("输出结构约束", "复合条件模式", "复合条件列表"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("query: \"搜索内容\"", "topic: \"搜索类别\""))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("OPTION_LABELS", "全部满足", "任一满足", "等于", "包含", "文本"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("VARIABLE_PRESETS", "选择变量来源", "上一步输出", "节点输出"))
@@ -197,10 +220,24 @@ class FrontendStaticAssetsTest {
                         .contains("templateControlForField", "conditionListControl", "添加条件", "删除条件"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("conditionRuleControl", "condition-rule-card", "分支规则", "规则类型",
-                                "单条件", "多条件", "左侧取值", "右侧取值", "高级配置", "原始条件 JSON"))
+                                "单条件", "多条件", "左侧取值", "右侧取值", "高级配置", "原始条件 JSON",
+                                "beforeChange?.()"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("hidePickerWhenLiteral", "右侧可以是固定值"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("DEFAULT_NODE_OUTPUT_FIELDS", "nodeOutputDescriptors", "outputSchemaFieldDescriptors",
                                 "结构化输出", "完整输出"))
+                // Variable graph: variable insertion should be driven by upstream node outputs and
+                // outputSchema fields, not by users memorising raw {{nodes.nodeId.path}} strings.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("buildVariableGraph", "upstreamNodeIdsFor", "createVisualVariablePicker",
+                                "renderVariablePickerPopover", "availableVariableDescriptors",
+                                "inputVariableDescriptors", "collectTemplateVariablesFromValue",
+                                "variable-picker-button", "variable-picker-popover",
+                                "上游节点输出", "结构化结果", "已失效的变量引用"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("writeStateControl", "deriveStateKeyFromVariable", "添加状态字段",
+                                "状态字段", "变量来源"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("nodeOutputOptionLabel", "schemaFieldLabel", "结构化 ·", "intent: \"意图\""))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
@@ -212,6 +249,9 @@ class FrontendStaticAssetsTest {
                         .contains("outputSchemaControl", "buildOutputSchema", "normalizeOutputSchema",
                                 "添加字段", "显示名", "schema.title"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("schema-required-toggle", "schema-description-input",
+                                "必填", "字段说明", "schema.required", "schema.description"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .doesNotContain("label: `节点输出 · ${nodeDisplayName(node)} · ${descriptor.label}`",
                                 "结构化输出 · ${variableLabel(labelKey)}"))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
@@ -222,7 +262,54 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("optionLabel(field.name, option)")))
                 .andExpect(content().string(containsString("type === \"array\"")))
                 .andExpect(content().string(containsString("parseJsonInput(value, [])")))
-                .andExpect(content().string(containsString("FIELD_LABELS")));
+                .andExpect(content().string(containsString("FIELD_LABELS")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("http_request", "variable_aggregator", "httpCredentials",
+                                "statusCode", "durationMs", "variableAggregatorOutputDescriptors",
+                                "upstreamOnly", "expectedType"));
+    }
+
+    @Test
+    void servesReportExportNodePanelAndArtifactResultActions() throws Exception {
+        mockMvc.perform(get("/js/state.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("report_export", "报告导出", "artifacts", "printPreview"));
+
+        mockMvc.perform(get("/js/workflow.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderReportExportSettingsPanel", "报告内容", "导出格式",
+                                "business", "minimal", "academic", "retentionDays",
+                                "upstreamOnly: true", "编辑报告格式"));
+
+        mockMvc.perform(get("/js/runs.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderReportArtifacts", "下载", "打印", "requestArtifactBlob",
+                                "URL.createObjectURL", "API.workflowRunDetail(run.runId)",
+                                "API.workflowRunArtifacts(run.runId)", "hydrateArtifacts: false"));
+
+        mockMvc.perform(get("/js/api.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("workflowRunArtifacts", "workflowRunDetail"));
+    }
+
+    @Test
+    void servesSafeCustomNodePanelWithNamedInputsAndVisualOutputFields() throws Exception {
+        mockMvc.perform(get("/js/state.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("custom", "自由节点", "inputs", "instruction", "template"));
+
+        mockMvc.perform(get("/js/workflow.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderCustomSettingsPanel", "AI 处理", "模板转换", "命名输入",
+                                "结构化输出字段", "upstreamOnly: true", "recordWorkflowUndo"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("不执行代码", "不直接访问网络", "HTTP 请求"));
     }
 
     @Test
@@ -235,6 +322,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("renderRuntimeDetails")))
                 .andExpect(content().string(containsString("workflowRuntime")))
                 .andExpect(content().string(containsString("workflowRequirePublishedForRun")))
+                .andExpect(content().string(containsString("undo-workflow")))
+                .andExpect(content().string(containsString("repair-workflow")))
                 .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"ui\")")))
                 .andExpect(content().string(containsString("AgentWorkbench.cacheElements = cacheElements")))
                 .andExpect(content().string(containsString("AgentWorkbench.runCommand = runCommand")));
@@ -252,10 +341,71 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("window.AgentWorkbench.WorkflowCanvasController = WorkflowCanvasController")))
                 .andExpect(content().string(containsString("window.AgentWorkbench.workflowController = window.WorkflowCanvasController")))
                 .andExpect(content().string(containsString("buildWorkflowDefinition")))
+                .andExpect(content().string(containsString("recordWorkflowUndo")))
+                .andExpect(content().string(containsString("captureWorkflowSnapshot")))
+                .andExpect(content().string(containsString("applyWorkflowSnapshot")))
+                .andExpect(content().string(containsString("undoLastWorkflowEdit")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("els.runWorkflow?.addEventListener(\"click\", openWorkflowRunPanel)",
+                                "function openWorkflowRunPanel()", "focusFirstWorkflowInput")
+                        .doesNotContain("els.runWorkflow?.addEventListener(\"click\", () => { openRunDrawer(); void runWorkflow(); })"))
+                .andExpect(content().string(containsString("commitNodeConfig(node, fieldName, value")))
+                .andExpect(content().string(containsString("conditionRuleControl(node.config, updatePreview, refreshPanel, () => recordWorkflowUndo")))
                 .andExpect(content().string(containsString("insertLoopTemplate")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("publishDefinitionInFlight", "发布检查中", "已发布；画布有改动时请先保存"))
                 .andExpect(content().string(containsString("generateWorkflowFromPrompt")))
+                .andExpect(content().string(containsString("draftWorkflowSpecification")))
+                .andExpect(content().string(containsString("renderGeneratorClarification")))
+                .andExpect(content().string(containsString("appendClarificationOptionToPrompt")))
+                .andExpect(content().string(containsString("renderGeneratorLockedSpec")))
                 .andExpect(content().string(containsString("streamWorkflowGeneration")))
+                .andExpect(content().string(containsString("repairWorkflowWithAi")))
+                .andExpect(content().string(containsString("openWorkflowRepairPanel")))
+                .andExpect(content().string(containsString("confirmWorkflowRepair")))
+                .andExpect(content().string(containsString("data-confirm-ai-repair")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("els.repairWorkflow?.addEventListener(\"click\", () => openWorkflowRepairPanel())",
+                                "描述你希望 AI 重点修复的问题")
+                        .doesNotContain("els.repairWorkflow?.addEventListener(\"click\", () => void repairWorkflowWithAi())")
+                        .doesNotContain("?.addEventListener(\"click\", () => void repairWorkflowWithAi(errorMessage))"))
+                .andExpect(content().string(containsString("buildWorkflowRepairRequest")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("const prompt = `修复当前工作流", "用户补充问题")
+                        .doesNotContain("const prompt = cleanText(els.generatorPrompt?.value)"))
+                .andExpect(content().string(containsString("API.repairWorkflowStream")))
+                .andExpect(content().string(containsString("renderGeneratorStreamFailure")))
                 .andExpect(content().string(containsString("applyGeneratedWorkflow")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("isWorkflowResponseReady", "handleWorkflowAiOutcome",
+                                "hasWorkflowCandidate", "applyWorkflow(response)",
+                                "renderGeneratorGovernanceReport", "response?.status === \"READY\"",
+                                "BLOCKED", "INFRA_ERROR", "已生成候选蓝图到画布", "待修复草稿")
+                        .doesNotContain("if (!isWorkflowResponseReady(response)) return false;",
+                                "已保留当前画布和需求描述")
+                        .contains("workflowPhaseMessage", "eventName === \"phase\"",
+                                "需求分析", "静态治理检查", "自动测试", "自动修复"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("governanceSummary", "governanceFindings", "governancePackVersions",
+                                "activeRulePacks", "rulePacks", "repairAttempts", "testResults",
+                                "attemptRunIds", "executedPath",
+                                "assertions", "output", "测试输入", "证据", "运行路径", "runId",
+                                "TAVILY_NOT_CONFIGURED", "请先在设置页配置 Tavily API Key",
+                                "基础设施错误详情", "response?.notes",
+                                "data-open-tavily-settings", "openTavilySettings", "去配置 Tavily"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderPublishGovernanceFailure", "WORKFLOW_GOVERNANCE_BLOCKED",
+                                "WORKFLOW_GOVERNANCE_INFRA_ERROR", "发布前治理检查未通过",
+                                "报告不可用", "error?.data")
+                        .doesNotContain("refreshPublishGovernanceReport", "requestJson(API.governanceEvaluate"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("currentWorkflowLockedSpec", "lockedSpec: currentWorkflowLockedSpec",
+                                "restoreWorkflowLockedSpec", "source.lockedSpec",
+                                "specDraft?.spec", "streamWorkflowGeneration"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("已保留上方生成片段", "规格确认", "需要先确认几个边界", "按规格生成",
+                                "generator-option-button", "补充说明", "可点击下面选项",
+                                "业务领域", "必需能力", "输出对象"))
                 .andExpect(content().string(containsString("saveCanvasPositions")))
                 .andExpect(content().string(containsString("renderRouteMap")))
                 .andExpect(content().string(containsString("route-highlight")))
@@ -271,17 +421,46 @@ class FrontendStaticAssetsTest {
                 // Dify-like inspector shell: node header + advanced settings fold.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("panel-node-head", "renderAdvancedNodeSettings", "高级设置", "inspector-section-title"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderWorkflowNameSettings", "workflow-name-card", "workflow-name-input",
+                                "normalizeWorkflowName", "工作流名称", "保存时使用这个名称"))
                 // Dify-like condition inspector: IF/ELSE are visible branch sections, with next-step cards inline.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("renderConditionBranchEditor", "renderConditionBranchNextSteps",
                                 "condition-if-else-card", "IF 条件", "ELSE",
                                 "用于定义当 IF 条件不满足时应执行的逻辑"))
+                // Dify-like node registry: each business node owns a dedicated settings panel instead of
+                // falling back to a single generic configFields form.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("NODE_PANEL_RENDERERS", "renderNodeSpecificSettings",
+                                "renderLlmSettingsPanel", "renderToolSettingsPanel",
+                                "renderRetrieverSettingsPanel", "renderLoopSettingsPanel",
+                                "renderSubgraphSettingsPanel", "renderDynamicSettingsPanel",
+                                "renderHttpRequestSettingsPanel", "renderVariableAggregatorSettingsPanel",
+                                "renderGenericNodeSettings", "renderExecutionControls"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("模型与提示词", "工具调用", "检索设置", "循环设置",
+                                "子工作流设置", "动态分配设置", "运行控制 / 状态写入"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderCurlImporter", "parseCurlRequest", "导入 cURL",
+                                "loadHttpCredentialCatalog", "配置凭据",
+                                "renderAggregatorCandidates", "添加分组", "动态输出预览",
+                                "upstreamOnly: true", "expectedType"))
+                // LLM prompt composition should be Dify-like: users choose a business input,
+                // while the canvas writes the technical template reference into the prompt.
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("renderLlmPromptBuilder", "inferLlmInputVariable", "composeLlmPrompt",
+                                "extractLlmPromptParts", "generateLlmBusinessInstruction",
+                                "applyPromptDraftConfiguration", "selectedVariablePickerLabel",
+                                "node.config.outputMode", "node.config.outputSchema", "node.config.writeState",
+                                "任务输入", "业务指令", "AI 生成完整文案",
+                                "输入内容由系统自动接入", "无需手写 {{state.xxx}} 或 {{input.xxx}}"))
                 // Automatically managed LLM router contracts should not expose the manual JSON controls.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("AUTO_STRUCTURED_HIDDEN_FIELDS", "isAutoStructuredOutputNode",
                                 "renderAutoStructuredOutputNotice", "auto-structured-output-summary",
                                 "结构化输出已自动配置")
-                        .contains("autoStructured && AUTO_STRUCTURED_HIDDEN_FIELDS.has(field.name)"))
+                        .contains("options.autoStructured && AUTO_STRUCTURED_HIDDEN_FIELDS.has(field.name)"))
                 // Dify-like build flow: "+" opens a block selector that auto-creates and connects.
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
                         .contains("openBlockSelector", "addNextNode", "nextNodePosition",
@@ -334,7 +513,18 @@ class FrontendStaticAssetsTest {
                         .contains("config.outputMode = \"json\"",
                                 "config.outputSchema = cloneStructuredValue(schema)",
                                 "config.writeState = { ...profile.writeState, ...existingWriteState }",
-                                "&& !isCustomerServiceIntentSchema(schema)"));
+                                "&& !isCustomerServiceIntentSchema(schema)"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("runWorkflowDefinition", "ensureWorkflowCanRun", "formatWorkflowValidationErrors",
+                                "工作流未通过校验，不能运行"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("workflowRunPayload", "definitionId: state.definitionId",
+                                "definitionVersion: state.definitionVersion",
+                                "workflowDefinition: runWorkflowDefinition()"))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("effectiveWorkflowVariables", "discoverWorkflowInputVariables",
+                                "setWorkflowRunVariables", "inputVariablePresentation",
+                                "搜索主题", "输入要研究或搜索的主题"));
     }
 
     @Test
@@ -358,6 +548,9 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("loadSettings")))
                 .andExpect(content().string(containsString("API.health")))
                 .andExpect(content().string(containsString("API.mcpServers")))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .contains("loadHttpCredentialsSettings", "createHttpCredential", "deleteHttpCredential",
+                                "API.httpCredentials", "API.httpCredential"))
                 .andExpect(content().string(containsString("AgentWorkbench.loadedModules.push(\"settings\")")))
                 .andExpect(content().string(containsString("AgentWorkbench.bindSettings = bindSettings")))
                 .andExpect(content().string(containsString("AgentWorkbench.loadSettings = loadSettings")));
@@ -375,8 +568,11 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("window.AgentWorkbench.init = bootstrapWorkbench")))
                 .andExpect(content().string(containsString("document.addEventListener(\"DOMContentLoaded\", AgentWorkbench.bootstrapWorkbench)")))
                 .andExpect(content().string(containsString("workflowDefinitionId")))
+                .andExpect(content().string(containsString("workflowDefinitionVersion")))
                 .andExpect(content().string(containsString("workflowDefinition: buildWorkflowDefinition()")))
-                .andExpect(content().string(containsString("return { workflowDefinitionId: state.assistantWorkflowDefinitionId };")))
+                .andExpect(content().string(containsString("state.assistantWorkflowDefinitionStatus === \"PUBLISHED\"")))
+                .andExpect(content().string(containsString("return workflowDefinitionReference(state.assistantWorkflowDefinitionId")))
+                .andExpect(content().string(containsString("function workflowDefinitionReference(definitionId, version)")))
                 .andExpect(content().string(containsString("bindAssistantWorkflowFromDefinition")))
                 .andExpect(content().string(containsString("clearChatHistory")))
                 .andExpect(content().string(containsString("consumeSse")))
@@ -410,6 +606,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".node-branch-row")))
                 .andExpect(content().string(containsString(".branch-tag")))
                 .andExpect(content().string(containsString(".panel-node-head")))
+                .andExpect(content().string(containsString(".workflow-name-card")))
+                .andExpect(content().string(containsString(".workflow-name-input")))
                 .andExpect(content().string(containsString(".inspector-advanced")))
                 .andExpect(content().string(containsString(".block-selector")))
                 .andExpect(content().string(containsString(".block-option")))
@@ -419,6 +617,13 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".issue-item")))
                 .andExpect(content().string(containsString(".schema-editor")))
                 .andExpect(content().string(containsString(".schema-row")))
+                .andExpect(content().string(containsString(".llm-prompt-builder")))
+                .andExpect(content().string(containsString(".llm-prompt-head")))
+                .andExpect(content().string(containsString(".llm-prompt-draft")))
+                .andExpect(content().string(containsString(".llm-business-prompt")))
+                .andExpect(content().string(containsString(".schema-required-toggle")))
+                .andExpect(content().string(containsString(".schema-description-input")))
+                .andExpect(content().string(containsString("grid-template-areas:")))
                 .andExpect(content().string(containsString(".workflow-dify-mode .wf-topbar")))
                 .andExpect(content().string(containsString(".workflow-dify-mode .workflow-canvas")))
                 .andExpect(content().string(containsString(".workflow-dify-mode .canvas-node")))
@@ -426,6 +631,8 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".workflow-dify-mode .palette")))
                 .andExpect(content().string(containsString(".workflow-dify-mode .route-map-panel")))
                 .andExpect(content().string(containsString(".wf-autosave")))
+                .andExpect(content().string(containsString("@media (max-width: 640px)")))
+                .andExpect(content().string(containsString(".wf-actions::-webkit-scrollbar")))
                 .andExpect(content().string(containsString(".workflow-canvas")))
                 .andExpect(content().string(containsString(".canvas-node")))
                 .andExpect(content().string(containsString(".inspector-panel")))
@@ -436,6 +643,10 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString("span:not(.palette-ico):not(.plus)")))
                 .andExpect(content().string(containsString(".workflow-generator")))
                 .andExpect(content().string(containsString(".generator-stream-output")))
+                .andExpect(content().string(containsString(".governance-report")))
+                .andExpect(content().string(containsString(".governance-summary-grid")))
+                .andExpect(content().string(containsString(".governance-status")))
+                .andExpect(content().string(containsString(".governance-test-details")))
                 .andExpect(content().string(containsString(".route-map-panel")))
                 .andExpect(content().string(containsString(".route-filter")))
                 .andExpect(content().string(containsString(".canvas-node.route-highlight")))
@@ -451,6 +662,12 @@ class FrontendStaticAssetsTest {
                 .andExpect(content().string(containsString(".condition-branch-section")))
                 .andExpect(content().string(containsString(".condition-branch-next")))
                 .andExpect(content().string(containsString(".condition-advanced-details")))
+                .andExpect(content().string(containsString(".http-target-row")))
+                .andExpect(content().string(containsString(".http-kv-row")))
+                .andExpect(content().string(containsString(".http-curl-import")))
+                .andExpect(content().string(containsString(".aggregator-group-card")))
+                .andExpect(content().string(containsString(".aggregator-candidate-row")))
+                .andExpect(content().string(containsString(".http-credential-settings-grid")))
                 .andExpect(content().string(containsString("width: clamp(420px, 34vw, 520px)")))
                 .andExpect(content().string(containsString(".condition-row-body")))
                 .andExpect(content().string(containsString(".condition-cell")))

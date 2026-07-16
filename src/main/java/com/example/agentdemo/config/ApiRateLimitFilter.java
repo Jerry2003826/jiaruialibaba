@@ -19,6 +19,8 @@ import java.util.regex.Pattern;
 final class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static final Pattern APP_RUNTIME_ENDPOINT = Pattern.compile("^/api/apps/[^/]+/(run|chat|chat/stream)$");
+    private static final Pattern WORKFLOW_PUBLISH_ENDPOINT =
+            Pattern.compile("^/api/workflows/definitions/[^/]+/publish$");
 
     private final boolean enabled;
     private final ApiRateLimiter rateLimiter;
@@ -59,16 +61,31 @@ final class ApiRateLimitFilter extends OncePerRequestFilter {
                 || path.startsWith("/api/agent/")
                 || isAppRuntimeEndpoint(path)
                 || path.equals("/api/workflows/run")
+                || path.equals("/api/workflows/spec-drafts")
                 || path.equals("/api/workflows/generate")
-                || path.equals("/api/workflows/generate/stream");
+                || path.equals("/api/workflows/generate/stream")
+                || path.equals("/api/workflows/governance/evaluate")
+                || isWorkflowPublishEndpoint(path);
     }
 
     private boolean isAppRuntimeEndpoint(String path) {
         return APP_RUNTIME_ENDPOINT.matcher(path).matches();
     }
 
+    private boolean isWorkflowPublishEndpoint(String path) {
+        return WORKFLOW_PUBLISH_ENDPOINT.matcher(path).matches();
+    }
+
     private String rateLimitKey(HttpServletRequest request) {
-        return principalKey(request) + "|" + request.getMethod() + "|" + request.getRequestURI();
+        return principalKey(request) + "|" + request.getMethod() + "|" + rateLimitBucket(request);
+    }
+
+    private String rateLimitBucket(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        if (isWorkflowPublishEndpoint(path)) {
+            return "/api/workflows/definitions/*/publish";
+        }
+        return path;
     }
 
     private String principalKey(HttpServletRequest request) {

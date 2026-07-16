@@ -6,7 +6,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
   async function loadInitialData() {
     loadAssistantWorkflowBinding();
     await bootstrapAuth();
-    await Promise.allSettled([loadHealth(), loadSchemas(), loadDefinitions()]);
+    await Promise.allSettled([loadHealth(), loadSchemas(), loadDefinitions(), loadToolCatalog()]);
   }
 
   async function bootstrapAuth() {
@@ -58,16 +58,27 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
 
   function assistantWorkflowPayload() {
     if (!state.assistantWorkflowBound) return {};
+    if (state.assistantWorkflowDefinitionStatus === "PUBLISHED" && state.assistantWorkflowDefinitionId) {
+      return workflowDefinitionReference(state.assistantWorkflowDefinitionId,
+        state.assistantWorkflowDefinitionVersion);
+    }
     if (state.assistantWorkflowUseCanvas) {
       if (state.definitionStatus === "PUBLISHED" && state.definitionId) {
-        return { workflowDefinitionId: state.definitionId };
+        return workflowDefinitionReference(state.definitionId, state.definitionVersion);
       }
       return { workflowDefinition: buildWorkflowDefinition() };
     }
     if (state.assistantWorkflowDefinitionId) {
-      return { workflowDefinitionId: state.assistantWorkflowDefinitionId };
+      return workflowDefinitionReference(state.assistantWorkflowDefinitionId,
+        state.assistantWorkflowDefinitionVersion);
     }
     return {};
+  }
+
+  function workflowDefinitionReference(definitionId, version) {
+    const payload = { workflowDefinitionId: definitionId };
+    if (version != null) payload.workflowDefinitionVersion = version;
+    return payload;
   }
 
   function assistantWorkflowLabel() {
