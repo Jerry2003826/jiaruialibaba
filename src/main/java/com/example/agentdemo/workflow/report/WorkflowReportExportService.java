@@ -143,7 +143,8 @@ public class WorkflowReportExportService {
         candidate = candidate.replaceAll(
                 "(?i)\\.(pdf|docx|html?|md|markdown|txt|exe|com|bat|cmd|sh|ps1|js|jar|msi|app|dmg|pkg)$", "");
         candidate = candidate.replaceAll("[\\p{Cntrl}<>:\"/\\\\|?*]", "-")
-                .replaceAll("(?:^[. ]+|[. ]+$)", "")
+                .replaceAll("^[. ]+", "")
+                .replaceAll("[. ]+$", "")
                 .replaceAll("\\s+", " ");
         if (!StringUtils.hasText(candidate)) candidate = "report";
         return candidate.length() > 120 ? candidate.substring(0, 120).trim() : candidate;
