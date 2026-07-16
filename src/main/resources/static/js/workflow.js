@@ -88,7 +88,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
     }
     if (Array.isArray(value)) return value.map(canonicalWorkflowLockedSpec);
     if (typeof value === "object") {
-      return Object.keys(value).sort().reduce((result, key) => {
+      return Object.keys(value).sort((left, right) => left.localeCompare(right)).reduce((result, key) => {
         result[key] = canonicalWorkflowLockedSpec(value[key]);
         return result;
       }, {});

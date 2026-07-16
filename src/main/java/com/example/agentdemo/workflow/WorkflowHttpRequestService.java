@@ -24,11 +24,13 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -464,11 +466,49 @@ public class WorkflowHttpRequestService {
 
     private record PreparedRequest(String method, URI uri, Map<String, List<String>> headers, byte[] body,
             long timeoutMs) {
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof PreparedRequest request
+                    && timeoutMs == request.timeoutMs
+                    && Objects.equals(method, request.method)
+                    && Objects.equals(uri, request.uri)
+                    && Objects.equals(headers, request.headers)
+                    && Arrays.equals(body, request.body);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(method, uri, headers, timeoutMs) + Arrays.hashCode(body);
+        }
+
+        @Override
+        public String toString() {
+            return "PreparedRequest[method=%s, uri=%s, headers=%s, bodyLength=%d, timeoutMs=%d]"
+                    .formatted(method, uri, headers.keySet(), body.length, timeoutMs);
+        }
     }
 
     private record NameValue(String name, String value) {
     }
 
     private record Body(byte[] bytes, String contentType) {
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof Body body
+                    && Arrays.equals(bytes, body.bytes)
+                    && Objects.equals(contentType, body.contentType);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Arrays.hashCode(bytes) + Objects.hashCode(contentType);
+        }
+
+        @Override
+        public String toString() {
+            return "Body[bytesLength=%d, contentType=%s]".formatted(bytes.length, contentType);
+        }
     }
 }

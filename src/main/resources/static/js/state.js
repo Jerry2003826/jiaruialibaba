@@ -1383,7 +1383,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       if (!path || /[\s{}]/.test(path)) return;
       paths.add(path);
     }));
-    return Array.from(paths).sort().map((path) => ({
+    return Array.from(paths).sort((left, right) => left.localeCompare(right)).map((path) => ({
       group: "common",
       value: `{{input.${path}}}`,
       label: `输入内容 · ${variableLabel(path.split(".").pop())}`,
@@ -1425,7 +1425,7 @@ var AgentWorkbench = window.AgentWorkbench = window.AgentWorkbench || {};
       if (!writeState || typeof writeState !== "object" || Array.isArray(writeState)) return;
       Object.keys(writeState).filter(Boolean).forEach((key) => keys.add(key));
     });
-    return Array.from(keys).sort().map((key) => ({
+    return Array.from(keys).sort((left, right) => left.localeCompare(right)).map((key) => ({
       group: "state",
       value: `{{state.${key}}}`,
       label: `流程状态 / ${variableLabel(key)}`,
