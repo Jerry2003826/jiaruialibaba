@@ -16,6 +16,111 @@ class WorkflowCompilerTest {
     private final WorkflowCompiler compiler = new WorkflowCompiler(new WorkflowNodeSchemaRegistry());
 
     @Test
+    void compilesCustomAiNodeWithNamedReachableInputs() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("search", "tavily_search", Map.of("query", "{{input.message}}")),
+                new WorkflowNode("patent_metrics", "custom", Map.of(
+                        "mode", "ai",
+                        "inputs", Map.of("evidence", "{{nodes.search.results}}"),
+                        "instruction", "提取每家公司的专利指标，不得补造数据。",
+                        "outputMode", "json",
+                        "outputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of("companies", Map.of("type", "array"))))),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThat(compiler.compile(definition).nodesById()).containsKey("patent_metrics");
+    }
+
+    @Test
+    void rejectsCustomAiNodeWithoutAnInstruction() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("custom", "custom", Map.of("mode", "ai", "inputs", Map.of())),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("instruction is required in ai mode");
+    }
+
+    @Test
+    void rejectsCustomNodeInputThatReferencesANonUpstreamNode() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("custom", "custom", Map.of(
+                        "mode", "template",
+                        "inputs", Map.of("future", "{{nodes.writer.answer}}"),
+                        "template", "{{nodes.writer.answer}}")),
+                new WorkflowNode("writer", "llm", Map.of("prompt", "Write {{input.message}}")),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("must reference an upstream node: writer");
+    }
+
+    @Test
+    void exposesCustomTextOutputToReportExport() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("custom", "custom", Map.of(
+                        "mode", "template",
+                        "inputs", Map.of("topic", "{{input.message}}"),
+                        "template", "# {{input.message}}")),
+                new WorkflowNode("report", "report_export", Map.of(
+                        "content", "{{nodes.custom.output}}",
+                        "formats", List.of("markdown"))),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThat(compiler.compile(definition).nodesById()).containsKey("report");
+    }
+
+    @Test
+    void compilesAReportExportNodeWithSupportedFormats() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("writer", "llm", Map.of("prompt", "Write {{input.message}}")),
+                new WorkflowNode("report", "report_export", Map.of(
+                        "content", "{{nodes.writer.answer}}",
+                        "formats", List.of("pdf", "docx"))),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThat(compiler.compile(definition).nodesById()).containsKey("report");
+    }
+
+    @Test
+    void rejectsReportExportWithoutAFormat() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("writer", "llm", Map.of("prompt", "Write {{input.message}}")),
+                new WorkflowNode("report", "report_export", Map.of(
+                        "content", "{{nodes.writer.answer}}",
+                        "formats", List.of())),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("at least one format");
+    }
+
+    @Test
+    void rejectsReportContentThatIsNotAReachableUpstreamStringVariable() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("writer", "llm", Map.of("prompt", "Write {{input.message}}")),
+                new WorkflowNode("report", "report_export", Map.of(
+                        "content", "{{input.message}}",
+                        "formats", List.of("pdf"))),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("content must be an exact reachable upstream string variable");
+    }
+
+    @Test
     void compilesValidLinearWorkflow() {
         WorkflowExecutionPlan plan = compiler.compile(definition(
                 new WorkflowNode("start", "start", Map.of()),
@@ -101,6 +206,82 @@ class WorkflowCompilerTest {
         assertThat(plan.linearNodes())
                 .extracting(WorkflowNode::id)
                 .containsExactly("start", "classify", "end");
+    }
+
+    @Test
+    void compilesLlmNodeWithAutomaticOutputContractMarker() {
+        WorkflowExecutionPlan plan = compiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("classify", "llm", Map.of(
+                        "prompt", "Classify {{input.message}}",
+                        "outputMode", "json",
+                        "outputSchema", Map.of(
+                                "type", "object",
+                                "required", List.of("intent"),
+                                "properties", Map.of("intent", Map.of("type", "string"))),
+                        "autoStructuredOutputContract", "customer_service_intent")),
+                new WorkflowNode("end", "end", Map.of())));
+
+        assertThat(plan.linearNodes())
+                .extracting(WorkflowNode::id)
+                .containsExactly("start", "classify", "end");
+    }
+
+    @Test
+    void compilesHttpRequestAndVariableAggregatorNodes() {
+        WorkflowExecutionPlan plan = compiler.compile(definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("http_orders", "http_request", Map.of(
+                        "method", "POST",
+                        "url", "https://api.example.test/orders",
+                        "headers", List.of(Map.of("key", "Accept", "value", "application/json", "enabled", true)),
+                        "params", List.of(),
+                        "authorization", Map.of("type", "none"),
+                        "body", Map.of("type", "json", "value", Map.of("message", "{{input.message}}")))),
+                new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                        "mode", "single",
+                        "outputType", "object",
+                        "variables", List.of("{{nodes.http_orders.json}}"))),
+                new WorkflowNode("end", "end", Map.of())));
+
+        assertThat(plan.linearNodes())
+                .extracting(WorkflowNode::type)
+                .containsExactly("start", "http_request", "variable_aggregator", "end");
+    }
+
+    @Test
+    void rejectsInlineSecretsNestedInsideHttpJsonBody() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("http_orders", "http_request", Map.of(
+                        "method", "POST",
+                        "url", "https://api.example.test/orders",
+                        "authorization", Map.of("type", "none"),
+                        "body", Map.of("type", "json", "value", Map.of(
+                                "message", "{{input.message}}",
+                                "apiToken", "plain-text-secret")))),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode())
+                                .isEqualTo("WORKFLOW_HTTP_INLINE_SECRET_BLOCKED"));
+    }
+
+    @Test
+    void rejectsVariableAggregatorReferencesToNonUpstreamNodes() {
+        WorkflowDefinition definition = definition(
+                new WorkflowNode("start", "start", Map.of()),
+                new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                        "mode", "single",
+                        "outputType", "string",
+                        "variables", List.of("{{nodes.later.answer}}"))),
+                new WorkflowNode("later", "llm", Map.of("prompt", "Answer {{input.message}}")),
+                new WorkflowNode("end", "end", Map.of()));
+
+        assertThatThrownBy(() -> compiler.compile(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("must reference an upstream node");
     }
 
     @Test

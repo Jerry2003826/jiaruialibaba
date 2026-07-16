@@ -1,5 +1,6 @@
 package com.example.agentdemo.demo;
 
+import com.example.agentdemo.common.BusinessDataException;
 import com.example.agentdemo.workflow.WorkflowCompiler;
 import com.example.agentdemo.workflow.WorkflowDefinition;
 import com.example.agentdemo.workflow.WorkflowDefinitionResponse;
@@ -19,8 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -73,6 +76,12 @@ class DemoWorkflowTemplateTest {
                 .extracting(WorkflowNode::id)
                 .containsExactly("start", "condition_expense_complete", "condition_manual_review",
                         "tool_missing_info", "tool_manual_review", "tool_auto_approve", "end");
+        assertThat(List.of("tool_missing_info", "tool_manual_review", "tool_auto_approve"))
+                .allSatisfy(nodeId -> {
+                    WorkflowNode outcome = node(definition, nodeId);
+                    assertThat(outcome.type()).isEqualTo("llm");
+                    assertThat(outcome.config()).containsKey("prompt").doesNotContainKey("toolName");
+                });
 
         WorkflowNode complete = node(definition, "condition_expense_complete");
         assertThat(complete.config()).containsEntry("mode", "all");
@@ -226,6 +235,24 @@ class DemoWorkflowTemplateTest {
     }
 
     @Test
+    void travelExpenseSyncDetectsLegacyGetCurrentTimeOutcomeNodes() {
+        WorkflowDefinition current = DemoWorkflowTemplate.travelExpenseConditionWorkflowRequest()
+                .workflowDefinition();
+        List<String> outcomeIds = List.of("tool_missing_info", "tool_manual_review", "tool_auto_approve");
+        List<WorkflowNode> legacyNodes = current.nodes().stream()
+                .map(node -> outcomeIds.contains(node.id())
+                        ? new WorkflowNode(node.id(), "tool", Map.of(
+                                "toolName", "getCurrentTime",
+                                "arguments", Map.of("message", "legacy outcome")), node.label(), node.route())
+                        : node)
+                .toList();
+
+        assertThat(DemoWorkflowTemplate.travelExpenseConditionWorkflowNeedsSync(
+                new WorkflowDefinition(legacyNodes, current.edges())))
+                .isTrue();
+    }
+
+    @Test
     void seederLeavesCurrentDemoWorkflowsUntouched() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         WorkflowDefinitionResponse customerService = new WorkflowDefinitionResponse(
@@ -252,6 +279,40 @@ class DemoWorkflowTemplateTest {
 
         verify(definitionService, times(2)).list();
         verifyNoMoreInteractions(definitionService);
+    }
+
+    @Test
+    void seederDoesNotAbortStartupWhenGovernanceBlocksDemoPublication() {
+        WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
+        WorkflowDefinitionResponse legacy = new WorkflowDefinitionResponse(
+                "wf-demo",
+                DemoWorkflowTemplate.CUSTOMER_SERVICE_WORKFLOW_NAME,
+                "legacy",
+                legacyCustomerServiceWorkflow(),
+                5,
+                WorkflowDefinitionStatus.PUBLISHED,
+                Instant.EPOCH,
+                Instant.EPOCH);
+        when(definitionService.list()).thenReturn(List.of(legacy, currentTravelExpenseDemo()));
+        when(definitionService.update(eq("wf-demo"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> new WorkflowDefinitionResponse(
+                        "wf-demo",
+                        invocation.getArgument(1, WorkflowDefinitionSaveRequest.class).name(),
+                        invocation.getArgument(1, WorkflowDefinitionSaveRequest.class).description(),
+                        invocation.getArgument(1, WorkflowDefinitionSaveRequest.class).workflowDefinition(),
+                        6,
+                        WorkflowDefinitionStatus.DRAFT,
+                        Instant.EPOCH,
+                        Instant.EPOCH));
+        doThrow(new BusinessDataException(
+                "WORKFLOW_GOVERNANCE_BLOCKED", "governance blocked demo publication", null))
+                .when(definitionService).publish("wf-demo");
+
+        assertThatCode(() -> new DemoWorkflowSeeder(definitionService).run(null))
+                .doesNotThrowAnyException();
+
+        verify(definitionService).update(eq("wf-demo"), org.mockito.ArgumentMatchers.any());
+        verify(definitionService).publish("wf-demo");
     }
 
     @SuppressWarnings("unchecked")

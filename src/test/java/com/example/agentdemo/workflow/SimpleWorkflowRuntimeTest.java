@@ -2,6 +2,7 @@ package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.support.TestToolServices;
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.common.BusinessException;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.tool.LocalToolProvider;
@@ -46,6 +47,37 @@ class SimpleWorkflowRuntimeTest {
     }
 
     @Test
+    void runsCustomTemplateNodeEndToEndWithoutCallingModel() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), aiModelService,
+                new ToolGatewayService(List.of()), variableResolver,
+                com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        SimpleWorkflowRuntime runtime = simpleRuntime(nodeExecutor, traceService);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("custom", "custom", Map.of(
+                                "mode", "template",
+                                "inputs", Map.of("company", "{{input.company}}"),
+                                "template", "公司：{{input.company}}；专利数据：待补充")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(new WorkflowEdge("start", "custom"), new WorkflowEdge("custom", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run(
+                "run-1", plan, Map.of("message", "分析专利", "company", "示例公司"));
+
+        assertThat(result.output()).isEqualTo(Map.of(
+                "mode", "template",
+                "inputs", Map.of("company", "示例公司"),
+                "output", "公司：示例公司；专利数据：待补充"));
+        org.mockito.Mockito.verifyNoInteractions(aiModelService);
+    }
+
+    @Test
     void runsOnlyMatchingConditionBranch() {
         ToolGatewayService gateway = new ToolGatewayService(List.of(new LocalToolProvider(TestToolServices.toolService())));
         TraceService traceService = mock(TraceService.class);
@@ -62,6 +94,47 @@ class SimpleWorkflowRuntimeTest {
                 .extracting(WorkflowStepSummary::nodeId)
                 .containsExactly("start", "check_intent", "tool_time", "end");
         verify(traceService).completeStep(eq("step-workflow_node_tool_time"), any());
+    }
+
+    @Test
+    void variableAggregatorConvergesMutuallyExclusiveConditionBranches() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new MapEchoProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("map_echo"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(mock(RagService.class), mock(AiModelService.class),
+                gateway, variableResolver, com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        SimpleWorkflowRuntime runtime = simpleRuntime(nodeExecutor, traceService);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("route", "condition", Map.of(
+                                "left", "{{input.department}}", "operator", "equals", "right", "shipping")),
+                        new WorkflowNode("shipping", "tool", Map.of(
+                                "toolName", "map_echo", "arguments", Map.of("text", "shipping-result"))),
+                        new WorkflowNode("after_sales", "tool", Map.of(
+                                "toolName", "map_echo", "arguments", Map.of("text", "after-sales-result"))),
+                        new WorkflowNode("aggregate", "variable_aggregator", Map.of(
+                                "mode", "single", "outputType", "string",
+                                "variables", List.of(
+                                        "{{nodes.shipping.text}}", "{{nodes.after_sales.text}}"))),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "route"),
+                        new WorkflowEdge("route", "shipping", "true"),
+                        new WorkflowEdge("route", "after_sales", "false"),
+                        new WorkflowEdge("shipping", "aggregate"),
+                        new WorkflowEdge("after_sales", "aggregate"),
+                        new WorkflowEdge("aggregate", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult shipping = runtime.run(
+                "run-1", plan, Map.of("message", "late parcel", "department", "shipping"));
+
+        assertThat(shipping.steps()).extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "route", "shipping", "aggregate", "end");
+        assertThat(shipping.output()).isEqualTo(Map.of("output", "shipping-result"));
     }
 
     @Test
@@ -91,6 +164,64 @@ class SimpleWorkflowRuntimeTest {
                 argThat(output -> output instanceof ToolExecutionLog log
                         && "remote_fail".equals(log.toolName())
                         && ToolExecutionLog.ERROR_REMOTE_TOOL.equals(log.errorCategory())));
+    }
+
+    @Test
+    void continuedToolFailureRoutesThroughExplicitFailureBranchAndReachesEnd() {
+        ToolGatewayService gateway = new ToolGatewayService(List.of(new FailingRemoteProvider()),
+                ToolExecutionPolicy.allowOnlyRemoteTools("remote_fail"));
+        TraceService traceService = mock(TraceService.class);
+        when(traceService.startTraceStep(eq("run-1"), any(), any()))
+                .thenAnswer(invocation -> step(invocation.getArgument(1)));
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(any(), any()))
+                .thenReturn(AiModelResult.ok("查询服务暂时不可用，已为您转人工处理。"));
+        WorkflowNodeExecutor nodeExecutor = new WorkflowNodeExecutor(
+                mock(RagService.class), aiModelService, gateway, variableResolver,
+                com.example.agentdemo.support.TestAlibabaPolicies.legacyFallbackAllowed(),
+                mock(WorkflowInlineExecutionService.class));
+        SimpleWorkflowRuntime runtime = simpleRuntime(nodeExecutor, traceService);
+        WorkflowExecutionPlan plan = compiler.compile(new WorkflowDefinition(
+                List.of(
+                        new WorkflowNode("start", "start", Map.of()),
+                        new WorkflowNode("tool_1", "tool", Map.of(
+                                "toolName", "remote_fail",
+                                "continueOnError", true)),
+                        new WorkflowNode("tool_failed", "condition", Map.of(
+                                "left", "{{nodes.tool_1.succeeded}}",
+                                "operator", "equals",
+                                "right", false)),
+                        new WorkflowNode("fallback", "llm", Map.of(
+                                "prompt", "工具失败：{{nodes.tool_1.errorMessage}}。请向客户说明并转人工。")),
+                        new WorkflowNode("success", "llm", Map.of(
+                                "prompt", "根据成功查询结果回复客户。")),
+                        new WorkflowNode("end", "end", Map.of())),
+                List.of(
+                        new WorkflowEdge("start", "tool_1"),
+                        new WorkflowEdge("tool_1", "tool_failed"),
+                        new WorkflowEdge("tool_failed", "fallback", "true"),
+                        new WorkflowEdge("tool_failed", "success", "false"),
+                        new WorkflowEdge("fallback", "end"),
+                        new WorkflowEdge("success", "end"))));
+
+        WorkflowRuntime.WorkflowExecutionResult result = runtime.run(
+                "run-1", plan, Map.of("message", "查询订单"));
+
+        assertThat(result.steps()).extracting(WorkflowStepSummary::nodeId)
+                .containsExactly("start", "tool_1", "tool_failed", "fallback", "end");
+        assertThat(result.output()).isInstanceOfSatisfying(Map.class, output -> {
+            assertThat(output).containsEntry("answer", "查询服务暂时不可用，已为您转人工处理。");
+            assertThat(output.get("toolCalls")).isInstanceOf(List.class);
+            List<?> calls = (List<?>) output.get("toolCalls");
+            assertThat(calls).hasSize(1);
+            assertThat(calls.getFirst()).isInstanceOf(ToolExecutionLog.class);
+            assertThat(((ToolExecutionLog) calls.getFirst()).succeeded()).isFalse();
+        });
+        verify(traceService).completeStep(eq("step-workflow_node_tool_1"), argThat(output ->
+                output instanceof Map<?, ?> map
+                        && "FAILED".equals(map.get("status"))
+                        && map.get("toolExecutionLog") instanceof ToolExecutionLog log
+                        && !log.succeeded()));
     }
 
     @Test

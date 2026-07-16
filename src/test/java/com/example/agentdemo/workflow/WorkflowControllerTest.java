@@ -30,7 +30,8 @@ class WorkflowControllerTest {
         assertThat(response.success()).isTrue();
         assertThat(response.data())
                 .extracting(WorkflowNodeSchema::type)
-                .containsExactly("start", "retriever", "llm", "tool", "condition", "parallel", "join", "loop",
+                .containsExactly("start", "retriever", "tavily_search", "llm", "tool", "http_request",
+                        "report_export", "custom", "condition", "parallel", "join", "variable_aggregator", "loop",
                         "loop_back", "subgraph", "dynamic", "end");
     }
 

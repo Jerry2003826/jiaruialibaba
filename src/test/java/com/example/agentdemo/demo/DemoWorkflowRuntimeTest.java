@@ -1,6 +1,7 @@
 package com.example.agentdemo.demo;
 
 import com.example.agentdemo.chat.AiModelService;
+import com.example.agentdemo.chat.AiModelResult;
 import com.example.agentdemo.rag.RagService;
 import com.example.agentdemo.support.TestAlibabaPolicies;
 import com.example.agentdemo.support.WorkflowRuntimeTestSupport;
@@ -19,7 +20,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class DemoWorkflowRuntimeTest {
 
@@ -67,10 +70,13 @@ class DemoWorkflowRuntimeTest {
     }
 
     private WorkflowRuntime graphRuntime() {
+        AiModelService aiModelService = mock(AiModelService.class);
+        when(aiModelService.generate(anyString(), anyString()))
+                .thenReturn(AiModelResult.ok("演示流程处理完成"));
         return WorkflowRuntimeTestSupport.graphRuntimeStack(
                 mock(com.example.agentdemo.workflow.WorkflowDefinitionService.class),
                 mock(RagService.class),
-                mock(AiModelService.class),
+                aiModelService,
                 WorkflowRuntimeTestSupport.localToolGateway(),
                 TestAlibabaPolicies.legacyFallbackAllowed(),
                 WorkflowRuntimeTestSupport.mockPermissiveTraceService(),

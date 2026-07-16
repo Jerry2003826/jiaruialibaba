@@ -6,11 +6,17 @@ window.AgentWorkbench = window.AgentWorkbench || {};
   async function runWorkflow() {
     syncFormToJson();
     const input = parseJsonInput(els.workflowInput.value, {});
+    const payload = workflowRunPayload(input);
+    const workflowDefinition = payload.workflowDefinition || runWorkflowDefinition();
     setRunStatus("运行中…");
     els.runResult.className = "result-card empty-result";
     els.runResult.textContent = "正在运行…";
     await runCommand({
-      request: () => requestJson(API.runWorkflow, { method: "POST", body: { workflowDefinition: buildWorkflowDefinition(), input } }),
+      request: async () => {
+        ensureRequiredWorkflowInputs(input);
+        await ensureWorkflowCanRun(workflowDefinition);
+        return requestJson(API.runWorkflow, { method: "POST", body: payload });
+      },
       outputEl: els.runOutput,
       onSuccess: async (response) => {
         state.lastRunId = response.runId;
@@ -32,11 +38,26 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     });
   }
 
+  function workflowRunPayload(input) {
+    if (state.definitionStatus === "PUBLISHED" && state.definitionId) {
+      return {
+        definitionId: state.definitionId,
+        definitionVersion: state.definitionVersion,
+        input
+      };
+    }
+    return {
+      workflowDefinition: runWorkflowDefinition(),
+      input
+    };
+  }
+
   function setRunStatus(text) { if (els.runHandleStatus) els.runHandleStatus.textContent = text; }
 
   // 友好结果：从响应中提取可读答案
-  function renderRunResult(response) {
+  function renderRunResult(response, options = {}) {
     const answer = deepFindText(response);
+    const artifactGroups = findReportArtifactGroups(response);
     els.runResult.className = "result-card";
     if (answer) {
       els.runResult.innerHTML = `<div class="result-label">结果</div><div class="result-answer"></div><div class="result-meta-row"></div>`;
@@ -47,6 +68,164 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     } else {
       els.runResult.innerHTML = `<div class="result-label">结果</div><div class="result-answer">运行完成（无文本输出，详见下方原始 JSON 与运行步骤）。</div>`;
     }
+    if (artifactGroups.length > 0) renderReportArtifacts(els.runResult, artifactGroups);
+    if (response.runId && options.hydrateArtifacts !== false) {
+      void hydrateReportArtifacts(els.runResult, response.runId);
+    }
+  }
+
+  function findReportArtifactGroups(value, depth = 0, seen = new Set()) {
+    if (depth > 8 || value == null || typeof value !== "object" || seen.has(value)) return [];
+    seen.add(value);
+    if (Array.isArray(value.artifacts) && value.exportId) {
+      return [{
+        exportId: value.exportId,
+        artifacts: value.artifacts,
+        primary: value.primary || value.artifacts[0] || null,
+        printPreview: value.printPreview || null,
+        expiresAt: value.expiresAt || value.artifacts[0]?.expiresAt || null
+      }];
+    }
+    return Object.values(value).flatMap((item) => findReportArtifactGroups(item, depth + 1, seen));
+  }
+
+  async function hydrateReportArtifacts(container, runId) {
+    try {
+      const groups = await requestJson(API.workflowRunArtifacts(runId));
+      if (Array.isArray(groups) && groups.length > 0) renderReportArtifacts(container, groups);
+    } catch (error) {
+      const existing = container.querySelector(".report-artifacts");
+      if (!existing) return;
+      const warning = document.createElement("div");
+      warning.className = "report-artifact-warning";
+      warning.textContent = `刷新报告列表失败：${error.message}`;
+      existing.appendChild(warning);
+    }
+  }
+
+  function renderReportArtifacts(container, groups) {
+    container.querySelector(".report-artifacts")?.remove();
+    const section = document.createElement("section");
+    section.className = "report-artifacts";
+    const heading = document.createElement("div");
+    heading.className = "report-artifacts-heading";
+    heading.textContent = "生成的报告";
+    section.appendChild(heading);
+    groups.forEach((group) => {
+      const block = document.createElement("div");
+      block.className = "report-artifact-group";
+      (Array.isArray(group.artifacts) ? group.artifacts : []).forEach((artifact) => {
+        block.appendChild(reportArtifactRow(artifact));
+      });
+      if (group.printPreview?.contentUrl || group.printPreview?.downloadUrl) {
+        const print = document.createElement("button");
+        print.type = "button";
+        print.className = "btn btn-sm btn-ghost report-print-button";
+        print.textContent = "打印";
+        print.addEventListener("click", () => void printReportArtifact(group.printPreview, print));
+        block.appendChild(print);
+      }
+      const expiry = group.expiresAt || group.artifacts?.[0]?.expiresAt;
+      if (expiry) {
+        const meta = document.createElement("div");
+        meta.className = "report-artifact-expiry";
+        meta.textContent = `保留至 ${formatArtifactDate(expiry)}`;
+        block.appendChild(meta);
+      }
+      section.appendChild(block);
+    });
+    container.appendChild(section);
+  }
+
+  function reportArtifactRow(artifact) {
+    const row = document.createElement("div");
+    row.className = "report-artifact-row";
+    const details = document.createElement("div");
+    details.className = "report-artifact-details";
+    const name = document.createElement("strong");
+    name.textContent = artifact.fileName || `报告.${artifact.format || "file"}`;
+    const meta = document.createElement("span");
+    meta.textContent = `${String(artifact.format || "").toUpperCase()} · ${formatArtifactSize(artifact.sizeBytes)}`;
+    details.append(name, meta);
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "btn btn-sm btn-secondary";
+    download.textContent = "下载";
+    download.disabled = !artifact.downloadUrl;
+    download.addEventListener("click", () => void downloadReportArtifact(artifact, download));
+    row.append(details, download);
+    return row;
+  }
+
+  async function requestArtifactBlob(url) {
+    const response = await fetch(url, { headers: authHeaders({ Accept: "*/*" }), cache: "no-store" });
+    if (response.ok) return response.blob();
+    let message = `HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      message = payload?.message || payload?.code || message;
+    } catch (error) { /* preserve the status fallback */ }
+    throw new Error(message);
+  }
+
+  async function downloadReportArtifact(artifact, button) {
+    button.disabled = true;
+    try {
+      const blob = await requestArtifactBlob(artifact.contentUrl || artifact.downloadUrl);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = artifact.fileName || `report.${artifact.format || "bin"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (error) {
+      toast(`下载失败：${error.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function printReportArtifact(artifact, button) {
+    button.disabled = true;
+    try {
+      const blob = await requestArtifactBlob(artifact.contentUrl || artifact.downloadUrl);
+      const objectUrl = URL.createObjectURL(blob);
+      const frame = document.createElement("iframe");
+      frame.className = "report-print-frame";
+      frame.title = "报告打印预览";
+      const cleanup = () => {
+        frame.remove();
+        URL.revokeObjectURL(objectUrl);
+      };
+      frame.addEventListener("load", () => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) { cleanup(); return; }
+        printWindow.addEventListener("afterprint", cleanup, { once: true });
+        printWindow.focus();
+        printWindow.print();
+        setTimeout(cleanup, 60000);
+      }, { once: true });
+      frame.src = objectUrl;
+      document.body.appendChild(frame);
+    } catch (error) {
+      toast(`打印预览失败：${error.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function formatArtifactSize(value) {
+    const bytes = Number(value || 0);
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  function formatArtifactDate(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("zh-CN", { hour12: false });
   }
 
   // ============================================================
@@ -231,6 +410,20 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     state.lastRunId = run.runId;
     setWorkflowStatus(`Run ${run.runId.slice(0, 8)} · ${run.status}`);
     openRunDrawer();
+    const [detailResult, artifactsResult] = await Promise.allSettled([
+      requestJson(API.workflowRunDetail(run.runId)),
+      requestJson(API.workflowRunArtifacts(run.runId))
+    ]);
+    if (detailResult.status === "fulfilled" && detailResult.value?.run) {
+      renderRunResult(detailResult.value.run, { hydrateArtifacts: false });
+    } else {
+      els.runResult.className = "result-card";
+      els.runResult.innerHTML = `<div class="result-label">结果</div><div class="result-answer">历史运行详情暂时无法恢复。</div>`;
+    }
+    if (artifactsResult.status === "fulfilled" && Array.isArray(artifactsResult.value)
+        && artifactsResult.value.length > 0) {
+      renderReportArtifacts(els.runResult, artifactsResult.value);
+    }
     await refreshRunTrace(run.runId);
     toast(`已载入运行 ${run.runId.slice(0, 8)}`);
   }
@@ -273,25 +466,159 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     catch (error) { return { message: "" }; }
   }
 
+  function normalizeWorkflowVariableSchema(schema) {
+    const normalizeInput = (variable) => ({
+      name: cleanText(variable?.name),
+      type: cleanText(variable?.type) || "string",
+      required: Boolean(variable?.required),
+      defaultValue: variable?.defaultValue ?? null,
+      description: cleanText(variable?.description)
+    });
+    return {
+      inputs: (Array.isArray(schema?.inputs) ? schema.inputs : [])
+        .map(normalizeInput)
+        .filter((variable) => variable.name),
+      outputs: Array.isArray(schema?.outputs) ? cloneWorkflowValue(schema.outputs) : []
+    };
+  }
+
+  function discoverWorkflowInputVariables() {
+    const usages = new Map();
+    const register = (path, searchQuery) => {
+      const segments = cleanText(path).split(".").filter(Boolean);
+      const name = segments[0] || "message";
+      const existing = usages.get(name) || { nested: false, searchQuery: false };
+      usages.set(name, {
+        nested: existing.nested || segments.length > 1,
+        searchQuery: existing.searchQuery || searchQuery
+      });
+    };
+    const inspect = (value, tavilyNode, searchQuery = false) => {
+      if (typeof value === "string") {
+        for (const match of value.matchAll(/\{\{\s*input(?:\.([a-zA-Z][a-zA-Z0-9_.-]*))?\s*}}/g)) {
+          register(match[1] || "message", tavilyNode && searchQuery);
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((child) => inspect(child, tavilyNode, searchQuery));
+        return;
+      }
+      if (value && typeof value === "object") {
+        Object.entries(value).forEach(([key, child]) => inspect(child, tavilyNode, searchQuery || key === "query"));
+      }
+    };
+    state.nodes.forEach((node) => inspect(node.config, node.type === "tavily_search"));
+    return Array.from(usages.entries()).map(([name, usage]) => ({
+      name,
+      type: inferredWorkflowInputType(name, usage.nested),
+      required: true,
+      defaultValue: null,
+      description: usage.searchQuery || name === "topic" || name === "query"
+        ? "输入要研究或搜索的主题"
+        : name === "message" ? "输入给工作流的内容" : `工作流输入：${name}`
+    }));
+  }
+
+  function inferredWorkflowInputType(name, nested) {
+    if (nested) return "object";
+    if (["amount", "count", "maxResults", "topK", "limit", "page", "pageSize"].includes(name)) return "number";
+    if (["receiptProvided", "paid", "enabled", "includeAnswer", "includeRawContent"].includes(name)) return "boolean";
+    if (["tools", "history", "orderIds", "items", "includeDomains", "excludeDomains"].includes(name)) return "array";
+    return "string";
+  }
+
+  function effectiveWorkflowVariables() {
+    const declared = normalizeWorkflowVariableSchema(state.workflowVariables);
+    const inputs = new Map(declared.inputs.map((variable) => [variable.name, variable]));
+    discoverWorkflowInputVariables().forEach((variable) => {
+      if (!inputs.has(variable.name)) inputs.set(variable.name, variable);
+    });
+    if (inputs.size === 0) {
+      Object.entries(currentInputObject()).forEach(([name, value]) => inputs.set(name, {
+        name,
+        type: Array.isArray(value) ? "array" : value === null ? "string" : typeof value,
+        required: false,
+        defaultValue: value,
+        description: ""
+      }));
+    }
+    return { inputs: Array.from(inputs.values()), outputs: declared.outputs };
+  }
+
+  function setWorkflowRunVariables(schema, options = {}) {
+    state.workflowVariables = normalizeWorkflowVariableSchema(schema);
+    syncWorkflowInputWithVariables(options);
+    if (state.inputMode === "form") renderRunInputForm();
+  }
+
+  function syncWorkflowInputWithVariables(options = {}) {
+    const preserveValues = options.preserveValues !== false;
+    const previous = preserveValues ? currentInputObject() : {};
+    const variables = effectiveWorkflowVariables().inputs;
+    const next = {};
+    variables.forEach((variable) => {
+      if (preserveValues && Object.prototype.hasOwnProperty.call(previous, variable.name)) {
+        next[variable.name] = previous[variable.name];
+      } else if (variable.defaultValue !== null && variable.defaultValue !== undefined) {
+        next[variable.name] = cloneWorkflowValue(variable.defaultValue);
+      } else {
+        next[variable.name] = emptyWorkflowInputValue(variable.type);
+      }
+    });
+    if (els.workflowInput) els.workflowInput.value = formatJson(next);
+  }
+
+  function emptyWorkflowInputValue(type) {
+    if (type === "object") return {};
+    if (type === "array") return [];
+    if (type === "boolean") return false;
+    if (type === "number") return null;
+    return "";
+  }
+
+  function inputVariablePresentation(variable) {
+    const searchTopic = variable.description === "输入要研究或搜索的主题"
+      || state.nodes.some((node) => node.type === "tavily_search"
+        && templateReferencesInput(node.config?.query, variable.name));
+    return {
+      label: searchTopic ? "搜索主题" : variableLabel(variable.name),
+      placeholder: searchTopic ? "输入你希望研究或搜索的主题" : variable.description
+    };
+  }
+
+  function templateReferencesInput(value, name) {
+    if (typeof value !== "string") return false;
+    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\{\\{\\s*input(?:\\.${escaped})?\\s*}}`).test(value)
+      && (name === "message" || value.includes(`input.${name}`));
+  }
+
   function renderRunInputForm() {
     const obj = currentInputObject();
-    const keys = Object.keys(obj);
-    if (keys.length === 0) { obj.message = ""; keys.push("message"); }
+    const variables = effectiveWorkflowVariables().inputs;
     els.runInputForm.innerHTML = "";
-    keys.forEach((key) => {
-      const shell = fieldShell(variableLabel(key));
-      const value = obj[key];
+    variables.forEach((variable) => {
+      const key = variable.name;
+      const presentation = inputVariablePresentation(variable);
+      const shell = fieldShell(`${presentation.label}${variable.required ? "（必填）" : ""}`);
+      const value = obj[key] ?? emptyWorkflowInputValue(variable.type);
       let control;
-      if (value && typeof value === "object") {
+      if (variable.type === "object" || variable.type === "array" || (value && typeof value === "object")) {
         control = document.createElement("textarea");
         control.className = "code-input";
         control.value = formatJson(value);
         control.dataset.json = "true";
-      } else if (typeof value === "string" && (value.length > 40 || key === "message")) {
+      } else if (variable.type === "boolean") {
+        control = document.createElement("input");
+        control.type = "checkbox";
+        control.checked = Boolean(value);
+        control.dataset.boolean = "true";
+      } else if (typeof value === "string" && (value.length > 40 || key === "message" || presentation.label === "搜索主题")) {
         control = document.createElement("textarea");
         control.className = "text-area";
         control.value = value;
-      } else if (typeof value === "number") {
+      } else if (variable.type === "number" || typeof value === "number") {
         control = document.createElement("input");
         control.className = "text-input"; control.type = "number"; control.value = value;
         control.dataset.num = "true";
@@ -300,7 +627,10 @@ window.AgentWorkbench = window.AgentWorkbench || {};
         control.className = "text-input"; control.type = "text"; control.value = value ?? "";
       }
       control.dataset.key = key;
+      if (presentation.placeholder) control.placeholder = presentation.placeholder;
+      control.required = Boolean(variable.required);
       control.addEventListener("input", syncFormToJson);
+      control.addEventListener("change", syncFormToJson);
       shell.appendChild(control);
       els.runInputForm.appendChild(shell);
     });
@@ -313,6 +643,8 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       const key = control.dataset.key;
       if (control.dataset.json === "true") {
         try { obj[key] = JSON.parse(control.value || "null"); } catch (error) { obj[key] = control.value; }
+      } else if (control.dataset.boolean === "true") {
+        obj[key] = control.checked;
       } else if (control.dataset.num === "true") {
         obj[key] = control.value === "" ? null : Number(control.value);
       } else {
@@ -320,6 +652,18 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       }
     });
     els.workflowInput.value = formatJson(obj);
+  }
+
+  function ensureRequiredWorkflowInputs(input) {
+    const missing = effectiveWorkflowVariables().inputs
+      .filter((variable) => variable.required)
+      .filter((variable) => {
+        const value = input?.[variable.name];
+        return value === null || value === undefined || (typeof value === "string" && !value.trim());
+      });
+    if (missing.length === 0) return;
+    const labels = missing.map((variable) => inputVariablePresentation(variable).label).join("、");
+    throw new Error(`请先填写${labels}`);
   }
 
   // ============================================================
@@ -357,12 +701,18 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       <div class="run-detail-head"><span class="item-meta">${escapeHtml(run.runId)}</span></div>`;
     const stepsHost = document.createElement("div");
     stepsHost.className = "step-list";
-    els.runDetail.appendChild(stepsHost);
+    const artifactsHost = document.createElement("div");
+    artifactsHost.className = "run-history-artifacts";
+    els.runDetail.append(artifactsHost, stepsHost);
     try {
-      const [steps, graph] = await Promise.allSettled([
+      const [steps, graph, artifacts] = await Promise.allSettled([
         requestJson(API.runSteps(run.runId)),
-        requestJson(API.workflowRunGraph(run.runId))
+        requestJson(API.workflowRunGraph(run.runId)),
+        requestJson(API.workflowRunArtifacts(run.runId))
       ]);
+      if (artifacts.status === "fulfilled" && Array.isArray(artifacts.value) && artifacts.value.length > 0) {
+        renderReportArtifacts(artifactsHost, artifacts.value);
+      }
       renderTraceSteps(stepsHost, steps.status === "fulfilled" ? steps.value : [], graph.status === "fulfilled" ? graph.value : null);
     } catch (error) {
       stepsHost.appendChild(emptyDiv(error.message));
@@ -675,6 +1025,28 @@ window.AgentWorkbench = window.AgentWorkbench || {};
     };
   }
 
+  function runWorkflowDefinition() {
+    return buildWorkflowDefinition();
+  }
+
+  async function ensureWorkflowCanRun(workflowDefinition) {
+    const response = await requestJson(API.validateWorkflow, {
+      method: "POST",
+      body: { workflowDefinition }
+    });
+    if (response?.valid !== false) return response;
+    const detail = formatWorkflowValidationErrors(response.errors);
+    throw new Error(detail ? `工作流未通过校验，不能运行：${detail}` : "工作流未通过校验，不能运行");
+  }
+
+  function formatWorkflowValidationErrors(errors) {
+    if (!Array.isArray(errors) || errors.length === 0) return "";
+    return errors
+      .map((error) => cleanText(error?.message || error?.code || error))
+      .filter(Boolean)
+      .join("；");
+  }
+
   function applyAutomaticStructuredOutputContracts() {
     state.nodes
       .filter((node) => node.type === "llm")
@@ -703,7 +1075,7 @@ window.AgentWorkbench = window.AgentWorkbench || {};
       return CUSTOMER_SERVICE_INTENT_PROFILE;
     }
     const text = [
-      node.id, node.label, node.route,
+      node.id, node.label,
       node.config?.prompt
     ].map((value) => String(value || "").toLowerCase()).join(" ");
     const router = ["意图", "intent", "路由", "分流", "分类", "判断", "route", "classif"]

@@ -12,7 +12,17 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBaseEnti
 
     Optional<KnowledgeBaseEntity> findByKbIdAndOwnerId(String kbId, String ownerId);
 
+    Optional<KnowledgeBaseEntity> findByKbIdAndOwnerIdAndSystemManagedFalse(String kbId, String ownerId);
+
+    Optional<KnowledgeBaseEntity> findByKbIdAndOwnerIdAndPurposeAndSystemManagedTrue(String kbId, String ownerId,
+            KnowledgeBasePurpose purpose);
+
+    Optional<KnowledgeBaseEntity> findByOwnerIdAndPurposeAndSystemManagedTrue(String ownerId,
+            KnowledgeBasePurpose purpose);
+
     List<KnowledgeBaseEntity> findByOwnerIdOrderByCreatedAtDesc(String ownerId);
+
+    List<KnowledgeBaseEntity> findByOwnerIdAndSystemManagedFalseOrderByCreatedAtDesc(String ownerId);
 
     boolean existsByKbIdAndOwnerId(String kbId, String ownerId);
 

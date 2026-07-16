@@ -57,9 +57,17 @@ final class DemoWorkflowTemplate {
         WorkflowNode complete = findNode(definition, "condition_expense_complete");
         WorkflowNode review = findNode(definition, "condition_manual_review");
         return !isCompositeCondition(complete, "all", 3) || !isCompositeCondition(review, "any", 3)
-                || findNode(definition, "tool_missing_info") == null
-                || findNode(definition, "tool_manual_review") == null
-                || findNode(definition, "tool_auto_approve") == null;
+                || !isLlmOutcome(findNode(definition, "tool_missing_info"))
+                || !isLlmOutcome(findNode(definition, "tool_manual_review"))
+                || !isLlmOutcome(findNode(definition, "tool_auto_approve"));
+    }
+
+    private static boolean isLlmOutcome(WorkflowNode node) {
+        if (node == null || !"llm".equals(node.type())) {
+            return false;
+        }
+        Object prompt = node.config().get("prompt");
+        return prompt instanceof String text && !text.isBlank();
     }
 
     private static boolean isCompositeCondition(WorkflowNode node, String mode, int expectedConditions) {
@@ -147,11 +155,11 @@ final class DemoWorkflowTemplate {
                                 conditionRule("{{input.message}}", "contains", "加急", false),
                                 conditionRule("{{input.amount}}", "greaterThan", 1000, false))),
                         "人工复核判断", "OR 多条件"),
-                toolOutcome("tool_missing_info", "资料不全处理", "资料不全",
+                llmOutcome("tool_missing_info", "资料不全处理", "资料不全",
                         "AND 判断未全部满足：资料或金额字段不完整，需要补齐后再审核。"),
-                toolOutcome("tool_manual_review", "人工复核处理", "人工复核",
+                llmOutcome("tool_manual_review", "人工复核处理", "人工复核",
                         "OR 判断命中至少一条：申请需要人工复核。"),
-                toolOutcome("tool_auto_approve", "自动通过处理", "自动通过",
+                llmOutcome("tool_auto_approve", "自动通过处理", "自动通过",
                         "AND 已全部满足，OR 未命中：申请可进入自动通过路径。"),
                 node("end", "end", Map.of(), "结束输出", "出口")),
                 List.of(
@@ -174,11 +182,8 @@ final class DemoWorkflowTemplate {
                 label, route);
     }
 
-    private static WorkflowNode toolOutcome(String id, String label, String route, String message) {
-        return node(id, "tool", Map.of(
-                "toolName", "getCurrentTime",
-                "arguments", Map.of("message", message),
-                "idempotent", true),
+    private static WorkflowNode llmOutcome(String id, String label, String route, String message) {
+        return node(id, "llm", Map.of("prompt", message),
                 label, route);
     }
 

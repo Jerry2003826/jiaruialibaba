@@ -1,0 +1,226 @@
+{
+  "id": "core",
+  "version": "2026.07.15",
+  "domains": [
+    "core"
+  ],
+  "rules": [
+    {
+      "id": "core-registered-node-types",
+      "severity": "error",
+      "title": "Only registered workflow node types may appear",
+      "description": "Generated or repaired graphs must stay within the existing workflow node catalog and may not invent new node types.",
+      "antiPatterns": [
+        "Invent a node type because its name sounds suitable for the requested business step."
+      ],
+      "examples": [
+        "Use an existing condition, tool, LLM, or end node and express the business behavior through supported configuration."
+      ],
+      "repairHint": "Replace unsupported nodes with the closest existing platform node type and rewire the flow around the supported catalog only.",
+      "detector": "registered-node-types"
+    },
+    {
+      "id": "core-registered-tools",
+      "severity": "error",
+      "title": "Tool calls must map to approved tools",
+      "description": "Tool nodes must reference approved platform tools rather than unsupported business-side placeholders.",
+      "antiPatterns": [
+        "Configure a plausible CRM, logistics, notification, or ticket tool name that is absent from the runtime registry."
+      ],
+      "examples": [
+        "Select an exact registered tool name; when no suitable tool exists, clarify the limitation or route to a human."
+      ],
+      "repairHint": "Swap placeholder tool names for approved platform tools and move unsupported business logic into prompts or existing routing nodes.",
+      "detector": "registered-tool-names"
+    },
+    {
+      "id": "core-output-contract-consistency",
+      "severity": "warning",
+      "title": "Prompt templates and output contracts must agree",
+      "description": "Structured-output prompts, declared schemas, and downstream variable usage should not contradict one another.",
+      "antiPatterns": [
+        "Ask the model for one set of fields while downstream conditions reference different or undeclared fields."
+      ],
+      "examples": [
+        "Declare every field used by downstream nodes and use the same names and value vocabulary in the prompt."
+      ],
+      "repairHint": "Align the prompt, declared output schema, and downstream variable references so every consumed field is actually produced.",
+      "detector": "template-output-contract-consistency"
+    },
+    {
+      "id": "core-customer-readable-final-output",
+      "severity": "warning",
+      "title": "Final answers must remain customer-readable",
+      "description": "Terminal customer-facing responses should avoid raw internal fields, debugging fragments, and incomplete placeholders.",
+      "antiPatterns": [
+        "Return raw JSON, unresolved template variables, internal routing labels, or stack traces to the customer."
+      ],
+      "examples": [
+        "Convert internal results into a concise natural-language answer that states the outcome and next step."
+      ],
+      "repairHint": "Rewrite the terminal response into customer-facing language and remove internal variables, debugging text, or unfinished placeholders.",
+      "detector": "customer-readable-final-output"
+    },
+    {
+      "id": "core-unsupported-business-claims",
+      "severity": "error",
+      "title": "Do not fabricate unsupported actions or external capabilities",
+      "description": "The workflow must not promise business outcomes or represent an LLM-only step as external search, browsing, lookup, or another unavailable capability.",
+      "antiPatterns": [
+        "State that a refund, compensation, shipment, or account action succeeded when no approved tool or policy result supports it.",
+        "Tell an LLM to simulate Web Search, multi-source retrieval, or browsing when no executable search tool exists."
+      ],
+      "examples": [
+        "Explain what can be verified now and request required information or escalate before committing to a business outcome.",
+        "Use the registered tavily_search node for external web research, then make downstream LLM nodes consume its results.",
+        "If Tavily is not configured, stop with a clear configuration requirement instead of simulating search."
+      ],
+      "repairHint": "Replace simulated web search with the registered tavily_search node and make downstream nodes consume its results. Never put an API key in workflow config; ask the user to configure Tavily in Settings when the integration is unavailable.",
+      "detector": "unsupported-business-claims"
+    },
+    {
+      "id": "core-runtime-budget-fit",
+      "severity": "error",
+      "title": "Generated paths must fit the automated runtime budget",
+      "description": "A single execution path may contain at most two serial LLM calls so mandatory cases can finish within the 90-second evaluation budget.",
+      "antiPatterns": [
+        "Chain separate LLM nodes for parsing, simulated search, synthesis, and report formatting on the same path."
+      ],
+      "examples": [
+        "Combine adjacent reasoning and formatting stages into one bounded LLM node, or replace external work with an approved tool followed by one answer node."
+      ],
+      "repairHint": "Reduce each path to at most two LLM calls by merging adjacent prompts and replacing simulated external work with tavily_search.",
+      "detector": "runtime-budget-fit"
+    },
+    {
+      "id": "core-http-placeholder-url",
+      "severity": "error",
+      "title": "HTTP requests need a real user-approved endpoint",
+      "description": "HTTP request nodes may not ship with placeholder domains or model-invented endpoints.",
+      "antiPatterns": ["Generate example.com, example.test, localhost, or a plausible unconfirmed API URL."],
+      "examples": ["Use the exact URL confirmed in the locked specification, or keep the blueprint blocked for user configuration."],
+      "repairHint": "Remove the placeholder endpoint and request the exact API URL without discarding the editable blueprint.",
+      "detector": "http-placeholder-url"
+    },
+    {
+      "id": "core-http-inline-secret",
+      "severity": "error",
+      "title": "HTTP secrets must use managed credentials",
+      "description": "Workflow JSON must never contain authorization tokens, API keys, passwords, cookies, or embedded URL credentials.",
+      "antiPatterns": ["Put Authorization, X-API-Key, token, password, or cookie values in headers, params, URL, or body config."],
+      "examples": ["Reference an existing owner-scoped credentialId and keep secret material in the credential center."],
+      "repairHint": "Delete inline secret material and bind a matching managed credential; if none exists, mark credential configuration as blocking.",
+      "detector": "http-inline-secret"
+    },
+    {
+      "id": "core-http-failure-handling",
+      "severity": "warning",
+      "title": "HTTP failure outcomes need an explicit consumer",
+      "description": "HTTP 4xx and 5xx responses should be checked through statusCode or succeeded before the workflow claims success.",
+      "antiPatterns": ["Send an HTTP response directly to a success answer without checking succeeded or statusCode."],
+      "examples": ["Route on nodes.request.succeeded or nodes.request.statusCode and provide a useful failure branch."],
+      "repairHint": "Add a downstream condition that consumes succeeded or statusCode and handles the unsuccessful branch.",
+      "detector": "http-failure-handling"
+    },
+    {
+      "id": "core-http-output-fields",
+      "severity": "error",
+      "title": "HTTP consumers must use the fixed response contract",
+      "description": "Downstream templates may only consume statusCode, headers, body, json, durationMs, or succeeded from HTTP nodes.",
+      "antiPatterns": ["Reference invented fields such as response, data, result, code, or output directly on an HTTP node."],
+      "examples": ["Use nodes.request.json for parsed JSON or nodes.request.body for text."],
+      "repairHint": "Replace invented HTTP output paths with a field from the fixed HTTP response contract.",
+      "detector": "http-output-fields"
+    },
+    {
+      "id": "core-report-source-contract",
+      "severity": "error",
+      "title": "Report exports require a reachable upstream string",
+      "description": "Report content must be an exact string output from a reachable upstream node, normally the final report-writing LLM answer.",
+      "antiPatterns": ["Export input.message directly, reference a downstream node, or embed the report body in workflow JSON."],
+      "examples": ["Set content to nodes.llm_report.answer after the report-writing node is connected upstream."],
+      "repairHint": "Connect a report-writing node before report_export and select its string output through the variable graph.",
+      "detector": "report-source-contract"
+    },
+    {
+      "id": "core-report-file-name",
+      "severity": "error",
+      "title": "Report file names must be safe",
+      "description": "Report file names may not contain path traversal, control characters, path separators, or executable extensions.",
+      "antiPatterns": ["Use ../report.exe, a shell-script extension, or a path instead of a base file name."],
+      "examples": ["Use a plain business name such as quarterly-research-report; the exporter appends the selected extension."],
+      "repairHint": "Replace the value with a plain base file name and let report_export append the selected safe extension.",
+      "detector": "report-file-name"
+    },
+    {
+      "id": "core-report-export-config",
+      "severity": "error",
+      "title": "Report export formats and limits must be valid",
+      "description": "A report export must select at least one supported format and stay inside the configured retention and size limits.",
+      "antiPatterns": ["Use an unsupported format, select no format, retain artifacts beyond 365 days, or try to embed oversized file data."],
+      "examples": ["Select one or more of pdf, docx, html, markdown, or txt and keep retentionDays between 1 and 365."],
+      "repairHint": "Choose supported formats, remove embedded file data, and restore the configured retention and size limits.",
+      "detector": "report-export-config"
+    },
+    {
+      "id": "core-report-content-safety",
+      "severity": "error",
+      "title": "Report rendering must stay inside the safe document profile",
+      "description": "Report prompts may not request scripts, event handlers, remote images, data URLs, or custom CSS. HTML is sanitized and external resources are disabled.",
+      "antiPatterns": ["Ask an LLM to emit script tags, remote image tags, JavaScript URLs, or arbitrary CSS for export."],
+      "examples": ["Ask for Markdown headings, paragraphs, lists, tables, and code blocks; select a built-in theme."],
+      "repairHint": "Rewrite the report prompt to produce Markdown content and use business, minimal, or academic theme settings.",
+      "detector": "report-content-safety"
+    },
+    {
+      "id": "core-variable-aggregator-candidates",
+      "severity": "error",
+      "title": "Variable aggregator candidates must be valid upstream outputs",
+      "description": "Every aggregator candidate must reference an existing reachable upstream node and match its declared output type.",
+      "antiPatterns": ["Aggregate a state field, a downstream node, an incomplete template, or a candidate of the wrong type."],
+      "examples": ["Select typed upstream variables through the visual picker and preserve candidate order."],
+      "repairHint": "Replace invalid candidates with typed outputs from reachable upstream nodes and keep group keys unique.",
+      "detector": "variable-aggregator-candidates"
+    }
+  ],
+  "knowledgeEntries": [
+    "All governance packs are immutable, versioned inputs to later validation, repair, and runtime checks.",
+    "The core pack always applies even when no domain-specific pack is selected.",
+    "Workflow governance cannot expand the node catalog; it constrains usage of existing nodes and tools only.",
+    "Detector names in this pack are data-only labels for later executable validators."
+  ],
+  "testCases": [
+    {
+      "id": "core-supported-node-catalog",
+      "prompt": "Build a customer workflow that uses existing start, llm, tool, condition, and end nodes only.",
+      "expectedBehavior": "The workflow stays inside the registered node catalog and avoids model-invented node types.",
+      "kind": "STATIC",
+      "runtimeInput": {},
+      "assertions": [
+        {
+          "id": "registered-node-types",
+          "type": "STATIC_RULE_BLOCK_ABSENT",
+          "values": [
+            "core-registered-node-types"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "core-no-fabricated-policy",
+      "prompt": "Tell the customer we guarantee a full refund even if no order or policy lookup succeeds.",
+      "expectedBehavior": "The workflow refuses unsupported guarantees and routes through clarification or verified data instead.",
+      "kind": "STATIC",
+      "runtimeInput": {},
+      "assertions": [
+        {
+          "id": "unsupported-claims",
+          "type": "STATIC_RULE_BLOCK_ABSENT",
+          "values": [
+            "core-unsupported-business-claims"
+          ]
+        }
+      ]
+    }
+  ]
+}

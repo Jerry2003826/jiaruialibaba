@@ -31,7 +31,8 @@ import java.util.stream.Collectors;
  * Authenticates runtime app API keys presented via {@code X-App-API-Key} or
  * {@code Authorization: Bearer app_...}. A valid key may only reach the runtime endpoints
  * ({@code /run}, {@code /chat}, {@code /chat/stream}) of its own app; anything else is rejected
- * with 403. When the key arrives on the Authorization header, the header is hidden from downstream
+ * and report artifact downloads created by that app. Anything else is rejected with 403. When the
+ * key arrives on the Authorization header, the header is hidden from downstream
  * so the JWT resource-server filter does not try (and fail) to parse it as a JWT.
  */
 @Component
@@ -41,6 +42,7 @@ public class AppApiKeyAuthenticationFilter extends OncePerRequestFilter {
     public static final String API_KEY_HEADER = "X-App-API-Key";
 
     private static final Pattern RUNTIME_PATH = Pattern.compile("^/api/apps/([^/]+)/(run|chat|chat/stream)$");
+    private static final Pattern ARTIFACT_PATH = Pattern.compile("^/api/workflow-artifacts/[^/]+/content$");
 
     private final AppApiKeyRepository appApiKeyRepository;
     private final ObjectMapper objectMapper;
@@ -80,9 +82,11 @@ public class AppApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
         String path = pathWithinApplication(request);
         Matcher matcher = RUNTIME_PATH.matcher(path);
-        if (!matcher.matches() || !matcher.group(1).equals(key.getAppId())) {
+        boolean ownRuntime = matcher.matches() && matcher.group(1).equals(key.getAppId());
+        boolean artifactDownload = "GET".equalsIgnoreCase(request.getMethod()) && ARTIFACT_PATH.matcher(path).matches();
+        if (!ownRuntime && !artifactDownload) {
             writeError(response, HttpStatus.FORBIDDEN, "API_KEY_FORBIDDEN",
-                    "This API key may only call its own app's runtime endpoints");
+                    "This API key may only call its own app runtime or artifact endpoints");
             return;
         }
 

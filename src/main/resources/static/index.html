@@ -88,6 +88,12 @@
             <button id="toggle-history" class="btn btn-ghost icon-btn" type="button" title="版本与运行历史" aria-label="历史">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2M5 12a7 7 0 1 0 2-5M5 5v4h4"/></svg>
             </button>
+            <button id="undo-workflow" class="btn btn-ghost icon-btn" type="button" title="撤回上一步" aria-label="撤回上一步" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg>
+            </button>
+            <button id="repair-workflow" class="btn btn-ghost" type="button" title="让 Qwen 根据当前错误修复画布">
+              AI 修复
+            </button>
             <button id="save-definition" class="btn" type="button">保存</button>
             <button id="run-workflow" class="btn btn-primary" type="button">
               <svg viewBox="0 0 24 24" class="btn-glyph" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -99,7 +105,7 @@
               </button>
               <div id="wf-menu" class="menu-pop hidden" role="menu">
                 <button id="new-workflow" type="button" role="menuitem">新建工作流</button>
-                <button id="generate-workflow" type="button" role="menuitem">自然语言生成</button>
+                <button id="generate-workflow" type="button" role="menuitem">自然语言生成 / 编辑</button>
                 <button id="validate-workflow" type="button" role="menuitem">校验拓扑</button>
                 <button id="insert-loop-template" type="button" role="menuitem">插入循环模板</button>
                 <button id="publish-definition" type="button" role="menuitem">发布当前版本</button>
@@ -203,22 +209,23 @@
             <div id="workflow-run-list" class="history-list"></div>
           </aside>
 
-          <!-- 自然语言生成工作流（热更新当前画布草稿） -->
-          <aside class="workflow-generator hidden" id="workflow-generator" aria-label="自然语言生成工作流">
+          <!-- 智能体搭建助手（热更新当前画布草稿） -->
+          <aside class="workflow-generator hidden" id="workflow-generator" aria-label="智能体搭建助手">
             <div class="inspector-head">
-              <h3>自然语言生成</h3>
+              <h3>智能体搭建助手</h3>
               <button id="generator-close" class="icon-btn-sm" type="button" aria-label="关闭">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
               </button>
             </div>
             <div class="generator-body">
               <label class="config-field">
-                <span class="field-label">描述工作流</span>
-                <textarea id="generator-prompt" class="text-area generator-prompt" spellcheck="false">先检索知识库文档，再让大模型结合上下文回答用户问题</textarea>
+                <span class="field-label">描述你想创建或修改的智能体工作流</span>
+                <textarea id="generator-prompt" class="text-area generator-prompt" spellcheck="false" placeholder="输入你想创建或修改的工作流需求；点击 AI 修复时可补充你看到的问题。"></textarea>
               </label>
               <div id="generator-preview" class="generator-preview hidden"></div>
               <div class="generator-actions">
-                <button id="generator-apply" class="btn btn-primary" type="button">生成到画布</button>
+                <button id="generator-edit-current" class="btn" type="button">修改当前画布</button>
+                <button id="generator-apply" class="btn btn-primary" type="button">生成新画布</button>
               </div>
             </div>
           </aside>
@@ -575,6 +582,72 @@
           <section class="card">
             <h3 class="card-title">MCP 服务</h3>
             <div id="settings-mcp" class="data-list"></div>
+          </section>
+          <section class="card card-wide">
+            <div class="card-title-row">
+              <h3 class="card-title">Tavily 网络搜索</h3>
+              <span id="settings-tavily-status" class="badge badge-soft">检查中</span>
+            </div>
+            <div class="settings-secret-form">
+              <label class="field">
+                <span>API Key</span>
+                <input id="settings-tavily-key" class="text-input" type="password"
+                       autocomplete="new-password" placeholder="tvly-..." maxlength="512">
+              </label>
+              <div class="form-actions">
+                <button id="save-tavily-key" class="btn btn-primary" type="button">保存密钥</button>
+                <button id="clear-tavily-key" class="btn btn-ghost" type="button">清除临时密钥</button>
+              </div>
+              <div id="settings-tavily-hint" class="item-meta">密钥只提交给本机后端，不写入画布、运行记录或浏览器存储。</div>
+            </div>
+          </section>
+          <section class="card card-wide" id="http-credentials-settings">
+            <div class="card-title-row">
+              <h3 class="card-title">HTTP 凭据中心</h3>
+              <span class="badge badge-soft">用户级 · 加密存储</span>
+            </div>
+            <div class="http-credential-settings-grid">
+              <form id="http-credential-form" class="http-credential-form">
+                <label class="field">
+                  <span>凭据名称</span>
+                  <input id="http-credential-name" class="text-input" type="text" maxlength="128"
+                         placeholder="例如：订单系统 API">
+                </label>
+                <label class="field">
+                  <span>鉴权类型</span>
+                  <select id="http-credential-type" class="select">
+                    <option value="bearer">Bearer Token</option>
+                    <option value="api_key_header">API Key Header</option>
+                    <option value="basic">Basic Auth</option>
+                  </select>
+                </label>
+                <div id="http-credential-fields" class="http-credential-secret-fields">
+                  <label class="field" data-http-credential-field="bearer">
+                    <span>Token</span>
+                    <input id="http-credential-token" class="text-input" type="password" autocomplete="new-password">
+                  </label>
+                  <label class="field hidden" data-http-credential-field="api_key_header">
+                    <span>Header 名</span>
+                    <input id="http-credential-header-name" class="text-input" type="text" placeholder="X-API-Key">
+                  </label>
+                  <label class="field hidden" data-http-credential-field="api_key_header">
+                    <span>API Key</span>
+                    <input id="http-credential-value" class="text-input" type="password" autocomplete="new-password">
+                  </label>
+                  <label class="field hidden" data-http-credential-field="basic">
+                    <span>用户名</span>
+                    <input id="http-credential-username" class="text-input" type="text" autocomplete="off">
+                  </label>
+                  <label class="field hidden" data-http-credential-field="basic">
+                    <span>密码</span>
+                    <input id="http-credential-password" class="text-input" type="password" autocomplete="new-password">
+                  </label>
+                </div>
+                <button id="save-http-credential" class="btn btn-primary" type="submit">新建凭据</button>
+                <div class="item-meta">密钥由后端 AES-GCM 加密，之后不会再回传明文。</div>
+              </form>
+              <div id="http-credential-list" class="data-list"></div>
+            </div>
           </section>
           <section class="card card-wide">
             <h3 class="card-title">安全提示</h3>

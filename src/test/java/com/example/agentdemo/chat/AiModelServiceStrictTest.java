@@ -123,6 +123,72 @@ class AiModelServiceStrictTest {
     }
 
     @Test
+    void timesOutWhenStreamStopsEmittingAfterReturningContent() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("spring.ai.dashscope.api-key", "sk-test");
+        environment.setProperty("demo.ai.stream-timeout-ms", "300");
+        environment.setProperty("demo.ai.stream-idle-timeout-ms", "10");
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.StreamResponseSpec streamResponseSpec = mock(ChatClient.StreamResponseSpec.class);
+        when(chatClientProvider.getIfAvailable()).thenReturn(chatClient);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(org.mockito.ArgumentMatchers.anyString())).thenReturn(requestSpec);
+        when(requestSpec.messages(org.mockito.ArgumentMatchers.anyList())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamResponseSpec);
+        when(streamResponseSpec.content()).thenReturn(reactor.core.publisher.Flux.concat(
+                reactor.core.publisher.Flux.just("{\"complete\":true}"),
+                reactor.core.publisher.Flux.never()));
+        AiModelService service = new AiModelService(chatClientProvider, environment, TestAlibabaPolicies.strictMode());
+        long startedNanos = System.nanoTime();
+
+        assertThatThrownBy(() -> service.stream("system", "hello", chunk -> {
+        }))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getCode())
+                .isEqualTo("ALIBABA_LLM_UNAVAILABLE");
+
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - startedNanos))
+                .isLessThan(java.time.Duration.ofMillis(200));
+    }
+
+    @Test
+    void stopsStreamingWhenCompletionPredicateMatchesWithoutWaitingForProviderCompletion() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("spring.ai.dashscope.api-key", "sk-test");
+        environment.setProperty("demo.ai.stream-timeout-ms", "300");
+        environment.setProperty("demo.ai.stream-idle-timeout-ms", "250");
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatClient> chatClientProvider = mock(ObjectProvider.class);
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.StreamResponseSpec streamResponseSpec = mock(ChatClient.StreamResponseSpec.class);
+        when(chatClientProvider.getIfAvailable()).thenReturn(chatClient);
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(org.mockito.ArgumentMatchers.anyString())).thenReturn(requestSpec);
+        when(requestSpec.messages(org.mockito.ArgumentMatchers.anyList())).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamResponseSpec);
+        when(streamResponseSpec.content()).thenReturn(reactor.core.publisher.Flux.concat(
+                reactor.core.publisher.Flux.just("{\"complete\":true}"),
+                reactor.core.publisher.Flux.never()));
+        AiModelService service = new AiModelService(chatClientProvider, environment, TestAlibabaPolicies.strictMode());
+        StringBuilder received = new StringBuilder();
+        long startedNanos = System.nanoTime();
+
+        service.streamUntilComplete(
+                "system",
+                "hello",
+                received::append,
+                () -> received.toString().equals("{\"complete\":true}"));
+
+        assertThat(received).hasToString("{\"complete\":true}");
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - startedNanos))
+                .isLessThan(java.time.Duration.ofMillis(200));
+    }
+
+    @Test
     void throwsWhenFallbackDisabledAndRuntimeCallFails() {
         MockEnvironment environment = new MockEnvironment();
         environment.setProperty("spring.ai.dashscope.api-key", "sk-test");

@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 @RequestMapping("/api/workflows")
@@ -35,6 +37,8 @@ public class WorkflowController {
     private final WorkflowGraphPreviewService workflowGraphPreviewService;
     private final WorkflowRunGraphService workflowRunGraphService;
     private final WorkflowGenerationService workflowGenerationService;
+    private final WorkflowPromptDraftService workflowPromptDraftService;
+    private final WorkflowSpecDraftService workflowSpecDraftService;
     private final WorkflowRunEventService workflowRunEventService;
     private final Executor sseExecutor;
     private final SseConfig.SseProperties sseProperties;
@@ -45,8 +49,31 @@ public class WorkflowController {
             WorkflowRunGraphService workflowRunGraphService,
             WorkflowGenerationService workflowGenerationService) {
         this(workflowService, workflowDefinitionService, workflowNodeSchemaRegistry, workflowGraphPreviewService,
-                workflowRunGraphService, workflowGenerationService, null, Runnable::run,
-                new SseConfig.SseProperties(120_000L));
+                workflowRunGraphService, workflowGenerationService, new WorkflowPromptDraftService(),
+                new WorkflowSpecDraftService());
+    }
+
+    public WorkflowController(WorkflowService workflowService, WorkflowDefinitionService workflowDefinitionService,
+            WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry,
+            WorkflowGraphPreviewService workflowGraphPreviewService,
+            WorkflowRunGraphService workflowRunGraphService,
+            WorkflowGenerationService workflowGenerationService,
+            WorkflowPromptDraftService workflowPromptDraftService) {
+        this(workflowService, workflowDefinitionService, workflowNodeSchemaRegistry, workflowGraphPreviewService,
+                workflowRunGraphService, workflowGenerationService, workflowPromptDraftService,
+                new WorkflowSpecDraftService());
+    }
+
+    public WorkflowController(WorkflowService workflowService, WorkflowDefinitionService workflowDefinitionService,
+            WorkflowNodeSchemaRegistry workflowNodeSchemaRegistry,
+            WorkflowGraphPreviewService workflowGraphPreviewService,
+            WorkflowRunGraphService workflowRunGraphService,
+            WorkflowGenerationService workflowGenerationService,
+            WorkflowPromptDraftService workflowPromptDraftService,
+            WorkflowSpecDraftService workflowSpecDraftService) {
+        this(workflowService, workflowDefinitionService, workflowNodeSchemaRegistry, workflowGraphPreviewService,
+                workflowRunGraphService, workflowGenerationService, workflowPromptDraftService,
+                workflowSpecDraftService, null, Runnable::run, new SseConfig.SseProperties(120_000L));
     }
 
     @Autowired
@@ -55,6 +82,8 @@ public class WorkflowController {
             WorkflowGraphPreviewService workflowGraphPreviewService,
             WorkflowRunGraphService workflowRunGraphService,
             WorkflowGenerationService workflowGenerationService,
+            WorkflowPromptDraftService workflowPromptDraftService,
+            WorkflowSpecDraftService workflowSpecDraftService,
             WorkflowRunEventService workflowRunEventService,
             @Qualifier("sseExecutor") Executor sseExecutor,
             SseConfig.SseProperties sseProperties) {
@@ -64,6 +93,8 @@ public class WorkflowController {
         this.workflowGraphPreviewService = workflowGraphPreviewService;
         this.workflowRunGraphService = workflowRunGraphService;
         this.workflowGenerationService = workflowGenerationService;
+        this.workflowPromptDraftService = workflowPromptDraftService;
+        this.workflowSpecDraftService = workflowSpecDraftService;
         this.workflowRunEventService = workflowRunEventService;
         this.sseExecutor = sseExecutor;
         this.sseProperties = sseProperties;
@@ -137,14 +168,44 @@ public class WorkflowController {
         return ApiResponse.ok(workflowGenerationService.generate(request));
     }
 
+    @PostMapping("/edit")
+    public ApiResponse<WorkflowGenerationResponse> edit(
+            @Valid @RequestBody WorkflowEditRequest request) {
+        return ApiResponse.ok(workflowGenerationService.edit(request));
+    }
+
+    @PostMapping("/repair")
+    public ApiResponse<WorkflowGenerationResponse> repair(
+            @Valid @RequestBody WorkflowRepairRequest request) {
+        return ApiResponse.ok(workflowGenerationService.repair(request));
+    }
+
+    @PostMapping("/governance/evaluate")
+    public ApiResponse<WorkflowGovernanceEvaluationResponse> evaluateGovernance(
+            @Valid @RequestBody WorkflowGovernanceEvaluationRequest request) {
+        request.validateSupplementalInput();
+        return ApiResponse.ok(workflowGenerationService.evaluateGovernance(request));
+    }
+
+    @PostMapping("/prompt-drafts")
+    public ApiResponse<WorkflowPromptDraftResponse> draftPrompt(
+            @Valid @RequestBody WorkflowPromptDraftRequest request) {
+        return ApiResponse.ok(workflowPromptDraftService.draft(request));
+    }
+
+    @PostMapping("/spec-drafts")
+    public ApiResponse<WorkflowSpecDraftResponse> draftSpec(
+            @Valid @RequestBody WorkflowSpecDraftRequest request) {
+        return ApiResponse.ok(workflowSpecDraftService.draft(request));
+    }
+
     @PostMapping(value = "/generate/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter generateStream(@Valid @RequestBody WorkflowGenerationRequest request) {
-        SseEmitter emitter = new SseEmitter(sseProperties.timeoutMs());
+        SseEmitter emitter = new SseEmitter(sseProperties.workflowGenerationTimeoutMs());
         AtomicBoolean terminal = new AtomicBoolean(false);
-        emitter.onTimeout(() -> completeWithError(emitter, terminal, "工作流生成超时"));
-        emitter.onError(ignored -> terminal.set(true));
+        AtomicReference<FutureTask<Void>> taskRef = registerStreamCancellation(emitter, terminal);
         try {
-            sseExecutor.execute(() -> generateStreamInBackground(request, emitter, terminal));
+            submitStreamTask(taskRef, terminal, () -> generateStreamInBackground(request, emitter, terminal));
         }
         catch (RejectedExecutionException ex) {
             completeWithError(emitter, terminal, "工作流生成队列已满：" + ex.getMessage());
@@ -152,15 +213,124 @@ public class WorkflowController {
         return emitter;
     }
 
+    @PostMapping(value = "/edit/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter editStream(@Valid @RequestBody WorkflowEditRequest request) {
+        SseEmitter emitter = new SseEmitter(sseProperties.workflowGenerationTimeoutMs());
+        AtomicBoolean terminal = new AtomicBoolean(false);
+        AtomicReference<FutureTask<Void>> taskRef = registerStreamCancellation(emitter, terminal);
+        try {
+            submitStreamTask(taskRef, terminal, () -> editStreamInBackground(request, emitter, terminal));
+        }
+        catch (RejectedExecutionException ex) {
+            completeWithError(emitter, terminal, "工作流编辑队列已满：" + ex.getMessage());
+        }
+        return emitter;
+    }
+
+    @PostMapping(value = "/repair/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter repairStream(@Valid @RequestBody WorkflowRepairRequest request) {
+        SseEmitter emitter = new SseEmitter(sseProperties.workflowGenerationTimeoutMs());
+        AtomicBoolean terminal = new AtomicBoolean(false);
+        AtomicReference<FutureTask<Void>> taskRef = registerStreamCancellation(emitter, terminal);
+        try {
+            submitStreamTask(taskRef, terminal, () -> repairStreamInBackground(request, emitter, terminal));
+        }
+        catch (RejectedExecutionException ex) {
+            completeWithError(emitter, terminal, "工作流修复队列已满：" + ex.getMessage());
+        }
+        return emitter;
+    }
+
+    private AtomicReference<FutureTask<Void>> registerStreamCancellation(SseEmitter emitter,
+            AtomicBoolean terminal) {
+        AtomicReference<FutureTask<Void>> taskRef = new AtomicReference<>();
+        emitter.onTimeout(() -> cancelStreamTask(terminal, taskRef));
+        emitter.onCompletion(() -> cancelStreamTask(terminal, taskRef));
+        emitter.onError(ignored -> cancelStreamTask(terminal, taskRef));
+        return taskRef;
+    }
+
+    private void submitStreamTask(AtomicReference<FutureTask<Void>> taskRef, AtomicBoolean terminal,
+            Runnable backgroundTask) {
+        FutureTask<Void> futureTask = new FutureTask<>(backgroundTask, null);
+        taskRef.set(futureTask);
+        if (terminal.get()) {
+            futureTask.cancel(false);
+            return;
+        }
+        sseExecutor.execute(futureTask);
+    }
+
+    static void cancelStreamTask(AtomicBoolean terminal, AtomicReference<FutureTask<Void>> taskRef) {
+        if (!terminal.compareAndSet(false, true)) {
+            return;
+        }
+        FutureTask<Void> task = taskRef.get();
+        if (task != null) {
+            task.cancel(true);
+        }
+    }
+
     private void generateStreamInBackground(WorkflowGenerationRequest request, SseEmitter emitter,
             AtomicBoolean terminal) {
         try {
             WorkflowGenerationResponse response = workflowGenerationService.generateStreaming(request,
-                    (eventName, data) -> send(emitter, eventName, data));
+                    (eventName, data) -> {
+                        if (!sendIfOpen(emitter, terminal, eventName, data)) {
+                            throw new WorkflowGenerationStreamClosedException();
+                        }
+                    });
             if (terminal.compareAndSet(false, true)) {
                 send(emitter, "done", Map.of("response", response));
                 emitter.complete();
             }
+        }
+        catch (WorkflowGenerationStreamClosedException ignored) {
+            terminal.set(true);
+        }
+        catch (RuntimeException ex) {
+            completeWithError(emitter, terminal, ex.getMessage());
+        }
+    }
+
+    private void editStreamInBackground(WorkflowEditRequest request, SseEmitter emitter,
+            AtomicBoolean terminal) {
+        try {
+            WorkflowGenerationResponse response = workflowGenerationService.editStreaming(request,
+                    (eventName, data) -> {
+                        if (!sendIfOpen(emitter, terminal, eventName, data)) {
+                            throw new WorkflowGenerationStreamClosedException();
+                        }
+                    });
+            if (terminal.compareAndSet(false, true)) {
+                send(emitter, "done", Map.of("response", response));
+                emitter.complete();
+            }
+        }
+        catch (WorkflowGenerationStreamClosedException ignored) {
+            terminal.set(true);
+        }
+        catch (RuntimeException ex) {
+            completeWithError(emitter, terminal, ex.getMessage());
+        }
+    }
+
+    private void repairStreamInBackground(WorkflowRepairRequest request, SseEmitter emitter,
+            AtomicBoolean terminal) {
+        try {
+            WorkflowGenerationResponse response = workflowGenerationService.repairStreaming(request,
+                    (eventName, data) -> {
+                        if (!sendIfOpen(emitter, terminal, eventName, data)) {
+                            throw new WorkflowGenerationStreamClosedException();
+                        }
+                    });
+            if (terminal.compareAndSet(false, true)) {
+                send(emitter, "done", Map.of("response", response));
+                emitter.complete();
+            }
+        }
+        catch (WorkflowGenerationStreamClosedException ignored) {
+            terminal.set(true);
         }
         catch (RuntimeException ex) {
             completeWithError(emitter, terminal, ex.getMessage());
@@ -183,9 +353,26 @@ public class WorkflowController {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));
         }
-        catch (IOException ex) {
+        catch (IOException | IllegalStateException ex) {
             throw new IllegalStateException("Failed to send workflow generation SSE event", ex);
         }
+    }
+
+    private boolean sendIfOpen(SseEmitter emitter, AtomicBoolean terminal, String eventName, Object data) {
+        if (terminal.get()) {
+            return false;
+        }
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(data));
+            return true;
+        }
+        catch (IOException | IllegalStateException ex) {
+            terminal.set(true);
+            return false;
+        }
+    }
+
+    private static class WorkflowGenerationStreamClosedException extends RuntimeException {
     }
 
     @PostMapping("/run")

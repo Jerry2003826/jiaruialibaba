@@ -130,7 +130,8 @@ class AuditIntegrationTest {
         String definitionId = definitionIdOf(createBody);
 
         mockMvc.perform(post("/api/workflows/definitions/" + definitionId + "/publish")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(List.of("workflow.publish"))))
+                        .header(HttpHeaders.AUTHORIZATION,
+                                bearer(List.of("workflow.publish", "workflow.run"))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/audit-logs?resourceType=workflow")

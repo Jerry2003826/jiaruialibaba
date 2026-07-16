@@ -51,14 +51,38 @@ public class KnowledgeSearchService {
     @Transactional(readOnly = true)
     public KnowledgeSearchResponse search(String kbId, String query, Integer requestedTopK) {
         KnowledgeBaseEntity kb = knowledgeBaseAccessService.findKb(kbId);
-        int topK = requestedTopK != null && requestedTopK > 0 ? Math.min(requestedTopK, 50)
-                : knowledgeResponseMapper.retrievalConfig(kb).topKOr(ragProperties.getRag().getTopK());
-        List<Citation> candidates = keywordSearch(kbId, query, topK);
-        List<Citation> ranked = reranker.rerank(query, candidates, topK);
-        return new KnowledgeSearchResponse(kbId, query, ranked);
+        return search(kb, query, requestedTopK, null);
     }
 
-    private List<Citation> keywordSearch(String kbId, String query, int topK) {
+    /**
+     * Internal-only system-managed search path for workflow builder guidance retrieval.
+     */
+    @Transactional(readOnly = true)
+    public KnowledgeSearchResponse searchManaged(String kbId, String query, Integer requestedTopK) {
+        KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId,
+                KnowledgeBasePurpose.WORKFLOW_BUILDER);
+        return search(kb, query, requestedTopK, null);
+    }
+
+    /** Internal Builder search restricted to the rule documents active for the locked domain. */
+    @Transactional(readOnly = true)
+    public KnowledgeSearchResponse searchManaged(String kbId, String query, Integer requestedTopK,
+            Set<String> allowedDocumentTitles) {
+        KnowledgeBaseEntity kb = knowledgeBaseAccessService.findManagedKb(kbId,
+                KnowledgeBasePurpose.WORKFLOW_BUILDER);
+        return search(kb, query, requestedTopK, Set.copyOf(allowedDocumentTitles));
+    }
+
+    private KnowledgeSearchResponse search(KnowledgeBaseEntity kb, String query, Integer requestedTopK,
+            Set<String> allowedDocumentTitles) {
+        int topK = requestedTopK != null && requestedTopK > 0 ? Math.min(requestedTopK, 50)
+                : knowledgeResponseMapper.retrievalConfig(kb).topKOr(ragProperties.getRag().getTopK());
+        List<Citation> candidates = keywordSearch(kb.getKbId(), query, topK, allowedDocumentTitles);
+        List<Citation> ranked = reranker.rerank(query, candidates, topK);
+        return new KnowledgeSearchResponse(kb.getKbId(), query, ranked);
+    }
+
+    private List<Citation> keywordSearch(String kbId, String query, int topK, Set<String> allowedDocumentTitles) {
         Set<String> terms = tokenize(query);
         if (terms.isEmpty()) {
             return List.of();
@@ -73,6 +97,9 @@ public class KnowledgeSearchService {
             page = documentRepository.findByOwnerIdAndKbIdAndIndexStatusNotIn(ownerId, kbId, NON_RETRIEVABLE,
                     PageRequest.of(pageNumber++, SCAN_PAGE_SIZE, Sort.by("id").ascending()));
             for (DocumentEntity document : page.getContent()) {
+                if (allowedDocumentTitles != null && !allowedDocumentTitles.contains(document.getTitle())) {
+                    continue;
+                }
                 if (scanned++ >= maxScannedDocuments) {
                     break;
                 }

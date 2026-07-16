@@ -57,7 +57,7 @@ public class AlibabaHealthService {
                 alibabaProperties.isStrictMode(),
                 alibabaRuntimePolicy.isFallbackEnabled(),
                 alibabaRuntimePolicy.isKeywordFallbackAllowed(),
-                documentRepository.countByOwnerIdAndIndexStatusNot(SecurityIdentity.currentOwnerId(),
+                documentRepository.countPublicByOwnerIdAndIndexStatusNot(SecurityIdentity.currentOwnerId(),
                         DocumentIndexStatus.DELETED),
                 mcpEnabled,
                 workflowRuntimeProperties.getRuntime(),

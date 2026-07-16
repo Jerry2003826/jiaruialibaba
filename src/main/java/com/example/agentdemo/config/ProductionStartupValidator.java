@@ -48,6 +48,7 @@ public class ProductionStartupValidator implements ApplicationRunner {
         List<String> violations = new ArrayList<>();
         validateDatasource(violations);
         validateSecurity(violations);
+        validateHttpCredentials(violations);
         validateRuntimePolicy(violations);
         validateModelAndVector(violations);
         return violations;
@@ -118,6 +119,15 @@ public class ProductionStartupValidator implements ApplicationRunner {
                 || normalized.equals("postgres")
                 || normalized.equals("change-me-strong-db-password")
                 || normalized.equals("change-me-strong-db-password!");
+    }
+
+    private void validateHttpCredentials(List<String> violations) {
+        String masterKey = environment.getProperty("demo.workflow.http.credentials-master-key", "");
+        if (!StringUtils.hasText(masterKey)
+                || "dev-local-insecure-http-credential-master-key-change-me".equals(masterKey)
+                || masterKey.getBytes(StandardCharsets.UTF_8).length < 32) {
+            violations.add("demo.workflow.http.credentials-master-key must be an independent random secret of at least 32 bytes in prod.");
+        }
     }
 
     private void validateRuntimePolicy(List<String> violations) {

@@ -67,4 +67,32 @@ class WorkflowVariableResolverTest {
         assertThat(resolver.renderString("x{{input.missing}}y", state)).isEqualTo("xy");
     }
 
+    @Test
+    void distinguishesMissingPathsFromPresentEmptyValues() {
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of(
+                "message", "hello",
+                "emptyText", "",
+                "emptyItems", List.of()));
+
+        assertThat(resolver.resolveReference("{{input.emptyText}}", state))
+                .isEqualTo(new WorkflowResolvedValue(true, ""));
+        assertThat(resolver.resolveReference("{{input.emptyItems}}", state))
+                .isEqualTo(new WorkflowResolvedValue(true, List.of()));
+        assertThat(resolver.resolveReference("{{input.missing}}", state))
+                .isEqualTo(WorkflowResolvedValue.missing());
+    }
+
+    @Test
+    void recursivelyRendersTemplatesInsideObjectsAndArrays() {
+        WorkflowExecutionState state = new WorkflowExecutionState(Map.of("message", "hello", "count", 2));
+
+        Object rendered = resolver.renderDeep(Map.of(
+                "message", "{{input.message}}",
+                "nested", List.of(Map.of("count", "{{input.count}}"), "prefix-{{input.message}}")), state);
+
+        assertThat(rendered).isEqualTo(Map.of(
+                "message", "hello",
+                "nested", List.of(Map.of("count", 2), "prefix-hello")));
+    }
+
 }

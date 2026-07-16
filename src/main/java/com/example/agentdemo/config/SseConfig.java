@@ -3,6 +3,7 @@ package com.example.agentdemo.config;
 import org.slf4j.MDC;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -59,10 +60,21 @@ public class SseConfig {
     }
 
     @ConfigurationProperties(prefix = "demo.sse")
-    public record SseProperties(long timeoutMs) {
+    public record SseProperties(long timeoutMs, long workflowGenerationTimeoutMs) {
+        private static final long DEFAULT_TIMEOUT_MS = 120_000L;
+        private static final long DEFAULT_WORKFLOW_GENERATION_TIMEOUT_MS = 960_000L;
+
+        public SseProperties(long timeoutMs) {
+            this(timeoutMs, DEFAULT_WORKFLOW_GENERATION_TIMEOUT_MS);
+        }
+
+        @ConstructorBinding
         public SseProperties {
             if (timeoutMs <= 0) {
-                timeoutMs = 120000;
+                timeoutMs = DEFAULT_TIMEOUT_MS;
+            }
+            if (workflowGenerationTimeoutMs <= 0) {
+                workflowGenerationTimeoutMs = DEFAULT_WORKFLOW_GENERATION_TIMEOUT_MS;
             }
         }
     }

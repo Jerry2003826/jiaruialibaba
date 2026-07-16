@@ -1,8 +1,10 @@
 package com.example.agentdemo.knowledge;
 
 import com.example.agentdemo.knowledge.dto.KnowledgeBaseResponse;
+import com.example.agentdemo.rag.DocumentEntity;
 import com.example.agentdemo.rag.DocumentRepository;
 import com.example.agentdemo.rag.KbDocumentCountProjection;
+import com.example.agentdemo.common.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +13,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -22,7 +25,8 @@ class KnowledgeBaseServiceTest {
 
     private final KnowledgeBaseRepository knowledgeBaseRepository = mock(KnowledgeBaseRepository.class);
     private final DocumentRepository documentRepository = mock(DocumentRepository.class);
-    private final KnowledgeBaseAccessService knowledgeBaseAccessService = mock(KnowledgeBaseAccessService.class);
+    private final KnowledgeBaseAccessService knowledgeBaseAccessService = new KnowledgeBaseAccessService(
+            knowledgeBaseRepository, documentRepository);
     private final KnowledgeResponseMapper knowledgeResponseMapper = mock(KnowledgeResponseMapper.class);
     private final KnowledgeBaseService knowledgeBaseService = new KnowledgeBaseService(knowledgeBaseRepository,
             documentRepository, knowledgeBaseAccessService, knowledgeResponseMapper, new ObjectMapper());
@@ -39,7 +43,8 @@ class KnowledgeBaseServiceTest {
     void listKnowledgeBasesUsesGroupedDocumentCountsInsteadOfPerKbCountQueries() {
         KnowledgeBaseEntity first = knowledgeBase("kb-1", "Docs", Instant.parse("2026-07-01T10:15:30Z"));
         KnowledgeBaseEntity second = knowledgeBase("kb-2", "Policies", Instant.parse("2026-07-01T10:15:31Z"));
-        when(knowledgeBaseRepository.findByOwnerIdOrderByCreatedAtDesc("workbench-dev")).thenReturn(List.of(first, second));
+        when(knowledgeBaseRepository.findByOwnerIdAndSystemManagedFalseOrderByCreatedAtDesc("workbench-dev"))
+                .thenReturn(List.of(first, second));
         when(documentRepository.countGroupedByOwnerIdAndKbIdIn(eq("workbench-dev"), eq(List.of("kb-1", "kb-2"))))
                 .thenReturn(List.of(projection("kb-1", 3L), projection("kb-2", 1L)));
         when(knowledgeResponseMapper.toKnowledgeBaseResponse(first, 3L))
@@ -54,6 +59,16 @@ class KnowledgeBaseServiceTest {
         assertThat(result).extracting(KnowledgeBaseResponse::documentCount).containsExactly(3L, 1L);
         verify(documentRepository).countGroupedByOwnerIdAndKbIdIn("workbench-dev", List.of("kb-1", "kb-2"));
         verify(documentRepository, never()).countByOwnerIdAndKbId(any(), any());
+    }
+
+    @Test
+    void getKnowledgeBaseRejectsSystemManagedKnowledgeBaseAsNotFound() {
+        when(knowledgeBaseRepository.findByKbIdAndOwnerIdAndSystemManagedFalse("kb-builder", "workbench-dev"))
+                .thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> knowledgeBaseService.getKnowledgeBase("kb-builder"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode()).isEqualTo("KNOWLEDGE_BASE_NOT_FOUND"));
     }
 
     private KnowledgeBaseEntity knowledgeBase(String kbId, String name, Instant createdAt) {

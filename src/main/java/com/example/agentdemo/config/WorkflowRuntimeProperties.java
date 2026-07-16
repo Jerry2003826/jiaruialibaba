@@ -31,6 +31,8 @@ public class WorkflowRuntimeProperties {
      */
     private long runDeadlineMs = 120_000L;
 
+    private Evaluation evaluation = new Evaluation();
+
     public String getRuntime() {
         return runtime;
     }
@@ -101,6 +103,67 @@ public class WorkflowRuntimeProperties {
 
     public void setRunDeadlineMs(long runDeadlineMs) {
         this.runDeadlineMs = runDeadlineMs;
+    }
+
+    public Evaluation getEvaluation() {
+        return evaluation;
+    }
+
+    public void setEvaluation(Evaluation evaluation) {
+        this.evaluation = evaluation == null ? new Evaluation() : evaluation;
+    }
+
+    public static class Evaluation {
+
+        private int maxCases = 12;
+
+        private int concurrency = 2;
+
+        private int queueCapacity = 24;
+
+        private long caseDeadlineMs = 90_000L;
+
+        private long overallDeadlineMs = 900_000L;
+
+        public int getMaxCases() {
+            return maxCases;
+        }
+
+        public void setMaxCases(int maxCases) {
+            this.maxCases = maxCases;
+        }
+
+        public int getConcurrency() {
+            return concurrency;
+        }
+
+        public void setConcurrency(int concurrency) {
+            this.concurrency = concurrency;
+        }
+
+        public int getQueueCapacity() {
+            return queueCapacity;
+        }
+
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = queueCapacity;
+        }
+
+        public long getCaseDeadlineMs() {
+            return caseDeadlineMs;
+        }
+
+        public void setCaseDeadlineMs(long caseDeadlineMs) {
+            this.caseDeadlineMs = caseDeadlineMs;
+        }
+
+        public long getOverallDeadlineMs() {
+            return overallDeadlineMs;
+        }
+
+        public void setOverallDeadlineMs(long overallDeadlineMs) {
+            this.overallDeadlineMs = overallDeadlineMs;
+        }
     }
 
 }

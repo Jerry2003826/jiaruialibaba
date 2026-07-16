@@ -1,0 +1,358 @@
+{
+  "id": "customer-service-ecommerce",
+  "version": "2026.07.10",
+  "domains": [
+    "customer-service-ecommerce"
+  ],
+  "rules": [
+    {
+      "id": "cs-authoritative-crm-vip-data",
+      "severity": "error",
+      "title": "CRM and VIP statements require authoritative data",
+      "description": "Claims about customer tier, VIP entitlements, or account history must come from verified CRM data.",
+      "antiPatterns": [
+        "Infer VIP status from the current time, the customer's wording, or a model guess."
+      ],
+      "examples": [
+        "Read customer tier from an approved CRM result, or state that the tier cannot yet be verified."
+      ],
+      "repairHint": "Route VIP or CRM claims through verified CRM retrieval before answering, or remove those claims from the customer-facing branch.",
+      "detector": "authoritative-crm-vip-data"
+    },
+    {
+      "id": "cs-real-order-and-logistics-lookup",
+      "severity": "error",
+      "title": "Order and logistics answers require real lookup",
+      "description": "Shipping, delivery, and order-status statements must be grounded in order or logistics lookup results.",
+      "antiPatterns": [
+        "Use getCurrentTime or an LLM-generated sentence as if it were an order or logistics response."
+      ],
+      "examples": [
+        "Query an approved order tool with the customer's order number and base the answer on returned status fields."
+      ],
+      "repairHint": "Insert or fix the order or logistics lookup path so shipment and order-status answers cite real tool output before replying.",
+      "detector": "real-order-and-logistics-lookup"
+    },
+    {
+      "id": "cs-missing-order-clarification",
+      "severity": "warning",
+      "title": "Missing order identifiers require clarification",
+      "description": "If the issue depends on a concrete order, the workflow should ask for an order number before pretending to resolve it.",
+      "antiPatterns": [
+        "Run an order-specific branch without checking whether an order identifier is available."
+      ],
+      "examples": [
+        "Ask the customer for the order number, preserve the original issue, and continue after the identifier is supplied."
+      ],
+      "repairHint": "Add a clarification branch that asks for the order identifier before any order-specific tool call or promise.",
+      "detector": "missing-order-clarification"
+    },
+    {
+      "id": "cs-multi-issue-preservation",
+      "severity": "warning",
+      "title": "Preserve compound customer issues",
+      "description": "When a customer reports multiple problems, the workflow should retain each issue instead of collapsing to one branch.",
+      "antiPatterns": [
+        "Force a damaged-item and delayed-shipping complaint into a single mutually exclusive intent label."
+      ],
+      "examples": [
+        "Represent detected issues as a list or independent flags so every applicable handling path can run."
+      ],
+      "repairHint": "Keep each reported issue in state or branching logic so damage, refund, logistics, and policy concerns survive together.",
+      "detector": "multi-issue-preservation"
+    },
+    {
+      "id": "cs-low-confidence-clarification",
+      "severity": "warning",
+      "title": "Low-confidence intent routing should clarify",
+      "description": "When intent classification is uncertain or ambiguous, the workflow should ask a narrowing question before taking action.",
+      "antiPatterns": [
+        "Choose a business action from an ambiguous complaint without a confidence check or clarification path."
+      ],
+      "examples": [
+        "Route low-confidence or unknown classifications to a short question that distinguishes the supported issue types."
+      ],
+      "repairHint": "Add a low-confidence clarification step before routing when the intent classifier cannot confidently choose a customer-service path.",
+      "detector": "low-confidence-clarification"
+    },
+    {
+      "id": "cs-tool-failure-fallback",
+      "severity": "error",
+      "title": "Tool failures and empty results need a safe fallback",
+      "description": "If the order, logistics, or CRM tool fails or returns no result, the workflow should explain the limitation and request the next best customer input.",
+      "antiPatterns": [
+        "Treat a timeout, error, or empty tool response as a successful lookup and continue with a definitive answer."
+      ],
+      "examples": [
+        "Tell the customer the lookup is temporarily unavailable and request a checkable identifier or offer human escalation."
+      ],
+      "repairHint": "Add a fallback response that explains the failed or empty lookup and requests the next best customer detail or escalation step.",
+      "detector": "tool-failure-or-no-result-fallback"
+    }
+  ],
+  "knowledgeEntries": [
+    "Customer-service e-commerce workflows often mix policy questions with order-specific questions, and governance should keep those paths distinct.",
+    "Order and logistics claims must be grounded in real tool output rather than guessed from the prompt alone.",
+    "Missing-order clarification is mandatory when the customer asks about a specific shipment, refund, or return but does not provide an order reference.",
+    "Compound complaints such as damaged goods plus refund timing should preserve both issues through routing or response planning.",
+    "Low-confidence intent detection should prefer clarification over confident but unsupported routing.",
+    "No-result and tool-failure paths still need a useful customer response rather than a silent dead end."
+  ],
+  "testCases": [
+    {
+      "id": "tracking-delay",
+      "prompt": "My package still has no update. Can you check the logistics status for order 20260630001?",
+      "expectedBehavior": "The workflow uses a real order or logistics lookup before answering about shipment status.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "My package still has no update. Can you check the logistics status for order 20260630001?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-success",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "grounded-order-answer",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["20260630001", "SF20260630001", "SHIPPED", "shipped"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-unsupported-success",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund succeeded", "退款成功"]
+        }
+      ]
+    },
+    {
+      "id": "missing-order-id-clarification",
+      "prompt": "Where is my order? It should have arrived already.",
+      "expectedBehavior": "The workflow asks for the order identifier before claiming a shipment or refund status.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Where is my order? It should have arrived already."
+      },
+      "assertions": [
+        {
+          "id": "no-premature-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "asks-for-order-id",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["order number", "order ID", "订单号"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-fabricated-status",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["shipment confirmed", "refund succeeded", "已发货", "已退款"]
+        }
+      ]
+    },
+    {
+      "id": "urge-shipping",
+      "prompt": "Please urge shipment for order 20260630003. It is taking too long.",
+      "expectedBehavior": "The workflow distinguishes shipping acceleration from generic complaint handling and grounds any action in order context.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Please urge shipment for order 20260630003. It is taking too long."
+      },
+      "fixture": {
+        "failTool": "queryOrderAPI"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-failure",
+          "type": "TOOL_FAILED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-fabricated-acceleration",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["expedited successfully", "shipment accelerated", "催发成功", "已催发"]
+        }
+      ]
+    },
+    {
+      "id": "return-or-exchange",
+      "prompt": "For order 20260630002, I received the wrong size. Can I return it or exchange it?",
+      "expectedBehavior": "The workflow explains the supported return or exchange path without inventing policy terms.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "For order 20260630002, I received the wrong size. Can I return it or exchange it?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-success",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-invented-policy",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["guaranteed refund", "100% refund", "保证退款", "立即退款"]
+        }
+      ]
+    },
+    {
+      "id": "compound-damage",
+      "prompt": "The blender arrived cracked and I also need to know how long the refund takes.",
+      "expectedBehavior": "The workflow preserves both the damage complaint and the refund-timing question.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "The blender arrived cracked and I also need to know how long the refund takes."
+      },
+      "assertions": [
+        {
+          "id": "structured-routing-fields",
+          "type": "PARSED_FIELDS_INCLUDE",
+          "values": ["intent", "confidence"]
+        },
+        {
+          "id": "preserves-damage-issue",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["damage", "damaged", "cracked", "破损", "损坏"]
+        },
+        {
+          "id": "preserves-refund-issue",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["refund", "退款"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-guaranteed-refund-time",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund completed", "guaranteed within", "退款已完成"]
+        }
+      ]
+    },
+    {
+      "id": "vague-complaint",
+      "prompt": "Your service is bad and something is wrong with my purchase.",
+      "expectedBehavior": "The workflow asks a clarifying question instead of assuming a specific order, logistics, or refund intent.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Your service is bad and something is wrong with my purchase."
+      },
+      "assertions": [
+        {
+          "id": "no-premature-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "clarifying-question",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["?", "please clarify", "could you tell", "请问", "请说明"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        }
+      ]
+    },
+    {
+      "id": "greeting-only",
+      "prompt": "Hi there",
+      "expectedBehavior": "The workflow responds politely without forcing unnecessary tool usage or order lookup.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Hi there"
+      },
+      "assertions": [
+        {
+          "id": "no-tool-call",
+          "type": "PATH_NODE_TYPES_EXCLUDE",
+          "values": ["tool"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-business-claim",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["refund succeeded", "shipment confirmed", "已退款", "已发货"]
+        }
+      ]
+    },
+    {
+      "id": "missing-order-result-tool-failure",
+      "prompt": "Please check order 99999999999. If the lookup cannot find it, what should I do next?",
+      "expectedBehavior": "The workflow explains the missing-result path and requests the next best customer detail.",
+      "kind": "RUNTIME",
+      "runtimeInput": {
+        "message": "Please check order 99999999999. If the lookup cannot find it, what should I do next?"
+      },
+      "assertions": [
+        {
+          "id": "lookup-path",
+          "type": "PATH_NODE_TYPES_INCLUDE_IN_ORDER",
+          "values": ["tool"]
+        },
+        {
+          "id": "order-tool-completed",
+          "type": "TOOL_SUCCEEDED",
+          "values": ["queryOrderAPI"]
+        },
+        {
+          "id": "missing-result-evidence",
+          "type": "TOOL_OUTPUT_FIELD_EQUALS",
+          "values": ["queryOrderAPI"],
+          "field": "found",
+          "expectedValue": false
+        },
+        {
+          "id": "requests-checkable-detail",
+          "type": "FINAL_OUTPUT_CONTAINS_ANY",
+          "values": ["verify", "check", "order ID", "order number", "核对", "订单号"]
+        },
+        {
+          "id": "customer-readable",
+          "type": "FINAL_OUTPUT_CUSTOMER_READABLE"
+        },
+        {
+          "id": "no-false-success",
+          "type": "FINAL_OUTPUT_EXCLUDES",
+          "values": ["order found", "lookup succeeded", "查询成功", "已找到订单"]
+        }
+      ]
+    }
+  ]
+}

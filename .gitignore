@@ -10,7 +10,11 @@ var/
 .claude/
 .qwen/
 .playwright-mcp/
+.playwright-cli/
+.superpowers/
+.trae/
 .worktrees/
+output/
 *.iml
 
 .DS_Store

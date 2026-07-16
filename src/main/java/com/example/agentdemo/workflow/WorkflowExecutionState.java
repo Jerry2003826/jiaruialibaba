@@ -1,7 +1,9 @@
 package com.example.agentdemo.workflow;
 
 import com.example.agentdemo.rag.dto.RetrievedContext;
+import com.example.agentdemo.security.SecurityIdentity;
 import com.example.agentdemo.tool.ToolExecutionLog;
+import com.example.agentdemo.trace.RunContext;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,6 +15,8 @@ import java.util.Map;
 final class WorkflowExecutionState {
 
     private final Map<String, Object> input;
+    private final String ownerId;
+    private final String originAppId;
     private List<RetrievedContext> retrievedContext = List.of();
     private final List<ToolExecutionLog> toolCalls = new ArrayList<>();
     private final Map<String, Object> nodeOutputs = new LinkedHashMap<>();
@@ -24,11 +28,23 @@ final class WorkflowExecutionState {
     private final Map<String, Integer> loopIterations = new HashMap<>();
 
     WorkflowExecutionState(Map<String, Object> input) {
+        this(input, SecurityIdentity.currentOwnerId(), RunContext.currentAppId());
+    }
+
+    WorkflowExecutionState(Map<String, Object> input, String ownerId) {
+        this(input, ownerId, RunContext.currentAppId());
+    }
+
+    WorkflowExecutionState(Map<String, Object> input, String ownerId, String originAppId) {
         this.input = input;
+        this.ownerId = ownerId;
+        this.originAppId = originAppId;
     }
 
     private WorkflowExecutionState(WorkflowExecutionState source) {
         this.input = source.input;
+        this.ownerId = source.ownerId;
+        this.originAppId = source.originAppId;
         this.retrievedContext = source.retrievedContext;
         this.toolCalls.addAll(source.toolCalls);
         this.nodeOutputs.putAll(source.nodeOutputs);
@@ -46,6 +62,14 @@ final class WorkflowExecutionState {
 
     Map<String, Object> input() {
         return input;
+    }
+
+    String ownerId() {
+        return ownerId;
+    }
+
+    String originAppId() {
+        return originAppId;
     }
 
     String primaryInput() {
@@ -107,12 +131,20 @@ final class WorkflowExecutionState {
         return nodeOutputs.get(nodeId);
     }
 
+    boolean hasNodeOutput(String nodeId) {
+        return nodeOutputs.containsKey(nodeId);
+    }
+
     Map<String, Object> nodeOutputs() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(nodeOutputs));
     }
 
     Map<String, Object> stateVariables() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(stateVariables));
+    }
+
+    boolean hasStateVariable(String name) {
+        return stateVariables.containsKey(name);
     }
 
     void setStateVariable(String name, Object value) {

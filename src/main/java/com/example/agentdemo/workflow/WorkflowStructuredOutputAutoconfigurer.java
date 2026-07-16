@@ -3,7 +3,9 @@ package com.example.agentdemo.workflow;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -40,6 +42,9 @@ class WorkflowStructuredOutputAutoconfigurer {
 
     private WorkflowNode maybeApplyContract(WorkflowDefinition definition, WorkflowNode node) {
         if (!"llm".equalsIgnoreCase(node.type()) || hasManualOutputSchema(node.config())) {
+            return node;
+        }
+        if (!hasDownstreamIntentConsumer(definition, node.id())) {
             return node;
         }
         Set<String> intentValues = conditionValuesFor(definition, node.id(), "intent");
@@ -82,7 +87,6 @@ class WorkflowStructuredOutputAutoconfigurer {
         String text = String.join(" ",
                 nullToEmpty(node.id()),
                 nullToEmpty(node.label()),
-                nullToEmpty(node.route()),
                 String.valueOf(node.config().getOrDefault("prompt", ""))).toLowerCase(Locale.ROOT);
         boolean router = containsAny(text, "意图", "intent", "路由", "分流", "分类", "判断", "route", "classif");
         boolean service = containsAny(text, "客服", "订单", "商品", "政策", "物流", "退款", "退货",
@@ -101,6 +105,84 @@ class WorkflowStructuredOutputAutoconfigurer {
             collectConditionValues(node.config(), referencePattern, values);
         }
         return values;
+    }
+
+    private boolean hasDownstreamIntentConsumer(WorkflowDefinition definition, String nodeId) {
+        Pattern referencePattern = Pattern.compile("\\{\\{\\s*nodes\\."
+                + Pattern.quote(nodeId)
+                + "\\.parsed\\.intent\\s*}}");
+        WorkflowNode source = definition.nodes().stream()
+                .filter(node -> node.id().equals(nodeId))
+                .findFirst()
+                .orElse(null);
+        for (WorkflowNode candidate : definition.nodes()) {
+            if (!candidate.id().equals(nodeId)
+                    && containsReference(candidate.config(), referencePattern)
+                    && isReachable(definition, nodeId, candidate.id())) {
+                return true;
+            }
+        }
+        return source != null && hasDownstreamStateConsumer(definition, source);
+    }
+
+    private boolean hasDownstreamStateConsumer(WorkflowDefinition definition, WorkflowNode source) {
+        Object writeState = source.config().get("writeState");
+        if (!(writeState instanceof Map<?, ?> stateMap)) {
+            return false;
+        }
+        for (Map.Entry<?, ?> entry : stateMap.entrySet()) {
+            if (!(entry.getValue() instanceof String value)
+                    || !value.matches(".*\\{\\{\\s*lastOutput\\.parsed\\.intent\\s*}}.*")) {
+                continue;
+            }
+            Pattern stateReference = Pattern.compile("\\{\\{\\s*state\\."
+                    + Pattern.quote(String.valueOf(entry.getKey()))
+                    + "(?:\\.[a-zA-Z][a-zA-Z0-9_.-]*)?\\s*}}");
+            for (WorkflowNode candidate : definition.nodes()) {
+                if (!candidate.id().equals(source.id())
+                        && containsReference(candidate.config(), stateReference)
+                        && isReachable(definition, source.id(), candidate.id())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean containsReference(Object value, Pattern referencePattern) {
+        if (value instanceof String text) {
+            return referencePattern.matcher(text).find();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.values().stream().anyMatch(child -> containsReference(child, referencePattern));
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object child : iterable) {
+                if (containsReference(child, referencePattern)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isReachable(WorkflowDefinition definition, String sourceId, String targetId) {
+        Map<String, List<String>> outgoing = new LinkedHashMap<>();
+        definition.edges().forEach(edge -> outgoing
+                .computeIfAbsent(edge.from(), ignored -> new ArrayList<>())
+                .add(edge.to()));
+        Deque<String> pending = new ArrayDeque<>(outgoing.getOrDefault(sourceId, List.of()));
+        Set<String> visited = new LinkedHashSet<>();
+        while (!pending.isEmpty()) {
+            String current = pending.removeFirst();
+            if (current.equals(targetId)) {
+                return true;
+            }
+            if (visited.add(current)) {
+                pending.addAll(outgoing.getOrDefault(current, List.of()));
+            }
+        }
+        return false;
     }
 
     private void collectConditionValues(Object value, Pattern referencePattern, Set<String> values) {

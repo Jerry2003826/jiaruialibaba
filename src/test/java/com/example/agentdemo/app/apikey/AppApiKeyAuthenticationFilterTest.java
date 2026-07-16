@@ -81,6 +81,29 @@ class AppApiKeyAuthenticationFilterTest {
         assertThat(key.getLastUsedAt()).isEqualTo(now);
     }
 
+    @Test
+    void validKeyMayAuthenticateAnArtifactDownloadForDownstreamOwnershipChecks() throws Exception {
+        AppApiKeyRepository repository = Mockito.mock(AppApiKeyRepository.class);
+        Instant now = Instant.parse("2026-07-01T10:00:00Z");
+        AppApiKeyAuthenticationFilter filter = new AppApiKeyAuthenticationFilter(repository, new ObjectMapper(),
+                appProperties(), fixedClock(now));
+        String plaintext = "app_test_artifact";
+        AppApiKeyEntity key = activeKey("app-1", plaintext);
+        when(repository.findByKeyHashAndStatus(ApiKeySecrets.hash(plaintext), AppApiKeyStatus.ACTIVE))
+                .thenReturn(Optional.of(key));
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET", "/api/workflow-artifacts/art-1/content");
+        request.addHeader(AppApiKeyAuthenticationFilter.API_KEY_HEADER, plaintext);
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication())
+                .isInstanceOfSatisfying(AppApiKeyAuthenticationToken.class,
+                        authentication -> assertThat(authentication.getAppId()).isEqualTo("app-1"));
+    }
+
     private MockHttpServletRequest request(String appId, String plaintextKey) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/apps/" + appId + "/chat");
         request.addHeader(AppApiKeyAuthenticationFilter.API_KEY_HEADER, plaintextKey);
